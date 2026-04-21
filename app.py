@@ -216,7 +216,7 @@ elif st.session_state.page == 'rapor':
             df_h['%'] = (pd.to_numeric(df_h['Hazırlanan Adet']) / pd.to_numeric(df_h['İhtiyaç Miktarı']) * 100).round(1)
             st.dataframe(df_h, use_container_width=True, hide_index=True)
     with rt3:
-        st.write("📜 **Tüm Stok Hareketleri (Drive Sayfa1)**")
+        st.write("📜 **Stok Hareketleri Detayı**")
         hareketler = get_internal_data("Sayfa1")
         if not hareketler.empty:
             # En son hareketi en üstte gösterelim
