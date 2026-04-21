@@ -318,7 +318,7 @@ elif st.session_state.page == 'rapor':
                     detay_df['Tamamlanma (%)'] = detay_df.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
                     
                     # Rapor ekranında HEM Ürün Hem Stok detayları gösteriliyor
-                    gosterilecek_sutunlar = [c for c in ['Ürün Kodu', 'Mamül Adı', 'Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)'] if c in detay_df.columns]
+                    gosterilecek_sutunlar = [c for c in ['Ürün Kodu', 'Mamul Adı', 'Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)'] if c in detay_df.columns]
                     gosterilecek_df = detay_df[gosterilecek_sutunlar]
                     
                     st.dataframe(
