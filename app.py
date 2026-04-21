@@ -62,6 +62,7 @@ def get_katalog():
     return pd.DataFrame(), []
 
 def find_name_by_code(kod):
+    # Katalogdan isimi hızlıca bul
     df, _ = get_katalog()
     if not df.empty and kod:
         match = df[df['Kod'] == kod.strip().upper()]
@@ -90,7 +91,10 @@ def update_stock_record(kod, isim, adres, birim, miktar, is_increase=True):
         new_row = pd.DataFrame([{"Adres": adres, "Kod": kod, "İsim": isim, "Birim": birim, "Miktar": float(miktar)}])
         stok_df = pd.concat([stok_df, new_row], ignore_index=True)
     
-    conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df[stok_df['Miktar'] >= 0])
+    # KRİTİK: Sadece miktarı 0'dan büyük olanları tut (0 olanları sil)
+    stok_df = stok_df[stok_df['Miktar'] > 0]
+    
+    conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df)
     st.cache_data.clear()
     return isim
 
@@ -103,46 +107,47 @@ if st.session_state.page == 'home':
 
 # --- 6. STOK İŞLEMLERİ ---
 elif st.session_state.page == 'stok':
-    if st.button("⬅️ ANA MENÜ", key="nav_home"): go_home(); st.rerun()
+    if st.button("⬅️ ANA MENÜ", key="nav_h"): go_home(); st.rerun()
     t1, t2, t3 = st.tabs(["📥 İşlem", "🔄 Transfer", "🔍 Stok Sorgu"])
     stok_df_all, katalog_list = get_katalog()
     
     with t1:
-        is_type = st.selectbox("İşlem:", ["GİRİŞ", "ÇIKIŞ"], key="st_type")
-        secim = st.selectbox("Hızlı Seçim:", ["+ MANUEL GİRİŞ"] + katalog_list, key="st_sec")
+        is_type = st.selectbox("İşlem:", ["GİRİŞ", "ÇIKIŞ"], key="is_t")
+        secim = st.selectbox("Hızlı Seçim:", ["+ MANUEL GİRİŞ"] + katalog_list, key="is_s")
         k_init = secim.split(" | ")[0] if secim != "+ MANUEL GİRİŞ" else ""
         i_init = secim.split(" | ")[1] if secim != "+ MANUEL GİRİŞ" else ""
         
-        kod = st.text_input("Stok Kodu:", value=k_init, key="st_kod").strip().upper()
+        kod = st.text_input("Stok Kodu:", value=k_init, key="is_k").strip().upper()
         if kod and not i_init: i_init = find_name_by_code(kod)
             
-        isim = st.text_input("Stok Adı:", value=i_init, key="st_isim").strip().upper()
-        adr = st.text_input("Adres:", value="GENEL", key="st_adr").strip().upper()
-        qty = st.number_input("Miktar:", min_value=0.1, key="st_qty")
+        isim = st.text_input("Stok Adı:", value=i_init, key="is_i").strip().upper()
+        adr = st.text_input("Adres:", value="GENEL", key="is_a").strip().upper()
+        qty = st.number_input("Miktar:", min_value=0.1, key="is_q")
         
-        if st.button("KAYDET", use_container_width=True, type="primary", key="st_save"):
+        if st.button("KAYDET", use_container_width=True, type="primary", key="is_btn"):
             if is_type == "ÇIKIŞ":
                 ok, mev = check_address_stock(kod, adr, qty)
-                if not ok: st.error(f"Stok Yetersiz! Mevcut: {mev}"); st.stop()
+                if not ok: st.error(f"Yetersiz Stok! Mevcut: {mev}"); st.stop()
             
             guncel_isim = update_stock_record(kod, isim, adr, "ADET", qty, is_increase=(is_type == "GİRİŞ"))
             
+            # Hareket Arşivi (Sayfa1) her zaman saklanır
             log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1", ttl=0)
             yeni_log = pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": is_type, "Adres": adr, "Malzeme Kodu": kod, "Malzeme Adı": guncel_isim, "Miktar": qty, "Operatör": st.session_state.user}])
             conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([log_df, yeni_log], ignore_index=True))
             st.success(f"Kaydedildi: {guncel_isim}")
 
     with t2:
-        e_adr = st.text_input("Nereden:", key="tr_from").strip().upper()
-        y_adr = st.text_input("Nereye:", key="tr_to").strip().upper()
-        t_sec = st.selectbox("Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog_list, key="tr_sec")
+        e_adr = st.text_input("Nereden:", key="tr_f").strip().upper()
+        y_adr = st.text_input("Nereye:", key="tr_t").strip().upper()
+        t_sec = st.selectbox("Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog_list, key="tr_s")
         tk = t_sec.split(" | ")[0] if t_sec != "+ MANUEL GİRİŞ" else ""
         ti = t_sec.split(" | ")[1] if t_sec != "+ MANUEL GİRİŞ" else ""
         
-        t_kod = st.text_input("Ürün Kodu:", value=tk, key="tr_kod").strip().upper()
-        t_qty = st.number_input("Miktar:", min_value=0.1, key="tr_qty")
+        t_kod = st.text_input("Ürün Kodu:", value=tk, key="tr_k").strip().upper()
+        t_qty = st.number_input("Miktar:", min_value=0.1, key="tr_q")
         
-        if st.button("TRANSFERİ TAMAMLA", use_container_width=True, type="primary", key="tr_save"):
+        if st.button("TRANSFERİ TAMAMLA", use_container_width=True, type="primary", key="tr_btn"):
             ok, mev = check_address_stock(t_kod, e_adr, t_qty)
             if ok:
                 if not ti: ti = find_name_by_code(t_kod)
@@ -152,20 +157,20 @@ elif st.session_state.page == 'stok':
             else: st.error(f"Stok Yok! Mevcut: {mev}")
 
     with t3:
-        search = st.text_input("🔍 Stok Sorgula (Kod/İsim):", key="sq_input").strip().upper()
+        search = st.text_input("🔍 Stok Sorgula (Kod/İsim):", key="sq_in").strip().upper()
         if not stok_df_all.empty:
-            df_view = stok_df_all.copy()
+            df_v = stok_df_all.copy()
             if search:
-                df_view = df_view[df_view['Kod'].str.contains(search, na=False) | df_view['İsim'].str.contains(search, na=False)]
-            st.dataframe(df_view[["Adres", "Kod", "İsim", "Miktar"]], use_container_width=True, hide_index=True)
+                df_v = df_v[df_v['Kod'].str.contains(search, na=False) | df_v['İsim'].str.contains(search, na=False)]
+            st.dataframe(df_v[["Adres", "Kod", "İsim", "Miktar"]], use_container_width=True, hide_index=True)
 
 # --- 7. ÜRETİM HAZIRLIK ---
 elif st.session_state.page == 'uretim':
-    if st.button("⬅️ ANA MENÜ", key="nav_home_u"): go_home(); st.rerun()
+    if st.button("⬅️ ANA MENÜ", key="nav_u"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
     
     with st.expander("📥 Yeni İş Emri Yükle (Excel)", expanded=False):
-        uploaded_file = st.file_uploader("Dosya Seç:", type=["xlsx"], key="u_file")
+        uploaded_file = st.file_uploader("Dosya Seç:", type=["xlsx"], key="u_f")
         if uploaded_file:
             try:
                 is_emri_no = uploaded_file.name.split('.')[0]
@@ -178,7 +183,7 @@ elif st.session_state.page == 'uretim':
                     df_final.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
                     df_final.insert(0, "İş Emri", is_emri_no)
                     df_final["Hazırlanan Adet"] = 0
-                    if st.button(f"'{is_emri_no}' Kaydet", key="u_save_btn"):
+                    if st.button(f"'{is_emri_no}' Kaydet", key="u_save"):
                         old = get_internal_data("Is_Emirleri")
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_final], ignore_index=True))
                         st.success("Kaydedildi!"); st.cache_data.clear()
@@ -186,14 +191,14 @@ elif st.session_state.page == 'uretim':
 
     df_emirler = get_internal_data("Is_Emirleri")
     if not df_emirler.empty:
-        secim = st.selectbox("İş Emri Seç:", ["Seçiniz..."] + sorted(df_emirler["İş Emri"].unique().tolist()), key="u_is_emri")
+        secim = st.selectbox("İş Emri Seç:", ["Seçiniz..."] + sorted(df_emirler["İş Emri"].unique().tolist()), key="u_emri")
         if secim != "Seçiniz...":
             df_sub = df_emirler[df_emirler["İş Emri"] == secim].copy()
             df_display = df_sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
             df_display["Alınan Adres"] = "GENEL"
-            edited = st.data_editor(df_display, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_editor")
+            edited = st.data_editor(df_display, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             
-            if st.button("HAZIRLIĞI ONAYLA", key="u_approve"):
+            if st.button("HAZIRLIĞI ONAYLA", key="u_app"):
                 for idx, row in edited.iterrows():
                     fark = float(row["Hazırlanan Adet"]) - float(df_sub.loc[idx, "Hazırlanan Adet"])
                     if fark > 0:
@@ -206,9 +211,9 @@ elif st.session_state.page == 'uretim':
 
 # --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
-    if st.button("⬅️ ANA MENÜ", key="nav_home_r"): go_home(); st.rerun()
+    if st.button("⬅️ ANA MENÜ", key="nav_r"): go_home(); st.rerun()
     st.subheader("📊 Merkezi Raporlar")
-    r_t1, r_t2 = st.tabs(["🏠 Stok Raporu", "🏭 Hazırlık Takibi"])
+    r_t1, r_t2 = st.tabs(["🏠 Stok Durumu", "🏭 Hazırlık Takibi"])
     with r_t1: st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
     with r_t2:
         df_h = get_internal_data("Is_Emirleri")
