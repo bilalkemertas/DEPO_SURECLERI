@@ -115,10 +115,9 @@ if st.session_state.page == 'home':
     
     st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
-    st.button("📈 RAPORLAR (Üretim Durumu)", use_container_width=True, type="primary", on_click=go_rapor)
+    st.button("📈 RAPORLAR (Üretim Hazırlık)", use_container_width=True, type="primary", on_click=go_rapor)
     
-    st.write("")
-    st.button("📈 RAPORLAR (Üretim Durumu)", use_container_width=True, on_click=go_rapor)
+    
 
 # 🔵 STOK İŞLEMLERİ 🔵
 elif st.session_state.page == 'stok':
