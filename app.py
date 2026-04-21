@@ -115,9 +115,7 @@ if st.session_state.page == 'home':
     
     st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
-    st.button("📈 RAPORLAR (Üretim Hazırlık)", use_container_width=True, type="primary", on_click=go_rapor)
-    
-    
+    st.button("📈 RAPORLAR (Üretim Durumu)", use_container_width=True, type="primary", on_click=go_rapor)
 
 # 🔵 STOK İŞLEMLERİ 🔵
 elif st.session_state.page == 'stok':
@@ -209,16 +207,30 @@ elif st.session_state.page == 'uretim':
                         h_idx = i; break
                 df_p = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=h_idx).ffill()
                 
-                k_c = next((c for c in df_p.columns if "STOK KOD" in str(c).upper()), next((c for c in df_p.columns if "KOD" in str(c).upper() and "MAM" not in str(c).upper()), None))
-                a_c = next((c for c in df_p.columns if "STOK AD" in str(c).upper()), next((c for c in df_p.columns if "AD" in str(c).upper() and "MAM" not in str(c).upper()), None))
+                # MAMÜL/ÜRÜN bilgilerini esnek arama:
+                u_k_c = next((c for c in df_p.columns if "MAMÜL KOD" in str(c).upper() or "MAMUL KOD" in str(c).upper() or "ÜRÜN KOD" in str(c).upper()), None)
+                u_a_c = next((c for c in df_p.columns if "MAMÜL AD" in str(c).upper() or "MAMUL AD" in str(c).upper() or "ÜRÜN AD" in str(c).upper()), None)
+                
+                # STOK (Hammadde) bilgilerini bul (Zorunlu)
+                k_c = next((c for c in df_p.columns if "STOK KOD" in str(c).upper()), next((c for c in df_p.columns if "KOD" in str(c).upper() and "MAM" not in str(c).upper() and "ÜRÜN" not in str(c).upper()), None))
+                a_c = next((c for c in df_p.columns if "STOK AD" in str(c).upper()), next((c for c in df_p.columns if "AD" in str(c).upper() and "MAM" not in str(c).upper() and "ÜRÜN" not in str(c).upper()), None))
                 m_c = next((c for c in df_p.columns if "TOTAL" in str(c).upper() or "İHTİYAÇ" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
                 
                 if not k_c or not a_c or not m_c:
                     st.error(f"HATA: Doğru sütunlar (Stok Kodu/Adı) bulunamadı! Okunan başlıklar: {list(df_p.columns)}")
                     st.stop()
                 
+                # ANA TABLOYU OLUŞTURUYORUZ
                 df_f = df_p[[k_c, a_c, m_c]].copy()
                 df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
+                
+                # ESNEK MAMÜL SİSTEMİ: Sadece Kod varsa Kodu al, sadece İsim varsa İsmi al.
+                if u_k_c: df_f.insert(0, "Mamül Kodu", df_p[u_k_c])
+                else: df_f.insert(0, "Mamül Kodu", "-")
+                    
+                if u_a_c: df_f.insert(1, "Mamül Adı", df_p[u_a_c])
+                else: df_f.insert(1, "Mamül Adı", "-")
+                
                 df_f.insert(0, "İş Emri", is_emri_no)
                 df_f["Hazırlanan Adet"] = 0
                 
@@ -241,7 +253,7 @@ elif st.session_state.page == 'uretim':
     if secim != "Seçiniz...":
         mask = df_all["İş Emri"] == secim
         
-        # GÜVENLİK FİLTRESİ: Ekranda SADECE olması gereken sütunları zorla göster
+        # Üretim yapan personel sadece gerekli stok sütunlarını görür, Mamül Kodu/Adı gizlenir.
         gerekli_sutunlar = ["İş Emri", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]
         mevcut_gerekli_sutunlar = [c for c in gerekli_sutunlar if c in df_all.columns]
         df_sub = df_all[mask][mevcut_gerekli_sutunlar].copy()
@@ -317,8 +329,9 @@ elif st.session_state.page == 'rapor':
                     detay_df = df_all[df_all['İş Emri'] == secilen_rapor].copy()
                     detay_df['Tamamlanma (%)'] = detay_df.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
                     
-                    # Rapor ekranında HEM Ürün Hem Stok detayları gösteriliyor
-                    gosterilecek_sutunlar = [c for c in ['Mamül Adı', 'Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)'] if c in detay_df.columns]
+                    # RAPOR EKRANINDAKİ ESNEK FİLTRE: Veritabanında Mamül/Ürün ne varsa onu gösterir
+                    olasi_sutunlar = ['Mamül Kodu', 'Mamül Adı', 'Ürün Kodu', 'Ürün Adı', 'Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)']
+                    gosterilecek_sutunlar = [c for c in olasi_sutunlar if c in detay_df.columns]
                     gosterilecek_df = detay_df[gosterilecek_sutunlar]
                     
                     st.dataframe(
