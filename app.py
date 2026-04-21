@@ -113,9 +113,9 @@ if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     st.write("")
     
-    c1, c2 = st.columns(2)
-    with c1: st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
-    with c2: st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
+    st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
+    st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
+    st.button("📈 RAPORLAR (Üretim Durumu)", use_container_width=True, type="primary", on_click=go_rapor)
     
     st.write("")
     st.button("📈 RAPORLAR (Üretim Durumu)", use_container_width=True, on_click=go_rapor)
