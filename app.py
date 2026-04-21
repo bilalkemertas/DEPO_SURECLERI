@@ -48,6 +48,7 @@ if 'page' not in st.session_state:
 def go_home(): st.session_state.page = 'home'
 def go_stok(): st.session_state.page = 'stok'
 def go_uretim(): st.session_state.page = 'uretim'
+def go_rapor(): st.session_state.page = 'rapor'
 
 # --- 3. BAĞLANTI ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -111,9 +112,13 @@ st.divider()
 if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     st.write("")
+    
     c1, c2 = st.columns(2)
     with c1: st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     with c2: st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
+    
+    st.write("")
+    st.button("📈 RAPORLAR (Üretim Durumu)", use_container_width=True, on_click=go_rapor)
 
 # 🔵 STOK İŞLEMLERİ 🔵
 elif st.session_state.page == 'stok':
@@ -186,6 +191,7 @@ elif st.session_state.page == 'stok':
         stok_data = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
         st.dataframe(stok_data, use_container_width=True, hide_index=True)
 
+
 # 🏭 ÜRETİM HAZIRLIK 🏭
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜYE DÖN", use_container_width=True): go_home(); st.rerun()
@@ -203,42 +209,109 @@ elif st.session_state.page == 'uretim':
                     if row.astype(str).str.contains("KOD", case=False, na=False).any():
                         h_idx = i; break
                 df_p = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=h_idx).ffill()
-                k_c = [c for c in df_p.columns if "KOD" in str(c).upper()][0]
-                a_c = [c for c in df_p.columns if "AD" in str(c).upper() or "TANIM" in str(c).upper()][0]
-                m_c = [c for c in df_p.columns if "İHTİYAÇ" in str(c).upper() or "TOTAL" in str(c).upper()][0]
+                
+                # AKILLI SÜTUN BULUCU: Öncelik "STOK KODU" ve "STOK ADI", "MAMÜL" hariç.
+                k_c = next((c for c in df_p.columns if "STOK KODU" in str(c).upper()), next((c for c in df_p.columns if "KOD" in str(c).upper()), None))
+                a_c = next((c for c in df_p.columns if "STOK ADI" in str(c).upper()), next((c for c in df_p.columns if "AD" in str(c).upper() and "MAM" not in str(c).upper()), None))
+                m_c = next((c for c in df_p.columns if "TOTAL" in str(c).upper() or "İHTİYAÇ" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
+                
+                if not k_c or not a_c or not m_c:
+                    st.error(f"HATA: Sütunlar eşleştirilemedi! Okunan başlıklar: {list(df_p.columns)}")
+                    st.stop()
                 
                 df_f = df_p[[k_c, a_c, m_c]].copy()
                 df_f.columns = ["Ürün Kodu", "Ürün Adı", "İhtiyaç Miktarı"]
                 df_f.insert(0, "İş Emri", is_emri_no)
                 df_f["Hazırlanan Adet"] = 0
                 
-                st.dataframe(df_f.head())
-                if st.button("Veritabanına İşle", type="primary"):
+                if st.button(f"'{is_emri_no}' İş Emrini Veritabanına İşle", type="primary", use_container_width=True):
                     old = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
-                    st.success(f"{is_emri_no} kaydedildi!"); st.cache_data.clear()
+                    st.success(f"{is_emri_no} başarıyla sisteme kaydedildi! Aşağıdan hazırlığa başlayabilirsiniz."); st.cache_data.clear()
             except Exception as e: st.error(f"Hata: {e}")
 
     st.markdown("---")
     
-    # --- 2. İŞ EMRİ SEÇİM (DİNAMİK LİSTE) ---
+    # --- 2. İŞ EMRİ SEÇİM ---
     try:
         df_all = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
         emirler_listesi = ["Seçiniz..."] + sorted(df_all["İş Emri"].unique().tolist())
     except: emirler_listesi = ["Seçiniz..."]
 
-    secim = st.selectbox("📋 Hazırlanacak İş Emri Seçin (Index):", emirler_listesi)
+    secim = st.selectbox("📋 Hazırlanacak İş Emri Seçin:", emirler_listesi)
     
     if secim != "Seçiniz...":
         mask = df_all["İş Emri"] == secim
         df_sub = df_all[mask].copy()
         
+        st.info("Aşağıdaki tabloda 'Hazırlanan Adet' sütununa çift tıklayarak miktarı girebilirsiniz.")
         edited = st.data_editor(df_sub, disabled=["İş Emri", "Ürün Kodu", "Ürün Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True)
         
         if st.button("Hazırlanan Miktarları Kaydet", type="primary"):
-            df_all.update(edited) # Değişiklikleri ana listeye işle
+            df_all.update(edited) 
             conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_all)
-            st.success("Kaydedildi!"); st.cache_data.clear()
+            st.success("Miktarlar güncellendi!"); st.cache_data.clear()
+
+
+# 📈 RAPORLAR EKRANI 📈
+elif st.session_state.page == 'rapor':
+    if st.button("⬅️ ANA MENÜYE DÖN", use_container_width=True): go_home(); st.rerun()
+    st.markdown("<h4 style='text-align:center;'>📈 Üretim Tamamlanma Raporları</h4>", unsafe_allow_html=True)
+    
+    try:
+        df_all = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
+        
+        if df_all.empty:
+            st.warning("Henüz sisteme yüklenmiş bir iş emri bulunmuyor.")
+        else:
+            # Rakamları hesaplanabilir hale getir
+            df_all['İhtiyaç Miktarı'] = pd.to_numeric(df_all['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            df_all['Hazırlanan Adet'] = pd.to_numeric(df_all['Hazırlanan Adet'], errors='coerce').fillna(0)
+            
+            # --- 1. GENEL İŞ EMRİ ÖZETİ ---
+            st.subheader("Tüm İş Emirleri (Genel Durum)")
+            summary = df_all.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
+            # Yüzde Hesaplama (Sıfıra bölünme hatasını engelle)
+            summary['Tamamlanma Oranı (%)'] = summary.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1)
+            summary['Tamamlanma Oranı (%)'] = summary['Tamamlanma Oranı (%)'].round(1)
+            
+            # İlerleme Çubuğu (Progress Bar) ile Dataframe gösterimi
+            st.dataframe(
+                summary,
+                column_config={
+                    "Tamamlanma Oranı (%)": st.column_config.ProgressColumn(
+                        "İlerleme %", format="%f%%", min_value=0, max_value=100
+                    )
+                },
+                hide_index=True, use_container_width=True
+            )
+            
+            st.markdown("---")
+            
+            # --- 2. SATIR BAZLI DETAY ÖZETİ ---
+            st.subheader("🔍 Satır Bazlı Detay İnceleme")
+            secilen_rapor = st.selectbox("Detayını görmek istediğiniz İş Emrini seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].tolist()))
+            
+            if secilen_rapor != "Seçiniz...":
+                detay_df = df_all[df_all['İş Emri'] == secilen_rapor].copy()
+                detay_df['Tamamlanma (%)'] = detay_df.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1)
+                detay_df['Tamamlanma (%)'] = detay_df['Tamamlanma (%)'].round(1)
+                
+                # Sadece gerekli sütunları göster
+                gosterilecek_df = detay_df[['Ürün Kodu', 'Ürün Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)']]
+                
+                st.dataframe(
+                    gosterilecek_df,
+                    column_config={
+                        "Tamamlanma (%)": st.column_config.ProgressColumn(
+                            "Satır İlerlemesi", format="%f%%", min_value=0, max_value=100
+                        )
+                    },
+                    hide_index=True, use_container_width=True
+                )
+                
+    except Exception as e:
+        st.error(f"Rapor oluşturulurken bir hata meydana geldi: {e}")
 
 # --- 7. İMZA ---
 st.markdown("<br><br><div style='text-align: center; color: #888; font-size: 12px; border-top: 1px solid #eee;'><b>BRN SLEEP PRODUCTS</b><br>BİLAL KEMERTAŞ</div>", unsafe_allow_html=True)
