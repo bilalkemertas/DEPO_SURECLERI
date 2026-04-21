@@ -49,15 +49,16 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 # --- 4. AKILLI ÖNBELLEK (INTERNAL LOOKUP) ---
-@st.cache_data(ttl=60) # 60 saniyede bir Google Sheets ile senkron olur
+@st.cache_data(ttl=60)
 def get_internal_data(worksheet_name):
     return conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
 
 def get_katalog():
     df = get_internal_data("Stok")
     if not df.empty:
-        df['Kod'] = df['Kod'].astype(str).str.strip().upper()
-        df['İsim'] = df['İsim'].astype(str).str.strip().upper()
+        # Hata burada giderildi: .str.upper() eklendi
+        df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
+        df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
         df['Arama'] = df['Kod'] + " | " + df['İsim']
         return df, sorted(df['Arama'].unique().tolist())
     return pd.DataFrame(), ["+ MANUEL GİRİŞ"]
@@ -69,7 +70,8 @@ def check_address_stock(kod, adres, miktar):
     return current >= miktar, current
 
 def update_stock_record(kod, isim, adres, birim, miktar, is_increase=True):
-    stok_df = get_internal_data("Stok")
+    # Güncelleme yaparken taze veriyi çekiyoruz
+    stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
     miktar = float(miktar)
     stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
     mask = (stok_df['Kod'] == kod) & (stok_df['Adres'] == adres) & (stok_df['Birim'] == birim)
@@ -82,11 +84,12 @@ def update_stock_record(kod, isim, adres, birim, miktar, is_increase=True):
         stok_df = pd.concat([stok_df, new_row], ignore_index=True)
     
     conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df[stok_df['Miktar'] >= 0])
-    st.cache_data.clear()
+    st.cache_data.clear() # Önbelleği temizle ki yeni miktar yansısın
 
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
+    st.write("")
     st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
     st.button("📈 RAPORLAR", use_container_width=True, type="primary", on_click=go_rapor)
@@ -104,7 +107,6 @@ elif st.session_state.page == 'stok':
         isim_init = secim.split(" | ")[1] if secim != "+ MANUEL GİRİŞ" else ""
         
         kod = st.text_input("Stok Kodu:", value=kod_init).strip().upper()
-        # Internal Lookup: Kod varsa ismi hafızadan çek
         if kod and not isim_init and not stok_df_all.empty:
             match = stok_df_all[stok_df_all['Kod'] == kod]
             if not match.empty: isim_init = match.iloc[0]['İsim']
@@ -118,7 +120,7 @@ elif st.session_state.page == 'stok':
                 ok, mev = check_address_stock(kod, adr, qty)
                 if not ok: st.error(f"Yetersiz Stok! Mevcut: {mev}"); st.stop()
             update_stock_record(kod, isim, adr, "ADET", qty, is_increase=(is_type == "GİRİŞ"))
-            st.success("İşlem Tamamlandı!")
+            st.success("İşlem Başarılı!")
 
     with t2:
         e_adr = st.text_input("Nereden:").strip().upper()
@@ -140,24 +142,23 @@ elif st.session_state.page == 'stok':
 
     with t3:
         search_query = st.text_input("🔍 Stoklarda Ara (Kod veya İsim):").strip().upper()
-        df_display = stok_df_all.copy()
-        if search_query:
-            df_display = df_display[df_display['Kod'].str.contains(search_query) | df_display['İsim'].str.contains(search_query)]
-        st.dataframe(df_display, use_container_width=True, hide_index=True)
+        if not stok_df_all.empty:
+            df_display = stok_df_all.copy()
+            if search_query:
+                df_display = df_display[df_display['Kod'].str.contains(search_query) | df_display['İsim'].str.contains(search_query)]
+            st.dataframe(df_display[["Adres", "Kod", "İsim", "Birim", "Miktar"]], use_container_width=True, hide_index=True)
 
 # --- 7. ÜRETİM HAZIRLIK ---
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
     
-    # EXCEL YÜKLEME ALANI 
     with st.expander("📥 Yeni İş Emri Yükle (Excel)", expanded=False):
         uploaded_file = st.file_uploader("Dosya Seç:", type=["xlsx"])
         if uploaded_file:
             try:
                 is_emri_no = uploaded_file.name.split('.')[0]
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=3).ffill()
-                # Esnek sütun bulucu
                 k_c = next((c for c in df_raw.columns if "STOK KOD" in str(c).upper()), None)
                 a_c = next((c for c in df_raw.columns if "STOK AD" in str(c).upper()), None)
                 m_c = next((c for c in df_raw.columns if "TOTAL" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
@@ -170,37 +171,43 @@ elif st.session_state.page == 'uretim':
                     df_final.insert(0, "İş Emri", is_emri_no)
                     df_final["Hazırlanan Adet"] = 0
                     
-                    if st.button(f"'{is_emri_no}' İş Emrini Veritabanına Yaz"):
+                    if st.button(f"'{is_emri_no}' İş Emrini Kaydet"):
                         old = get_internal_data("Is_Emirleri")
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_final], ignore_index=True))
-                        st.success("Başarıyla eklendi!"); st.cache_data.clear()
+                        st.success("İş Emri Sisteme Alındı!"); st.cache_data.clear()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # HAZIRLIK TABLOSU
     df_emirler = get_internal_data("Is_Emirleri")
     if not df_emirler.empty:
         secim = st.selectbox("İşlem Yapılacak İş Emri:", ["Seçiniz..."] + sorted(df_emirler["İş Emri"].unique().tolist()))
         if secim != "Seçiniz...":
             df_sub = df_emirler[df_emirler["İş Emri"] == secim].copy()
             df_sub["Alınan Adres"] = "GENEL"
-            edited = st.data_editor(df_sub, disabled=["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True)
             
-            if st.button("HAZIRLIĞI KAYDET VE STOKTAN DÜŞ"):
-                # Stok düşüm mantığı
+            st.info("Hazırlanan miktarı ve raf adresini girip onaylayın.")
+            edited = st.data_editor(df_sub, disabled=["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True)
+            
+            if st.button("HAZIRLIĞI TAMAMLA VE STOKTAN DÜŞ"):
+                islem_yapildi = False
                 for idx, row in edited.iterrows():
                     fark = float(row["Hazırlanan Adet"]) - float(df_sub.loc[idx, "Hazırlanan Adet"])
                     if fark > 0:
                         update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], "ADET", fark, is_increase=False)
-                df_emirler.update(edited)
-                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler)
-                st.success("Kayıt Başarılı!"); st.cache_data.clear()
+                        islem_yapildi = True
+                
+                if islem_yapildi:
+                    # 'Alınan Adres' sütununu veritabanına kaydetmiyoruz
+                    final_to_db = edited.drop(columns=["Alınan Adres"])
+                    df_emirler.update(final_to_db)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler)
+                    st.success("Stoklar güncellendi!"); st.cache_data.clear(); st.rerun()
 
-# --- 8. RAPORLAR (AYRILMIŞ SEKME YAPISI) ---
+# --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("📊 Merkezi Raporlar")
     
-    r_t1, r_t2 = st.tabs(["🏠 Stok Raporu", "🏭 Hazırlık Raporu"])
+    r_t1, r_t2 = st.tabs(["🏠 Stok Durumu", "🏭 Hazırlık İzleme"])
     
     with r_t1:
         st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
