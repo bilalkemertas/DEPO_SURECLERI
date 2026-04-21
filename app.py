@@ -150,7 +150,7 @@ elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
     
-    # EXCEL YÜKLEME ALANI GERİ GELDİ
+    # EXCEL YÜKLEME ALANI 
     with st.expander("📥 Yeni İş Emri Yükle (Excel)", expanded=False):
         uploaded_file = st.file_uploader("Dosya Seç:", type=["xlsx"])
         if uploaded_file:
