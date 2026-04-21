@@ -5,7 +5,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
 # --- AYARLAR VE GÜVENLİK ---
-st.set_page_config(page_title="Bilal BRN Depo", page_icon="📦", layout="centered")
+st.set_page_config(page_title="Bilal BRN Depo V2", page_icon="📦", layout="centered")
 
 # Google Sheets Bağlantı Fonksiyonu
 def get_gsheet_client():
