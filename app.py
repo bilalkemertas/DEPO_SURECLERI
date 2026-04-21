@@ -210,7 +210,6 @@ elif st.session_state.page == 'uretim':
                         h_idx = i; break
                 df_p = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=h_idx).ffill()
                 
-                # MAMÜL ismini tamamen yoksayarak direkt Stokları hedef alan güvenlikli bulucu:
                 k_c = next((c for c in df_p.columns if "STOK KOD" in str(c).upper()), next((c for c in df_p.columns if "KOD" in str(c).upper() and "MAM" not in str(c).upper()), None))
                 a_c = next((c for c in df_p.columns if "STOK AD" in str(c).upper()), next((c for c in df_p.columns if "AD" in str(c).upper() and "MAM" not in str(c).upper()), None))
                 m_c = next((c for c in df_p.columns if "TOTAL" in str(c).upper() or "İHTİYAÇ" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
@@ -242,7 +241,11 @@ elif st.session_state.page == 'uretim':
     
     if secim != "Seçiniz...":
         mask = df_all["İş Emri"] == secim
-        df_sub = df_all[mask].copy()
+        
+        # GÜVENLİK FİLTRESİ: Ekranda SADECE olması gereken sütunları zorla göster
+        gerekli_sutunlar = ["İş Emri", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]
+        mevcut_gerekli_sutunlar = [c for c in gerekli_sutunlar if c in df_all.columns]
+        df_sub = df_all[mask][mevcut_gerekli_sutunlar].copy()
         
         st.info("Aşağıdaki tabloda 'Hazırlanan Adet' sütununa tıklayarak miktarı girin.")
         edited = st.data_editor(
@@ -253,21 +256,20 @@ elif st.session_state.page == 'uretim':
             column_config={
                 "Hazırlanan Adet": st.column_config.NumberColumn(
                     "Hazırlanan Adet",
-                    min_value=0, # Eksi girişleri engeller
+                    min_value=0,
                     step=1
                 )
             }
         )
         
         if st.button("Hazırlanan Miktarları Kaydet", type="primary"):
-            # LİMİT KONTROL SİSTEMİ (OVER-PREPARATION CHECK)
             hata_mesaji = ""
             for idx, row in edited.iterrows():
-                ihtiyac = float(row["İhtiyaç Miktarı"])
-                hazirlanan = float(row["Hazırlanan Adet"])
+                ihtiyac = float(row.get("İhtiyaç Miktarı", 0))
+                hazirlanan = float(row.get("Hazırlanan Adet", 0))
                 if hazirlanan > ihtiyac:
-                    hata_mesaji = f"⚠️ HATA İPTALİ: {row['Stok Adı']} için ihtiyaçtan fazla ({hazirlanan}) giriş yaptınız! (İhtiyaç: {ihtiyac})"
-                    break # İlk hatayı bulduğunda durur
+                    hata_mesaji = f"⚠️ HATA İPTALİ: {row.get('Stok Adı', 'Bilinmeyen Ürün')} için ihtiyaçtan fazla ({hazirlanan}) giriş yaptınız! (İhtiyaç: {ihtiyac})"
+                    break 
             
             if hata_mesaji:
                 st.error(hata_mesaji)
@@ -289,46 +291,46 @@ elif st.session_state.page == 'rapor':
         if df_all.empty:
             st.warning("Henüz sisteme yüklenmiş bir iş emri bulunmuyor.")
         else:
-            df_all['İhtiyaç Miktarı'] = pd.to_numeric(df_all['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            df_all['Hazırlanan Adet'] = pd.to_numeric(df_all['Hazırlanan Adet'], errors='coerce').fillna(0)
+            df_all['İhtiyaç Miktarı'] = pd.to_numeric(df_all.get('İhtiyaç Miktarı', 0), errors='coerce').fillna(0)
+            df_all['Hazırlanan Adet'] = pd.to_numeric(df_all.get('Hazırlanan Adet', 0), errors='coerce').fillna(0)
             
-            # --- 1. GENEL İŞ EMRİ ÖZETİ ---
             st.subheader("Tüm İş Emirleri (Genel Durum)")
-            summary = df_all.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
-            summary['Tamamlanma Oranı (%)'] = summary.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
-            
-            st.dataframe(
-                summary,
-                column_config={
-                    "Tamamlanma Oranı (%)": st.column_config.ProgressColumn(
-                        "İlerleme %", format="%f%%", min_value=0, max_value=100
-                    )
-                },
-                hide_index=True, use_container_width=True
-            )
-            
-            st.markdown("---")
-            
-            # --- 2. SATIR BAZLI DETAY ÖZETİ ---
-            st.subheader("🔍 Satır Bazlı Detay İnceleme")
-            secilen_rapor = st.selectbox("Detayını görmek istediğiniz İş Emrini seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].tolist()))
-            
-            if secilen_rapor != "Seçiniz...":
-                detay_df = df_all[df_all['İş Emri'] == secilen_rapor].copy()
-                detay_df['Tamamlanma (%)'] = detay_df.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
-                
-                # Rapor kısmını da Stok Kodu/Adı gösterecek şekilde güncelledik
-                gosterilecek_df = detay_df[['Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)']]
+            if 'İş Emri' in df_all.columns:
+                summary = df_all.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
+                summary['Tamamlanma Oranı (%)'] = summary.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
                 
                 st.dataframe(
-                    gosterilecek_df,
+                    summary,
                     column_config={
-                        "Tamamlanma (%)": st.column_config.ProgressColumn(
-                            "Satır İlerlemesi", format="%f%%", min_value=0, max_value=100
+                        "Tamamlanma Oranı (%)": st.column_config.ProgressColumn(
+                            "İlerleme %", format="%f%%", min_value=0, max_value=100
                         )
                     },
                     hide_index=True, use_container_width=True
                 )
+                
+                st.markdown("---")
+                
+                st.subheader("🔍 Satır Bazlı Detay İnceleme")
+                secilen_rapor = st.selectbox("Detayını görmek istediğiniz İş Emrini seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].tolist()))
+                
+                if secilen_rapor != "Seçiniz...":
+                    detay_df = df_all[df_all['İş Emri'] == secilen_rapor].copy()
+                    detay_df['Tamamlanma (%)'] = detay_df.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
+                    
+                    # Sadece mevcut olan doğru sütunları filtrele
+                    gosterilecek_sutunlar = [c for c in ['Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)'] if c in detay_df.columns]
+                    gosterilecek_df = detay_df[gosterilecek_sutunlar]
+                    
+                    st.dataframe(
+                        gosterilecek_df,
+                        column_config={
+                            "Tamamlanma (%)": st.column_config.ProgressColumn(
+                                "Satır İlerlemesi", format="%f%%", min_value=0, max_value=100
+                            )
+                        },
+                        hide_index=True, use_container_width=True
+                    )
                 
     except Exception as e:
         st.error(f"Rapor oluşturulurken bir hata meydana geldi: {e}")
