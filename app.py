@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta # Zaman ayarı için eklendi
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. SAYFA AYARLARI ---
@@ -68,12 +68,16 @@ def find_name_by_code(kod):
         if not match.empty: return match.iloc[0]['İsim']
     return ""
 
+def get_local_time():
+    """Server saatini Türkiye saatine (+3) çevirir."""
+    return (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
+
 def log_movement(islem, adres, kod, isim, miktar):
     try:
         log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1", ttl=0)
         if not isim: isim = find_name_by_code(kod)
         yeni_log = pd.DataFrame([{
-            "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "Tarih": get_local_time(), # Türkiye saati kullanıldı
             "İşlem": islem,
             "Adres": adres,
             "Malzeme Kodu": kod,
@@ -111,7 +115,7 @@ if st.session_state.page == 'home':
 
 # --- 6. STOK İŞLEMLERİ ---
 elif st.session_state.page == 'stok':
-    if st.button("⬅️ ANA MENÜ", key="n_h"): go_home(); st.rerun()
+    if st.button("⬅️ ANA MENÜ", key="nav_s"): go_home(); st.rerun()
     t1, t2, t3 = st.tabs(["📥 Giriş/Çıkış", "🔄 Transfer", "🔍 Stok Sorgu"])
     stok_df_all, katalog_list = get_katalog()
     
@@ -200,7 +204,7 @@ elif st.session_state.page == 'uretim':
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_e)
                 st.success("Başarılı!"); st.cache_data.clear(); st.rerun()
 
-# --- 8. RAPORLAR (FİLTRELER GERİ GELDİ) ---
+# --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ", key="n_r"): go_home(); st.rerun()
     st.subheader("📊 Merkezi Raporlar")
@@ -214,27 +218,21 @@ elif st.session_state.page == 'rapor':
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
             st.markdown("### 📈 İş Emri Genel Hazırlık Durumu")
-            # Sayısal çevrimleri sağlama alalım
             df_h['Hazırlanan Adet'] = pd.to_numeric(df_h['Hazırlanan Adet'], errors='coerce').fillna(0)
             df_h['İhtiyaç Miktarı'] = pd.to_numeric(df_h['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            
-            # Özet Tablo
             summary = df_h.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
             summary['Tamamlanma %'] = (summary['Hazırlanan Adet'] / summary['İhtiyaç Miktarı'] * 100).round(1)
             st.dataframe(summary, column_config={"Tamamlanma %": st.column_config.ProgressColumn("İlerleme", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
-            
             st.divider()
-            
-            # Seçim ve Detay Filtresi
             st.markdown("### 🔍 Detaylı İş Emri Sorgulama")
-            secilen = st.selectbox("İncelemek istediğiniz iş emrini seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].unique().tolist()), key="rep_s")
+            secilen = st.selectbox("İş emri seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].unique().tolist()), key="rep_s")
             if secilen != "Seçiniz...":
                 detay = df_h[df_h['İş Emri'] == secilen].copy()
                 detay['Satır %'] = (detay['Hazırlanan Adet'] / detay['İhtiyaç Miktarı'] * 100).round(1)
                 st.dataframe(detay[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]], column_config={"Satır %": st.column_config.ProgressColumn("Durum", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
     
     with rt3:
-        st.write("📜 **Stok Hareket Detayları**")
+        st.write("📜 **Tüm Stok Hareketleri (Drive Sayfa1)**")
         hareketler = get_internal_data("Sayfa1")
         if not hareketler.empty:
             st.dataframe(hareketler.iloc[::-1], use_container_width=True, hide_index=True)
