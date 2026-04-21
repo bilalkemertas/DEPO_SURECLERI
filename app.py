@@ -1,172 +1,201 @@
 import streamlit as st
 import pandas as pd
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
-# --- AYARLAR VE GÜVENLİK ---
-st.set_page_config(page_title="Bilal BRN Depo V2", page_icon="📦", layout="centered")
+# --- 1. SAYFA AYARLARI ---
+st.set_page_config(page_title="Bilal BRN Depo", layout="centered", page_icon="📦")
 
-# Google Sheets Bağlantı Fonksiyonu
-def get_gsheet_client():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    # NOT: st.secrets içindeki 'gcp_service_account' kısmını Streamlit Cloud panelinden ayarlamış olmalısın
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-    return gspread.authorize(creds)
+st.markdown("""
+    <style>
+    #MainMenu, footer, header, .stDeployButton {display: none !important;}
+    .block-container { padding: 0.5rem 0.5rem !important; }
+    input { font-size: 16px !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 5px; }
+    .stTabs [data-baseweb="tab"] { padding: 10px; font-size: 14px; }
+    div[data-testid="stHorizontalBlock"]:first-of-type {
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Veritabanı ve Sayfa İsimleri
-SPREADSHEET_NAME = "Depo_Veritabani" # Google Sheets dosyanızın adı
-SHEET_STOK = "Stok_Kayitlari"
-SHEET_EMIRLER = "Is_Emirleri"
+# --- 2. GÜVENLİK ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-# --- OTURUM (SESSION) YÖNETİMİ ---
+if not st.session_state.logged_in:
+    st.markdown("<h3 style='text-align:center;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
+    with st.form("Giriş"):
+        u_raw = st.text_input("Kullanıcı:")
+        p_raw = st.text_input("Parola:", type="password")
+        if st.form_submit_button("SİSTEME GİRİŞ YAP", use_container_width=True):
+            try:
+                users = st.secrets["users"]
+                u_lower = u_raw.strip().lower()
+                if u_lower in users and str(users[u_lower]) == p_raw.strip():
+                    st.session_state.logged_in = True
+                    st.session_state.user = u_lower
+                    st.rerun()
+                else: st.error("Hatalı Giriş Bilgisi!")
+            except: st.error("Secrets ayarları eksik!")
+    st.stop()
+
+# --- YENİ: SAYFA YÖNLENDİRME (NAVİGASYON) AYARLARI ---
 if 'page' not in st.session_state:
     st.session_state.page = 'home'
 
-# Ürün Sözlüğü (Hız için bir kez çekilir)
-if 'sku_dict' not in st.session_state:
-    st.session_state.sku_dict = {
-        "8690001": "Plastik Hammadde A",
-        "8690002": "Metal Profil 20x20",
-        "8690003": "Koli Bandı 45mm",
-        # Buraya gerçek ürün listenizi manuel veya Google Sheets'ten çekerek ekleyebilirsiniz
-    }
-
-# --- YÖNLENDİRME FONKSİYONLARI ---
 def go_home(): st.session_state.page = 'home'
 def go_stok(): st.session_state.page = 'stok'
 def go_uretim(): st.session_state.page = 'uretim'
 
-# ==========================================
-# 1. ANA MENÜ (DASHBOARD)
-# ==========================================
+
+# --- 3. BAĞLANTI ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
+
+# --- 4. AKILLI KATALOG FONKSİYONLARI ---
+@st.cache_data(ttl=60)
+def urun_katalogu_getir():
+    try:
+        df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
+        if not df.empty:
+            df['Kod'] = df['Kod'].fillna("KODSUZ").astype(str)
+            df['İsim'] = df['İsim'].fillna("İSİMSİZ").astype(str)
+            df['Arama'] = df['Kod'] + " | " + df['İsim']
+            return ["+ YENİ / MANUEL GİRİŞ"] + sorted(df['Arama'].unique().tolist())
+        return ["+ YENİ / MANUEL GİRİŞ"]
+    except:
+        return ["+ YENİ / MANUEL GİRİŞ"]
+
+def update_stock_record(kod, isim, adres, birim, miktar, is_increase=True):
+    try:
+        stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
+    except:
+        stok_df = pd.DataFrame(columns=['Adres', 'Kod', 'İsim', 'Birim', 'Miktar'])
+    
+    miktar = float(miktar)
+    if not stok_df.empty:
+        stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
+        mask = (stok_df['Kod'] == kod) & (stok_df['Adres'] == adres) & (stok_df['Birim'] == birim)
+        if mask.any():
+            if is_increase: stok_df.loc[mask, 'Miktar'] += miktar
+            else: stok_df.loc[mask, 'Miktar'] -= miktar
+        else:
+            if is_increase:
+                new_row = pd.DataFrame([{"Adres": adres, "Kod": kod, "İsim": isim, "Birim": birim, "Miktar": miktar}])
+                stok_df = pd.concat([stok_df, new_row], ignore_index=True)
+    else:
+        if is_increase:
+            stok_df = pd.DataFrame([{"Adres": adres, "Kod": kod, "İsim": isim, "Birim": birim, "Miktar": miktar}])
+    
+    stok_df = stok_df[stok_df['Miktar'] >= 0]
+    conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df)
+
+# --- 5. HEADER (TÜM SAYFALARDA GÖRÜNECEK) ---
+h1, h2, h3 = st.columns([0.8, 2, 0.8], vertical_alignment="center")
+with h1: st.image("brn_logo.webp", width=55) # Logonu atlamadık!
+with h2: st.markdown(f"<p style='text-align: center; margin: 0; font-size: 14px;'><b>👤 {st.session_state.user.upper()}</b></p>", unsafe_allow_html=True)
+with h3: 
+    if st.button("Çık", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.page = 'home' # Çıkışta anasayfaya sıfırla
+        st.rerun()
+
+st.divider()
+
+# ========================================================
+# --- YENİ EKRAN YÖNETİMİ BAŞLIYOR ---
+# ========================================================
+
+# 🟢 ANA MENÜ EKRANI 🟢
 if st.session_state.page == 'home':
-    st.title("📦 BRN DEPO OPERASYONLARI")
-    st.markdown("Hangi işlemi yapmak istiyorsunuz?")
-    
+    st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     st.write("")
-    col1, col2 = st.columns(2)
+    st.write("")
     
-    with col1:
-        if st.button("📊 STOK VE TRANSFER\n(Giriş/Çıkış İşlemleri)", use_container_width=True, type="primary"):
-            go_stok()
-            st.rerun()
-            
-    with col2:
-        if st.button("🏭 ÜRETİM HAZIRLIK\n(İş Emri & Malzeme)", use_container_width=True, type="primary"):
-            go_uretim()
-            st.rerun()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
+    with c2:
+        st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
 
-# ==========================================
-# 2. STOK İŞLEMLERİ EKRANI (v11.9 Geliştirilmiş)
-# ==========================================
+
+# 🔵 STOK İŞLEMLERİ EKRANI (ESKİ KODUN TAMAMI BURADA) 🔵
 elif st.session_state.page == 'stok':
-    st.sidebar.button("⬅️ Ana Menü", on_click=go_home)
-    st.header("Stok ve Transfer Yönetimi")
-    
-    tab1, tab2 = st.tabs(["📥 İşlem Ekranı", "🔄 Akıllı Transfer"])
-    
-    with tab1:
-        st.subheader("Ürün Giriş/Çıkış")
-        with st.form("stok_form", clear_on_submit=True):
-            barcode = st.text_input("Barkod Okutun / Kodu Yazın")
-            sku_name = st.session_state.sku_dict.get(barcode, "⚠️ Ürün Bulunamadı")
-            st.info(f"Ürün Adı: **{sku_name}**")
-            
-            adet = st.number_input("Miktar", min_value=1, step=1)
-            adres = st.text_input("Adres (Örn: A-01-02)")
-            islem_tipi = st.selectbox("İşlem Tipi", ["Giriş", "Çıkış"])
-            
-            submit = st.form_submit_button("Kaydı Tamamla")
-            if submit:
-                # Buraya Google Sheets Kayıt Kodları Gelecek
-                st.success(f"{sku_name} başarıyla {islem_tipi} yapıldı!")
+    # Geri Dön Butonu
+    if st.button("⬅️ ANA MENÜYE DÖN", use_container_width=True):
+        go_home()
+        st.rerun()
+        
+    # --- 6. MODÜLLER ---
+    t1, t2, t3 = st.tabs(["📥 İşlem", "🔄 Transfer", "📊 Stok"])
+    arama_listesi = urun_katalogu_getir()
 
-    with tab2:
-        st.subheader("Depo İçi Transfer")
-        search_sku = st.selectbox("Ürün Seçiniz (Arama Yapılabilir)", [""] + list(st.session_state.sku_dict.values()))
-        
-        if search_sku:
-            # Seçilen isme göre kodu bul
-            rev_dict = {v: k for k, v in st.session_state.sku_dict.items()}
-            sku_code = rev_dict.get(search_sku)
+    # --- TAB 1: GİRİŞ / ÇIKIŞ ---
+    with t1:
+        with st.container(border=True):
+            is_type = st.selectbox("İşlem:", ["GİRİŞ", "ÇIKIŞ"])
+            adr = st.text_input("Adres:", value="GENEL", key="a1").strip().upper()
             
-            st.warning(f"Seçilen: {search_sku} ({sku_code})")
-            t_adet = st.number_input("Transfer Adedi", min_value=1)
-            t_hedef = st.text_input("Hedef Adres")
+            secim = st.selectbox("🔍 Kayıtlı Ürün Ara:", arama_listesi, key="sec1")
             
-            if st.button("Transferi Gerçekleştir"):
-                st.success(f"{search_sku} ürünü {t_hedef} adresine transfer edildi.")
+            if secim == "+ YENİ / MANUEL GİRİŞ":
+                kod = st.text_input("Kod:", key="b1", placeholder="KOD GİRİN...").strip().upper()
+                isim = st.text_input("İsim:", key="n1", placeholder="ÜRÜN ADI GİRİN...").strip().upper()
+            else:
+                bolunmus = str(secim).split(" | ")
+                kod = bolunmus[0].strip() if len(bolunmus) > 0 else ""
+                isim = bolunmus[1].strip() if len(bolunmus) > 1 else ""
+                
+                st.text_input("Kod:", value=kod, disabled=True, key="b1_locked")
+                st.text_input("İsim:", value=isim, disabled=True, key="n1_locked")
+                
+            c1, c2 = st.columns(2)
+            with c1: unit = st.selectbox("Birim:", ["ADET", "METRE", "KG", "RULO"], key="u1")
+            with c2: qty = st.number_input("Miktar:", min_value=0.1, value=1.0, key="m1")
+            
+            if st.button("KAYDI TAMAMLA", use_container_width=True, type="primary"):
+                if kod and isim:
+                    log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1")
+                    yeni_kayit = [{
+                        "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "İşlem": is_type,
+                        "Adres": adr,
+                        "Malzeme Kodu": kod,
+                        "Malzeme Adı": isim,
+                        "Birim": unit,
+                        "Miktar": qty,
+                        "Operatör": st.session_state.user
+                    }]
+                    new_log = pd.DataFrame(yeni_kayit)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([log_df, new_log]))
+                    update_stock_record(kod, isim, adr, unit, qty, is_increase=(is_type == "GİRİŞ"))
+                    st.success(f"{kod} başarıyla kaydedildi!")
+                    st.cache_data.clear()
+                else: st.error("Lütfen Kod ve İsim girin!")
 
-# ==========================================
-# 3. ÜRETİM HAZIRLIK EKRANI (Yeni Nesil)
-# ==========================================
-elif st.session_state.page == 'uretim':
-    st.sidebar.button("⬅️ Ana Menü", on_click=go_home)
-    st.header("Üretim Hazırlık Ekranı")
-    
-    # BÖLÜM 1: EXCEL YÜKLEME (OFİS)
-    with st.expander("📥 Yeni İş Emri Yükle (Excel)", expanded=False):
-        uploaded_file = st.file_uploader("HAZIRLIK sekmesi olan dosyayı seçin", type=["xlsx"])
-        if uploaded_file:
-            try:
-                # Dosya Adı = İş Emri No
-                is_emri_no = uploaded_file.name.split('.')[0]
+    # --- TAB 2: TRANSFER (GÜNCELLENDİ) ---
+    with t2:
+        with st.container(border=True):
+            st.subheader("Transfer")
+            e_adr = st.text_input("Nereden:", key="ea2").strip().upper()
+            y_adr = st.text_input("Nereye:", key="ya2").strip().upper()
+            
+            t_secim = st.selectbox("🔍 Ürün Ara:", arama_listesi, key="t_sec1")
+            
+            if t_secim == "+ YENİ / MANUEL GİRİŞ":
+                t_kod = st.text_input("Kod:", key="b2", placeholder="KOD GİRİN...").strip().upper()
+                t_isim = st.text_input("İsim:", key="n2", placeholder="ÜRÜN ADI GİRİN...").strip().upper()
+            else:
+                t_bolunmus = str(t_secim).split(" | ")
+                t_kod = t_bolunmus[0].strip() if len(t_bolunmus) > 0 else ""
+                t_isim = t_bolunmus[1].strip() if len(t_bolunmus) > 1 else ""
                 
-                # Dinamik Başlık Bulucu
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
-                h_idx = 0
-                for i, row in df_raw.iterrows():
-                    if row.astype(str).str.contains("KODU").any():
-                        h_idx = i
-                        break
+                st.text_input("Kod:", value=t_kod, disabled=True, key="b2_locked")
+                st.text_input("İsim:", value=t_isim, disabled=True, key="n2_locked")
                 
-                # Veriyi Oku & Birleştirilmiş Hücreleri Doldur
-                df_prep = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=h_idx).ffill()
-                
-                # Sütun Ayıklama
-                k_col = [c for c in df_prep.columns if "KODU" in str(c).upper()][0]
-                a_col = [c for c in df_prep.columns if "ADI" in str(c).upper()][0]
-                m_col = [c for c in df_prep.columns if "İHTİYAÇ" in str(c).upper()][0]
-                
-                df_final = df_prep[[k_col, a_col, m_col]].copy()
-                df_final.columns = ["Ürün Kodu", "Ürün Adı", "İhtiyaç Miktarı"]
-                df_final.insert(0, "İş Emri", is_emri_no)
-                df_final["Hazırlanan Adet"] = 0
-                
-                st.write("Okunan Veri Özeti:")
-                st.dataframe(df_final.head())
-                
-                if st.button("Veritabanına İşle"):
-                    st.success(f"{is_emri_no} nolu iş emri sisteme eklendi!")
-            except Exception as e:
-                st.error(f"Hata: {e}")
-
-    st.markdown("---")
-    
-    # BÖLÜM 2: HAZIRLIK LİSTESİ (DEPO)
-    st.subheader("📋 Hazırlık Seçim Ekranı")
-    
-    # Örnek Index Listesi (Normalde Google Sheets'ten çekilecek)
-    is_emri_secimi = st.selectbox("İş Emri Seçiniz (Index):", ["Seçiniz...", "WO-1045", "WO-1046"])
-    
-    if is_emri_secimi != "Seçiniz...":
-        st.info(f"Hazırlanan: **{is_emri_secimi}**")
-        
-        # Örnek Tablo (Normalde Filtrelenip gelecek)
-        df_view = pd.DataFrame({
-            "Ürün Kodu": ["KOD-01", "KOD-02"],
-            "Ürün Adı": ["Cıvata", "Somun"],
-            "İhtiyaç": [100, 200],
-            "Hazırlanan": [0, 0]
-        })
-        
-        edited_df = st.data_editor(
-            df_view,
-            disabled=["Ürün Kodu", "Ürün Adı", "İhtiyaç"],
-            hide_index=True,
-            use_container_width=True
-        )
-        
-        if st.button("Hazırlanan Miktarları Kaydet"):
-            st.success("Veriler kaydedildi!")
+            t_qty = st.number_input("Miktar:", min_value=0.1, value=1.0, key="tm2")
+            t_unit = st.selectbox("Birim:", ["ADET", "METRE", "KG", "RULO"], key="tu2")
+            
+            if st.button("TRANSFERİ ONAYLA", use_container_width=True, type="primary"):
