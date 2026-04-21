@@ -152,7 +152,7 @@ elif st.session_state.page == 'stok':
                 update_stock_record(t_kod, ti, y_adr, t_qty, is_increase=True)
                 log_movement("TRANSFER ÇIKIŞ", e_adr, t_kod, ti, t_qty)
                 log_movement("TRANSFER GİRİŞ", y_adr, t_kod, ti, t_qty)
-                st.success("Transfer Drive'a İşlendi!")
+                st.success("Transfer Başarılı!")
             else: st.error(f"Kaynakta Stok Yok! Mevcut: {mev}")
 
     with t3:
@@ -183,7 +183,7 @@ elif st.session_state.page == 'uretim':
                     if st.button(f"'{eno}' Kaydet", key="u_save"):
                         old = get_internal_data("Is_Emirleri")
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
-                        st.success("İş Emri Drive'a Eklendi!"); st.cache_data.clear()
+                        st.success("İş Emri Kaydedildi!"); st.cache_data.clear()
             except Exception as e: st.error(f"Hata: {e}")
 
     df_e = get_internal_data("Is_Emirleri")
@@ -202,7 +202,7 @@ elif st.session_state.page == 'uretim':
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", r["Alınan Adres"], r["Stok Kodu"], r["Stok Adı"], fark)
                         df_e.at[i, "Hazırlanan Adet"] = r["Hazırlanan Adet"]
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_e)
-                st.success("Üretim Çıkışları Drive'a İşlendi!"); st.cache_data.clear(); st.rerun()
+                st.success("Üretim Çıkışları İşlendi!"); st.cache_data.clear(); st.rerun()
 
 # --- 8. RAPORLAR (YENİ SEKME EKLENDİ) ---
 elif st.session_state.page == 'rapor':
