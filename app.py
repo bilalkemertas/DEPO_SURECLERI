@@ -22,7 +22,8 @@ if "logged_in" not in st.session_state:
 if not st.session_state.logged_in:
     st.markdown("<h3 style='text-align:center;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
     with st.form("Giriş"):
-              p_raw = st.text_input("Parola:", type="password")
+        u_raw = st.text_input("Kullanıcı:")
+        p_raw = st.text_input("Parola:", type="password")
         if st.form_submit_button("SİSTEME GİRİŞ YAP", use_container_width=True):
             if "users" in st.secrets:
                 users = st.secrets["users"]
