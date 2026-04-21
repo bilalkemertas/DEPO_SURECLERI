@@ -56,10 +56,14 @@ def get_internal_data(worksheet_name):
 def get_katalog():
     df = get_internal_data("Stok")
     if not df.empty:
+        # Sadece Kod ve İsim sütunlarını al, boş olanları temizle
         df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
         df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
         df['Arama'] = df['Kod'] + " | " + df['İsim']
-        return df, sorted(df['Arama'].unique().tolist())
+        
+        # TypeError hatasını önlemek için boş (NaN) değerleri listeden atıyoruz
+        liste = df['Arama'].dropna().unique().tolist()
+        return df, sorted([x for x in liste if str(x).strip() != "nan"])
     return pd.DataFrame(), ["+ MANUEL GİRİŞ"]
 
 def check_address_stock(kod, adres, miktar):
@@ -85,7 +89,6 @@ def update_stock_record(kod, isim, adres, birim, miktar, is_increase=True):
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
-    st.write("")
     st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
     st.button("📈 RAPORLAR", use_container_width=True, type="primary", on_click=go_rapor)
@@ -199,7 +202,7 @@ elif st.session_state.page == 'uretim':
                     conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler)
                     st.success("Kayıt başarılı!"); st.cache_data.clear(); st.rerun()
 
-# --- 8. RAPORLAR (GELİŞTİRİLMİŞ EKRAN) ---
+# --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("📊 Merkezi Raporlar")
@@ -212,44 +215,17 @@ elif st.session_state.page == 'rapor':
     with r_t2:
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
-            # 1. BÖLÜM: İş Emri Bazlı Genel Hazırlık Oranları
             st.markdown("### 📈 İş Emri Genel Hazırlık Durumu")
-            # Sayısal sütunları temizle
             df_h['Hazırlanan Adet'] = pd.to_numeric(df_h['Hazırlanan Adet'], errors='coerce').fillna(0)
             df_h['İhtiyaç Miktarı'] = pd.to_numeric(df_h['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            
             summary = df_h.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
             summary['Tamamlanma %'] = (summary['Hazırlanan Adet'] / summary['İhtiyaç Miktarı'] * 100).round(1)
-            
-            st.dataframe(
-                summary,
-                column_config={
-                    "Tamamlanma %": st.column_config.ProgressColumn(
-                        "İlerleme Oranı", format="%.1f%%", min_value=0, max_value=100
-                    )
-                },
-                use_container_width=True, hide_index=True
-            )
-            
+            st.dataframe(summary, column_config={"Tamamlanma %": st.column_config.ProgressColumn("İlerleme", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
             st.divider()
-            
-            # 2. BÖLÜM: Seçilen İş Emrinin Satır Bazlı Detayı
-            st.markdown("### 🔍 İş Emri Detay İnceleme")
             secilen_is_emri = st.selectbox("Detayını görmek istediğiniz iş emrini seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].tolist()))
-            
             if secilen_is_emri != "Seçiniz...":
                 detay_df = df_h[df_h['İş Emri'] == secilen_is_emri].copy()
                 detay_df['Satır %'] = (detay_df['Hazırlanan Adet'] / detay_df['İhtiyaç Miktarı'] * 100).round(1)
-                
-                # Sadece yöneticinin görmesi gereken Mamül sütunları dahil tüm sütunları göster
-                st.dataframe(
-                    detay_df[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]],
-                    column_config={
-                        "Satır %": st.column_config.ProgressColumn(
-                            "Durum", format="%.1f%%", min_value=0, max_value=100
-                        )
-                    },
-                    use_container_width=True, hide_index=True
-                )
+                st.dataframe(detay_df[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]], column_config={"Satır %": st.column_config.ProgressColumn("Durum", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
 
 st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
