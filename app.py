@@ -277,30 +277,44 @@ elif st.session_state.page == 'uretim':
             try:
                 is_emri_no = uploaded_file.name.split('.')[0]
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
+                
+                # Başlıkları dinamik buluyoruz (3 satırlık boşluğu otomatik atlar)
                 h_idx = 0
                 for i, row in df_raw.iterrows():
-                    if row.astype(str).str.contains("KODU").any():
+                    if row.astype(str).str.contains("KOD", case=False, na=False).any():
                         h_idx = i
                         break
                 
                 df_prep = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=h_idx).ffill()
                 
-                k_col = [c for c in df_prep.columns if "KODU" in str(c).upper()][0]
-                a_col = [c for c in df_prep.columns if "ADI" in str(c).upper()][0]
-                m_col = [c for c in df_prep.columns if "İHTİYAÇ" in str(c).upper()][0]
+                # Sütun isimlerini bul ("Total" kelimesi eklendi)
+                k_cols = [c for c in df_prep.columns if "KOD" in str(c).upper()]
+                a_cols = [c for c in df_prep.columns if "AD" in str(c).upper() or "TANIM" in str(c).upper()]
+                m_cols = [c for c in df_prep.columns if "İHTİYAÇ" in str(c).upper() or "MİKTAR" in str(c).upper() or "TOTAL" in str(c).upper()]
                 
+                # Eğer aradığını hala bulamazsa çökmek yerine hangi sütunları gördüğünü söylesin
+                if not k_cols or not a_cols or not m_cols:
+                    st.error(f"HATA: Gerekli sütunlar bulunamadı. Excel'de okunan başlıklar: {list(df_prep.columns)}")
+                    st.stop()
+                
+                # Bulunan doğru sütunları eşleştir
+                k_col = k_cols[0]
+                a_col = a_cols[0]
+                m_col = m_cols[0]
+                
+                # Sadece lazım olan 3 sütunu al (Stok Kodu, Stok Adı, Total)
                 df_final = df_prep[[k_col, a_col, m_col]].copy()
                 df_final.columns = ["Ürün Kodu", "Ürün Adı", "İhtiyaç Miktarı"]
                 df_final.insert(0, "İş Emri", is_emri_no)
                 df_final["Hazırlanan Adet"] = 0
                 
-                st.write("Okunan Veri Özeti:")
+                st.write("✅ Okunan Veri Özeti (Toplam Miktarlar):")
                 st.dataframe(df_final.head())
                 
                 if st.button("Veritabanına İşle", type="primary"):
-                    st.success("Tebrikler! Kod başarıyla test edildi.")
+                    st.success("Tebrikler! Gerçek üretim listesi başarıyla sisteme aktarıldı.")
             except Exception as e:
-                st.error(f"Excel okunurken hata: {e}")
+                st.error(f"Excel işlenirken beklenmeyen bir hata: {e}")
 
     st.markdown("---")
     
