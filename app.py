@@ -318,8 +318,8 @@ elif st.session_state.page == 'rapor':
                     detay_df = df_all[df_all['İş Emri'] == secilen_rapor].copy()
                     detay_df['Tamamlanma (%)'] = detay_df.apply(lambda x: (x['Hazırlanan Adet'] / x['İhtiyaç Miktarı'] * 100) if x['İhtiyaç Miktarı'] > 0 else 0, axis=1).round(1)
                     
-                    # Sadece mevcut olan doğru sütunları filtrele
-                    gosterilecek_sutunlar = [c for c in ['Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)'] if c in detay_df.columns]
+                    # Rapor ekranında HEM Ürün Hem Stok detayları gösteriliyor
+                    gosterilecek_sutunlar = [c for c in ['Ürün Kodu', 'Ürün Adı', 'Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı', 'Hazırlanan Adet', 'Tamamlanma (%)'] if c in detay_df.columns]
                     gosterilecek_df = detay_df[gosterilecek_sutunlar]
                     
                     st.dataframe(
