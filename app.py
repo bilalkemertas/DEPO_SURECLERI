@@ -136,7 +136,7 @@ elif st.session_state.page == 'stok':
         if not stok_df_all.empty:
             df_display = stok_df_all.copy()
             if search_query:
-                df_display = df_display[df_display['Kod'].str.contains(search_query) | df_display['İsim'].str.contains(search_query)]
+                df_display = df_display[df_display['Kod'].str.contains(search_query, na=False) | df_display['İsim'].str.contains(search_query, na=False)]
             st.dataframe(df_display[["Adres", "Kod", "İsim", "Birim", "Miktar"]], use_container_width=True, hide_index=True)
 
 # --- 7. ÜRETİM HAZIRLIK ---
@@ -175,7 +175,6 @@ elif st.session_state.page == 'uretim':
         secim = st.selectbox("Hazırlanacak İş Emri:", ["Seçiniz..."] + sorted(df_emirler["İş Emri"].unique().tolist()))
         if secim != "Seçiniz...":
             df_sub = df_emirler[df_emirler["İş Emri"] == secim].copy()
-            # UI Düzenlemesi: Mamül bilgilerini personelden sakla
             display_cols = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]
             df_display = df_sub[display_cols].copy()
             df_display["Alınan Adres"] = "GENEL"
@@ -186,33 +185,71 @@ elif st.session_state.page == 'uretim':
             if st.button("HAZIRLIĞI TAMAMLA VE STOKTAN DÜŞ"):
                 success_flag = False
                 for idx, row in edited.iterrows():
-                    # Orijinal tablo (df_sub) üzerinden farkı bul
                     fark = float(row["Hazırlanan Adet"]) - float(df_sub.loc[idx, "Hazırlanan Adet"])
                     if fark > 0:
                         ok, mev = check_address_stock(row["Stok Kodu"], row["Alınan Adres"], fark)
                         if not ok:
-                            st.error(f"❌ {row['Stok Adı']} için {row['Alınan Adres']} rafında stok yetersiz! (Mevcut: {mev})")
+                            st.error(f"❌ {row['Stok Adı']} için {row['Alınan Adres']} rafında stok yetersiz!")
                             st.stop()
                         update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], "ADET", fark, is_increase=False)
-                        # Veritabanı ana tablosunu (df_emirler) güncelle
                         df_emirler.at[idx, "Hazırlanan Adet"] = row["Hazırlanan Adet"]
                         success_flag = True
                 
                 if success_flag:
                     conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler)
-                    st.success("Kayıt başarılı, stoklar güncellendi!"); st.cache_data.clear(); st.rerun()
+                    st.success("Kayıt başarılı!"); st.cache_data.clear(); st.rerun()
 
-# --- 8. RAPORLAR ---
+# --- 8. RAPORLAR (GELİŞTİRİLMİŞ EKRAN) ---
 elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("📊 Merkezi Raporlar")
-    r_t1, r_t2 = st.tabs(["🏠 Stok Raporu", "🏭 Hazırlık Raporu"])
+    r_t1, r_t2 = st.tabs(["🏠 Stok Raporu", "🏭 Hazırlık Takibi"])
+    
     with r_t1:
+        st.write("🏠 **Güncel Adres Bazlı Stok Durumu**")
         st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
+    
     with r_t2:
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
-            df_h['%'] = (pd.to_numeric(df_h['Hazırlanan Adet']) / pd.to_numeric(df_h['İhtiyaç Miktarı']) * 100).round(1)
-            st.dataframe(df_h, use_container_width=True, hide_index=True)
+            # 1. BÖLÜM: İş Emri Bazlı Genel Hazırlık Oranları
+            st.markdown("### 📈 İş Emri Genel Hazırlık Durumu")
+            # Sayısal sütunları temizle
+            df_h['Hazırlanan Adet'] = pd.to_numeric(df_h['Hazırlanan Adet'], errors='coerce').fillna(0)
+            df_h['İhtiyaç Miktarı'] = pd.to_numeric(df_h['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            
+            summary = df_h.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
+            summary['Tamamlanma %'] = (summary['Hazırlanan Adet'] / summary['İhtiyaç Miktarı'] * 100).round(1)
+            
+            st.dataframe(
+                summary,
+                column_config={
+                    "Tamamlanma %": st.column_config.ProgressColumn(
+                        "İlerleme Oranı", format="%.1f%%", min_value=0, max_value=100
+                    )
+                },
+                use_container_width=True, hide_index=True
+            )
+            
+            st.divider()
+            
+            # 2. BÖLÜM: Seçilen İş Emrinin Satır Bazlı Detayı
+            st.markdown("### 🔍 İş Emri Detay İnceleme")
+            secilen_is_emri = st.selectbox("Detayını görmek istediğiniz iş emrini seçin:", ["Seçiniz..."] + sorted(summary['İş Emri'].tolist()))
+            
+            if secilen_is_emri != "Seçiniz...":
+                detay_df = df_h[df_h['İş Emri'] == secilen_is_emri].copy()
+                detay_df['Satır %'] = (detay_df['Hazırlanan Adet'] / detay_df['İhtiyaç Miktarı'] * 100).round(1)
+                
+                # Sadece yöneticinin görmesi gereken Mamül sütunları dahil tüm sütunları göster
+                st.dataframe(
+                    detay_df[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]],
+                    column_config={
+                        "Satır %": st.column_config.ProgressColumn(
+                            "Durum", format="%.1f%%", min_value=0, max_value=100
+                        )
+                    },
+                    use_container_width=True, hide_index=True
+                )
 
 st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
