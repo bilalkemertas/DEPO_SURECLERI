@@ -208,7 +208,7 @@ elif st.session_state.page == 'uretim':
 
             df_prep["Alınan Adres"] = df_prep["Stok Kodu"].apply(get_best_address)
             
-            st.info(f"💡 Toplam {len(df_prep)} Kalem | Toplam {df_prep['İhtiyaç Miktarı'].sum()} Adet")
+            st.info(f"💡 Toplam {len(df_prep)} Kalem | Toplam {df_prep['İhtiyaç Miktarı'].sum():.2f} Adet")
             ed = st.data_editor(df_prep, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
