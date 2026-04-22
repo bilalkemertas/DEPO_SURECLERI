@@ -100,7 +100,6 @@ def log_movement(islem, adres, kod, isim, miktar):
 def update_stock_record(kod, isim, adres, miktar, is_increase=True):
     stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
     stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
-    # Eğer adres STOK YOK ise ve giriş yapıyorsak GENEL rafa koyalım
     hedef_adres = "GENEL" if adres == "STOK YOK" else adres
     mask = (stok_df['Kod'] == kod) & (stok_df['Adres'] == hedef_adres)
     
@@ -118,7 +117,7 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
 
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
-    st.markdown("<h3 style='text-align:center;'>📦 Depo Süreç Takip</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
     st.button("📈 RAPORLAR", use_container_width=True, type="primary", on_click=go_rapor)
@@ -178,24 +177,47 @@ elif st.session_state.page == 'uretim':
         if f:
             try:
                 eno = f.name.split('.')[0]
-                df_r = pd.read_excel(f, sheet_name="HAZIRLIK", skiprows=3).ffill()
+                # PİVOT TEMİZLEME ALGORİTMASI BURADA BAŞLIYOR (ffill Tüm Tabloya Uygulanmıyor)
+                df_r = pd.read_excel(f, sheet_name="HAZIRLIK", skiprows=3)
+                
                 kc = next((c for c in df_r.columns if "STOK KOD" in str(c).upper()), None)
                 ac = next((c for c in df_r.columns if "STOK AD" in str(c).upper()), None)
                 mc = next((c for c in df_r.columns if "TOTAL" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
                 bc = next((c for c in df_r.columns if "BİRİM" in str(c).upper()), None)
                 uac = next((c for c in df_r.columns if "MAMÜL AD" in str(c).upper() or "ÜRÜN AD" in str(c).upper()), None)
                 ukc = next((c for c in df_r.columns if "MAMÜL KOD" in str(c).upper() or "ÜRÜN KOD" in str(c).upper()), None)
+                
                 if kc and ac and mc:
+                    # 1. Sadece üst/ana ürün bilgilerini aşağı kaydır
+                    if uac: df_r[uac] = df_r[uac].ffill()
+                    if ukc: df_r[ukc] = df_r[ukc].ffill()
+                    
+                    # 2. Stok Kodu BOŞ olan (Pivot Alt Toplam) satırları çöpe at
+                    df_r = df_r.dropna(subset=[kc])
+                    
+                    # 3. Stok Kodunda "Total/Toplam" yazan satırları kazara almamak için temizle
+                    df_r = df_r[~df_r[kc].astype(str).str.upper().str.contains("TOTAL|TOPLAM")]
+                    
+                    # 4. Miktarları sayıya çevir
+                    df_r[mc] = pd.to_numeric(df_r[mc], errors='coerce').fillna(0)
+                    df_r = df_r[df_r[mc] > 0]
+                    
                     df_f = df_r[[kc, ac, mc]].copy()
                     df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
                     df_f["Birim"] = df_r[bc].astype(str).str.upper() if bc else "ADET"
                     df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
                     df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
                     df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
+                    
                     if st.button(f"'{eno}' Kaydet", key="u_s_b"):
                         old = get_internal_data("Is_Emirleri")
+                        
+                        # ÇİFT KAYIT ENGELLEYİCİ: Bu iş emri (örn: DT144) daha önce yüklendiyse, eski bozukları SİL
+                        if not old.empty and "İş Emri" in old.columns:
+                            old = old[old["İş Emri"] != eno]
+                            
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
-                        st.success("Kaydedildi!"); st.cache_data.clear()
+                        st.success("Eski mükerrer kayıtlar temizlendi! Tertemiz liste kaydedildi."); st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
     df_emirler_master = get_internal_data("Is_Emirleri")
@@ -225,21 +247,16 @@ elif st.session_state.page == 'uretim':
                 for idx, row in ed.iterrows():
                     fark = float(row["Hazırlanan Adet"]) - float(df_prep.loc[idx, "Hazırlanan Adet"])
                     if fark > 0:
-                        # --- PATRONUN YENİ MANTIĞI: SANAL TAMAMLAMA ---
                         ok, mevcut = check_address_stock(row["Stok Kodu"], row["Alınan Adres"], fark)
                         
                         if not ok:
-                            # Eksik olan miktar kadar sisteme "Otomatik Giriş" yap
                             eksik = fark - mevcut
                             hedef_adr = update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], eksik, is_increase=True)
                             log_movement("OTOMATİK SİSTEM GİRİŞİ (HAZIRLIK)", hedef_adr, row["Stok Kodu"], row["Stok Adı"], eksik)
-                            # Artık stokta 'fark' kadar ürün var, hazırlığa devam et
                         
-                        # Hazırlık Çıkışını yap
                         adr_son = update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], fark, is_increase=False)
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", adr_son, row["Stok Kodu"], row["Stok Adı"], fark)
                         
-                        # Master Tablo Dağıtımı
                         kalan = float(row["Hazırlanan Adet"])
                         mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"] == row["Stok Kodu"])
                         for i in df_emirler_master[mask].index:
@@ -259,6 +276,8 @@ elif st.session_state.page == 'rapor':
     with rt2:
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
+            df_h['İhtiyaç Miktarı'] = pd.to_numeric(df_h['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            df_h['Hazırlanan Adet'] = pd.to_numeric(df_h['Hazırlanan Adet'], errors='coerce').fillna(0)
             summary = df_h.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
             summary['%'] = (summary['Hazırlanan Adet'] / summary['İhtiyaç Miktarı'] * 100).round(1)
             st.dataframe(summary, column_config={"%": st.column_config.ProgressColumn("İlerleme", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
