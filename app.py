@@ -161,7 +161,7 @@ elif st.session_state.page == 'stok':
 # --- 7. ÜRETİM HAZIRLIK (OPERASYONEL KONSOLİDASYON) ---
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ", key="nav_u"): go_home(); st.rerun()
-    st.subheader("🏭 Üretim Hazırlık (Toplu Hammadde)")
+    st.subheader("🏭 Üretim Hazırlık")
     
     with st.expander("📥 İş Emri Yükle"):
         f = st.file_uploader("Excel Seç:", type=["xlsx"], key="u_f")
@@ -208,7 +208,7 @@ elif st.session_state.page == 'uretim':
 
             df_prep["Alınan Adres"] = df_prep["Stok Kodu"].apply(get_best_address)
             
-            st.info(f"💡 Toplam {len(df_prep)} Kalem")
+            st.info(f"💡 Toplam {len(df_prep)} Kalem | Toplam {df_prep['İhtiyaç Miktarı'].sum()} Adet")
             ed = st.data_editor(df_prep, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
