@@ -177,7 +177,6 @@ elif st.session_state.page == 'uretim':
                     df_f = df_r[[kc, ac, mc]].copy()
                     df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
                     df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
-                    df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
                     df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
                     if st.button(f"'{eno}' Kaydet", key="u_s_b"):
                         old = get_internal_data("Is_Emirleri")
