@@ -187,7 +187,7 @@ elif st.session_state.page == 'uretim':
         if s != "Seçiniz...":
             df_sub = df_e[df_e["İş Emri"] == s].copy()
             df_d = df_sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
-            df_d["Alınan Adres"] = "GENEL"
+            df_d["Adres"] = "GENEL"
             ed = st.data_editor(df_d, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
                 for i, r in ed.iterrows():
