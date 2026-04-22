@@ -49,7 +49,12 @@ SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 # --- 4. YARDIMCI FONKSİYONLAR ---
 @st.cache_data(ttl=30)
 def get_internal_data(worksheet_name):
-    return conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
+    df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
+    # Hata koruması: Eğer sütunlar yoksa (eski veri) oluştur
+    if worksheet_name == "Is_Emirleri" and not df.empty:
+        for col in ["Birim", "Mamül Kodu", "Mamül Adı"]:
+            if col not in df.columns: df[col] = "ADET" if col == "Birim" else "-"
+    return df
 
 def get_katalog():
     df = get_internal_data("Stok")
@@ -69,7 +74,6 @@ def find_name_by_code(kod):
     return ""
 
 def get_local_time():
-    """Türkiye Saat Ayarı (+3)"""
     return (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
 
 def check_address_stock(kod, adres, miktar):
@@ -180,7 +184,7 @@ elif st.session_state.page == 'uretim':
                 if kc and ac and mc:
                     df_f = df_r[[kc, ac, mc]].copy()
                     df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
-                    df_f["Birim"] = df_r[bc].str.upper() if bc else "ADET"
+                    df_f["Birim"] = df_r[bc].astype(str).str.upper() if bc else "ADET"
                     df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
                     df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
                     df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
@@ -195,6 +199,8 @@ elif st.session_state.page == 'uretim':
         s = st.selectbox("İş Emri Seç:", ["Seçiniz..."] + sorted(df_emirler_master["İş Emri"].unique().tolist()), key="u_sel")
         if s != "Seçiniz...":
             df_is_emri = df_emirler_master[df_emirler_master["İş Emri"] == s].copy()
+            
+            # --- HAZIRLIK EKRANI KONSOLİDASYONU ---
             df_prep = df_is_emri.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
             
             stok_verisi = get_internal_data("Stok")
@@ -207,10 +213,10 @@ elif st.session_state.page == 'uretim':
 
             df_prep["Alınan Adres"] = df_prep["Stok Kodu"].apply(get_best_address)
             
-            # --- PROFESYONEL ÖZET ÇUBUĞU ---
-            birim_toplamlari = df_prep.groupby('Birim')['İhtiyaç Miktarı'].sum()
-            ozet_parcalar = [f"{m:.2f} {b}" for b, m in birim_toplamlari.items()]
-            st.info(f"💡 Toplam {len(df_prep)} Kalem | {' | '.join(ozet_parcalar)}")
+            # --- BİRİM BAZLI ÖZET ---
+            bt = df_prep.groupby('Birim')['İhtiyaç Miktarı'].sum()
+            ozet = " | ".join([f"{m:.2f} {b}" for b, m in bt.items()])
+            st.info(f"💡 Toplam {len(df_prep)} Kalem | {ozet}")
             
             ed = st.data_editor(df_prep, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim"], hide_index=True, use_container_width=True, key="u_ed")
             
@@ -223,7 +229,7 @@ elif st.session_state.page == 'uretim':
                         update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], fark, is_increase=False)
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", row["Alınan Adres"], row["Stok Kodu"], row["Stok Adı"], fark)
                         
-                        # Dağıtım (FIFO)
+                        # Master Tablo Dağıtımı (FIFO Dağıtım)
                         kalan = float(row["Hazırlanan Adet"])
                         mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"] == row["Stok Kodu"])
                         for i in df_emirler_master[mask].index:
@@ -243,6 +249,8 @@ elif st.session_state.page == 'rapor':
     with rt2:
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
+            df_h['İhtiyaç Miktarı'] = pd.to_numeric(df_h['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            df_h['Hazırlanan Adet'] = pd.to_numeric(df_h['Hazırlanan Adet'], errors='coerce').fillna(0)
             summary = df_h.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
             summary['%'] = (summary['Hazırlanan Adet'] / summary['İhtiyaç Miktarı'] * 100).round(1)
             st.dataframe(summary, column_config={"%": st.column_config.ProgressColumn("İlerleme", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
