@@ -177,6 +177,7 @@ elif st.session_state.page == 'uretim':
                     df_f = df_r[[kc, ac, mc]].copy()
                     df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
                     df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
+                    df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
                     df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
                     if st.button(f"'{eno}' Kaydet", key="u_s_b"):
                         old = get_internal_data("Is_Emirleri")
@@ -198,18 +199,19 @@ elif st.session_state.page == 'uretim':
                 if urun_raflari.empty: return "STOK YOK"
                 return urun_raflari.loc[urun_raflari['Miktar'].idxmin(), 'Adres']
 
-            # PATRON: Mamül Kodu ve Mamül Adı listeye eklendi
-            df_d = df_sub[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
+            # PERSONEL EKRANI: Mamül bilgileri burada gizlendi
+            df_d = df_sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
             df_d["Alınan Adres"] = df_d["Stok Kodu"].apply(get_best_address)
             
-           
-            ed = st.data_editor(df_d, disabled=["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
+            
+            ed = st.data_editor(df_d, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
                 for i, r in ed.iterrows():
                     fark = float(r["Hazırlanan Adet"]) - float(df_sub.loc[i, "Hazırlanan Adet"])
                     if fark > 0:
-                       
+                        ok, mev = check_address_stock(r["Stok Kodu"], r["Alınan Adres"], fark)
+                        if not ok: st.error(f"{r['Stok Adı']} için {r['Alınan Adres']} rafında yeterli stok yok!"); st.stop()
                         update_stock_record(r["Stok Kodu"], r["Stok Adı"], r["Alınan Adres"], fark, is_increase=False)
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", r["Alınan Adres"], r["Stok Kodu"], r["Stok Adı"], fark)
                         df_e.at[i, "Hazırlanan Adet"] = r["Hazırlanan Adet"]
@@ -233,6 +235,7 @@ elif st.session_state.page == 'rapor':
             if secilen != "Seçiniz...":
                 detay = df_h[df_h['İş Emri'] == secilen].copy()
                 detay['Satır %'] = (detay['Hazırlanan Adet'] / detay['İhtiyaç Miktarı'] * 100).round(1)
+                # PATRON EKRANI: Mamül bilgileri rapor detayında görünür
                 st.dataframe(detay[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]], column_config={"Satır %": st.column_config.ProgressColumn("Durum", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
     
     with rt3:
