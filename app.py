@@ -171,9 +171,13 @@ elif st.session_state.page == 'uretim':
                 kc = next((c for c in df_r.columns if "STOK KOD" in str(c).upper()), None)
                 ac = next((c for c in df_r.columns if "STOK AD" in str(c).upper()), None)
                 mc = next((c for c in df_r.columns if "TOTAL" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
+                uac = next((c for c in df_r.columns if "MAMÜL AD" in str(c).upper() or "ÜRÜN AD" in str(c).upper()), None)
+                ukc = next((c for c in df_r.columns if "MAMÜL KOD" in str(c).upper() or "ÜRÜN KOD" in str(c).upper()), None)
                 if kc and ac and mc:
                     df_f = df_r[[kc, ac, mc]].copy()
                     df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
+                    df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
+                    df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
                     df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
                     if st.button(f"'{eno}' Kaydet", key="u_s_b"):
                         old = get_internal_data("Is_Emirleri")
@@ -187,29 +191,26 @@ elif st.session_state.page == 'uretim':
         if s != "Seçiniz...":
             df_sub = df_e[df_e["İş Emri"] == s].copy()
             
-            # --- Dinamik Adres Yönlendirme  ---
             stok_verisi = get_internal_data("Stok")
             stok_verisi['Miktar'] = pd.to_numeric(stok_verisi['Miktar'], errors='coerce').fillna(0)
 
             def get_best_address(kod):
-                # Ürüne ait içinde malzeme olan (Miktar > 0) adresleri bul
                 urun_raflari = stok_verisi[(stok_verisi['Kod'] == str(kod).strip().upper()) & (stok_verisi['Miktar'] > 0)]
-                if urun_raflari.empty:
-                    return "STOK YOK"
-                # En az miktarın olduğu satırı bul ve o adresi döndür (idxmin)
+                if urun_raflari.empty: return "STOK YOK"
                 return urun_raflari.loc[urun_raflari['Miktar'].idxmin(), 'Adres']
 
-            df_d = df_sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
-            # Her satır için tek tek en az stok olan adresi sorgula
+            # PATRON: Mamül Kodu ve Mamül Adı listeye eklendi
+            df_d = df_sub[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
             df_d["Alınan Adres"] = df_d["Stok Kodu"].apply(get_best_address)
             
-            ed = st.data_editor(df_d, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
+           
+            ed = st.data_editor(df_d, disabled=["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
                 for i, r in ed.iterrows():
                     fark = float(r["Hazırlanan Adet"]) - float(df_sub.loc[i, "Hazırlanan Adet"])
                     if fark > 0:
-                        
+                       
                         update_stock_record(r["Stok Kodu"], r["Stok Adı"], r["Alınan Adres"], fark, is_increase=False)
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", r["Alınan Adres"], r["Stok Kodu"], r["Stok Adı"], fark)
                         df_e.at[i, "Hazırlanan Adet"] = r["Hazırlanan Adet"]
@@ -233,7 +234,7 @@ elif st.session_state.page == 'rapor':
             if secilen != "Seçiniz...":
                 detay = df_h[df_h['İş Emri'] == secilen].copy()
                 detay['Satır %'] = (detay['Hazırlanan Adet'] / detay['İhtiyaç Miktarı'] * 100).round(1)
-                st.dataframe(detay[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]], column_config={"Satır %": st.column_config.ProgressColumn("Durum", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
+                st.dataframe(detay[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Satır %"]], column_config={"Satır %": st.column_config.ProgressColumn("Durum", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
     
     with rt3:
         st.write("📜 **Filtrelenebilir Hareket Arşivi**")
