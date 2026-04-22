@@ -210,7 +210,7 @@ elif st.session_state.page == 'uretim':
                 for i, r in ed.iterrows():
                     fark = float(r["Hazırlanan Adet"]) - float(df_sub.loc[i, "Hazırlanan Adet"])
                     if fark > 0:
-                        ok, mev = check_address_stock(r["Stok Kodu"], r["Alınan Adres"], fark)
+                       
                         if not ok: st.error(f"{r['Stok Adı']} için {r['Alınan Adres']} rafında yeterli stok yok!"); st.stop()
                         update_stock_record(r["Stok Kodu"], r["Stok Adı"], r["Alınan Adres"], fark, is_increase=False)
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", r["Alınan Adres"], r["Stok Kodu"], r["Stok Adı"], fark)
