@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. SAYFA AYARLARI ---
-st.set_page_config(page_title="Bilal BRN Depo", layout="centered", page_icon="📦")
+st.set_page_config(page_title="Bilal BRN Depo Pro", layout="centered", page_icon="📦")
 
 st.markdown("""
     <style>
@@ -46,8 +46,8 @@ def go_rapor(): st.session_state.page = 'rapor'
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
-# --- 4. YARDIMCI FONKSİYONLAR ---
-@st.cache_data(ttl=30)
+# --- 4. YARDIMCI FONKSİYONLAR & PERFORMANS MOTORU ---
+@st.cache_data(ttl=0)
 def get_internal_data(worksheet_name):
     df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
     if worksheet_name == "Is_Emirleri" and not df.empty:
@@ -55,22 +55,31 @@ def get_internal_data(worksheet_name):
             if col not in df.columns: df[col] = "ADET" if col == "Birim" else "-"
     return df
 
+@st.cache_data(ttl=60)
+def get_kod_map():
+    """Performans İyileştirmesi: Kod-İsim eşleşmesini sözlük olarak tutar"""
+    df = get_internal_data("Stok")
+    if not df.empty:
+        df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
+        df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
+        return dict(zip(df['Kod'], df['İsim']))
+    return {}
+
 def get_katalog():
     df = get_internal_data("Stok")
     if not df.empty:
-        df['Kod'] = df['Kod'].fillna("").astype(str).str.strip().str.upper()
-        df['İsim'] = df['İsim'].fillna("").astype(str).str.strip().str.upper()
+        df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
+        df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
         df['Arama'] = df['Kod'] + " | " + df['İsim']
-        liste = [x for x in df['Arama'].unique() if "|" in str(x) and "nan" not in str(x).lower()]
+        liste = [x for x in df['Arama'].unique() if "|" in str(x) and "NAN" not in str(x)]
         return df, sorted(liste)
     return pd.DataFrame(), []
 
 def find_name_by_code(kod):
-    df, _ = get_katalog()
-    if not df.empty and kod:
-        match = df[df['Kod'] == kod.strip().upper()]
-        if not match.empty: return match.iloc[0]['İsim']
-    return ""
+    """Cache'li sözlük üzerinden anında bulur, db sorgusu yapmaz."""
+    if not kod: return ""
+    kod_str = str(kod).strip().upper()
+    return get_kod_map().get(kod_str, "")
 
 def get_local_time():
     return (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
@@ -78,8 +87,13 @@ def get_local_time():
 def check_address_stock(kod, adres, miktar):
     df = get_internal_data("Stok")
     if adres == "STOK YOK": return False, 0
+    df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
+    df['Adres'] = df['Adres'].astype(str).str.strip().str.upper()
     df['Miktar'] = pd.to_numeric(df['Miktar'], errors='coerce').fillna(0)
-    current = df[(df['Kod'] == kod) & (df['Adres'] == adres)]['Miktar'].sum()
+    
+    kod_str = str(kod).strip().upper()
+    adr_str = str(adres).strip().upper()
+    current = df[(df['Kod'] == kod_str) & (df['Adres'] == adr_str)]['Miktar'].sum()
     return current >= miktar, current
 
 def log_movement(islem, adres, kod, isim, miktar):
@@ -87,32 +101,50 @@ def log_movement(islem, adres, kod, isim, miktar):
         log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1", ttl=0)
         yeni_log = pd.DataFrame([{
             "Tarih": get_local_time(),
-            "İşlem": islem,
-            "Adres": adres,
-            "Malzeme Kodu": kod,
+            "İşlem": str(islem),
+            "Adres": str(adres).upper(),
+            "Malzeme Kodu": str(kod).upper(),
             "Malzeme Adı": isim if isim else find_name_by_code(kod),
-            "Miktar": miktar,
+            "Miktar": float(miktar),
             "Operatör": st.session_state.user
         }])
         conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([log_df, yeni_log], ignore_index=True))
-    except: pass
+    except Exception as e:
+        st.error(f"Sisteme Log Yazılamadı: {e}")
 
 def update_stock_record(kod, isim, adres, miktar, is_increase=True):
-    stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
-    stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
-    hedef_adres = "GENEL" if adres == "STOK YOK" else adres
-    mask = (stok_df['Kod'] == kod) & (stok_df['Adres'] == hedef_adres)
+    """Race Condition ve Negatif Stok korumalı Gelişmiş Güncelleme"""
+    kod_str = str(kod).strip().upper()
+    adr_str = str(adres).strip().upper()
+    hedef_adres = "GENEL" if adr_str == "STOK YOK" else adr_str
     
+    # 1. Okuma (Race Condition koruması için tam yazma öncesi taze veri çekilir)
+    stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
+    stok_df['Kod'] = stok_df['Kod'].astype(str).str.strip().str.upper()
+    stok_df['Adres'] = stok_df['Adres'].astype(str).str.strip().str.upper()
+    stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
+    
+    mask = (stok_df['Kod'] == kod_str) & (stok_df['Adres'] == hedef_adres)
+    
+    # 2. İşlem (Negatif stok koruması clip ile)
     if mask.any():
-        if is_increase: stok_df.loc[mask, 'Miktar'] += float(miktar)
-        else: stok_df.loc[mask, 'Miktar'] -= float(miktar)
+        if is_increase: 
+            stok_df.loc[mask, 'Miktar'] += float(miktar)
+        else: 
+            stok_df.loc[mask, 'Miktar'] = (stok_df.loc[mask, 'Miktar'] - float(miktar)).clip(lower=0)
     elif is_increase:
-        new_row = pd.DataFrame([{"Adres": hedef_adres, "Kod": kod, "İsim": isim if isim else find_name_by_code(kod), "Birim": "ADET", "Miktar": float(miktar)}])
+        gercek_isim = isim if isim else find_name_by_code(kod_str)
+        new_row = pd.DataFrame([{"Adres": hedef_adres, "Kod": kod_str, "İsim": gercek_isim, "Birim": "ADET", "Miktar": float(miktar)}])
         stok_df = pd.concat([stok_df, new_row], ignore_index=True)
     
+    # 3. Temizlik ve Yazma
     stok_df = stok_df[stok_df['Miktar'] > 0]
     conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df)
-    st.cache_data.clear()
+    
+    # 4. Hedefli Cache Temizliği
+    get_internal_data.clear()
+    get_kod_map.clear()
+    
     return hedef_adres
 
 # --- 5. ANA EKRAN ---
@@ -135,7 +167,7 @@ elif st.session_state.page == 'stok':
         kod = st.text_input("Stok Kodu:", value=k_i, key="st_is_k").strip().upper()
         isim = st.text_input("Stok Adı:", value=i_i if i_i else find_name_by_code(kod), key="st_is_i").strip().upper()
         adr = st.text_input("Adres:", value="GENEL", key="st_is_a").strip().upper()
-        qty = st.number_input("Miktar:", min_value=0.1, key="st_is_q")
+        qty = st.number_input("Miktar:", min_value=0.1, step=1.0, key="st_is_q")
         if st.button("KAYDET", use_container_width=True, type="primary", key="st_is_btn"):
             if is_t == "ÇIKIŞ":
                 ok, mev = check_address_stock(kod, adr, qty)
@@ -149,7 +181,7 @@ elif st.session_state.page == 'stok':
         y_adr = st.text_input("Nereye:", key="st_tr_t").strip().upper()
         t_sec = st.selectbox("Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog_list, key="st_tr_s")
         t_kod = st.text_input("Ürün Kodu:", value=t_sec.split(" | ")[0] if t_sec != "+ MANUEL GİRİŞ" else "", key="st_tr_k").strip().upper()
-        t_qty = st.number_input("Miktar:", min_value=0.1, key="st_tr_q")
+        t_qty = st.number_input("Miktar:", min_value=0.1, step=1.0, key="st_tr_q")
         if st.button("TRANSFERİ ONAYLA", use_container_width=True, type="primary", key="st_tr_btn"):
             ok, mev = check_address_stock(t_kod, e_adr, t_qty)
             if ok:
@@ -177,7 +209,6 @@ elif st.session_state.page == 'uretim':
         if f:
             try:
                 eno = f.name.split('.')[0]
-                # PİVOT TEMİZLEME ALGORİTMASI BURADA BAŞLIYOR (ffill Tüm Tabloya Uygulanmıyor)
                 df_r = pd.read_excel(f, sheet_name="HAZIRLIK", skiprows=3)
                 
                 kc = next((c for c in df_r.columns if "STOK KOD" in str(c).upper()), None)
@@ -187,37 +218,32 @@ elif st.session_state.page == 'uretim':
                 uac = next((c for c in df_r.columns if "MAMÜL AD" in str(c).upper() or "ÜRÜN AD" in str(c).upper()), None)
                 ukc = next((c for c in df_r.columns if "MAMÜL KOD" in str(c).upper() or "ÜRÜN KOD" in str(c).upper()), None)
                 
-                if kc and ac and mc:
-                    # 1. Sadece üst/ana ürün bilgilerini aşağı kaydır
-                    if uac: df_r[uac] = df_r[uac].ffill()
-                    if ukc: df_r[ukc] = df_r[ukc].ffill()
-                    
-                    # 2. Stok Kodu BOŞ olan (Pivot Alt Toplam) satırları çöpe at
-                    df_r = df_r.dropna(subset=[kc])
-                    
-                    # 3. Stok Kodunda "Total/Toplam" yazan satırları kazara almamak için temizle
-                    df_r = df_r[~df_r[kc].astype(str).str.upper().str.contains("TOTAL|TOPLAM")]
-                    
-                    # 4. Miktarları sayıya çevir
-                    df_r[mc] = pd.to_numeric(df_r[mc], errors='coerce').fillna(0)
-                    df_r = df_r[df_r[mc] > 0]
-                    
-                    df_f = df_r[[kc, ac, mc]].copy()
-                    df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
-                    df_f["Birim"] = df_r[bc].astype(str).str.upper() if bc else "ADET"
-                    df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
-                    df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
-                    df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
-                    
-                    if st.button(f"'{eno}' Kaydet", key="u_s_b"):
-                        old = get_internal_data("Is_Emirleri")
-                        
-                        # ÇİFT KAYIT ENGELLEYİCİ: Bu iş emri (örn: DT144) daha önce yüklendiyse, eski bozukları SİL
-                        if not old.empty and "İş Emri" in old.columns:
-                            old = old[old["İş Emri"] != eno]
-                            
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
-                        st.success("Eski mükerrer kayıtlar temizlendi! Tertemiz liste kaydedildi."); st.cache_data.clear(); st.rerun()
+                # Excel Kırılganlık Koruması
+                if not kc or not ac or not mc:
+                    st.error("Excel formatı uyumsuz! 'STOK KOD', 'STOK AD' ve 'MİKTAR/TOTAL' sütunları bulunamadı.")
+                    st.stop()
+                
+                if uac: df_r[uac] = df_r[uac].ffill()
+                if ukc: df_r[ukc] = df_r[ukc].ffill()
+                df_r = df_r.dropna(subset=[kc])
+                df_r = df_r[~df_r[kc].astype(str).str.upper().str.contains("TOTAL|TOPLAM")]
+                df_r[mc] = pd.to_numeric(df_r[mc], errors='coerce').fillna(0)
+                df_r = df_r[df_r[mc] > 0]
+                
+                df_f = df_r[[kc, ac, mc]].copy()
+                df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
+                df_f["Birim"] = df_r[bc].astype(str).str.upper() if bc else "ADET"
+                df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
+                df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
+                df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
+                
+                if st.button(f"'{eno}' Kaydet", key="u_s_b"):
+                    old = get_internal_data("Is_Emirleri")
+                    if not old.empty and "İş Emri" in old.columns:
+                        old = old[old["İş Emri"] != eno]
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
+                    get_internal_data.clear()
+                    st.success("İş emri listesi güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
     df_emirler_master = get_internal_data("Is_Emirleri")
@@ -229,9 +255,11 @@ elif st.session_state.page == 'uretim':
             
             stok_verisi = get_internal_data("Stok")
             stok_verisi['Miktar'] = pd.to_numeric(stok_verisi['Miktar'], errors='coerce').fillna(0)
+            stok_verisi['Kod'] = stok_verisi['Kod'].astype(str).str.strip().str.upper()
 
             def get_best_address(kod):
-                urun_raflari = stok_verisi[(stok_verisi['Kod'] == str(kod).strip().upper()) & (stok_verisi['Miktar'] > 0)]
+                kod_str = str(kod).strip().upper()
+                urun_raflari = stok_verisi[(stok_verisi['Kod'] == kod_str) & (stok_verisi['Miktar'] > 0)]
                 if urun_raflari.empty: return "STOK YOK"
                 return urun_raflari.loc[urun_raflari['Miktar'].idxmin(), 'Adres']
 
@@ -258,14 +286,15 @@ elif st.session_state.page == 'uretim':
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", adr_son, row["Stok Kodu"], row["Stok Adı"], fark)
                         
                         kalan = float(row["Hazırlanan Adet"])
-                        mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"] == row["Stok Kodu"])
+                        mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"].astype(str).str.strip().str.upper() == str(row["Stok Kodu"]).strip().upper())
                         for i in df_emirler_master[mask].index:
                             iht = float(df_emirler_master.at[i, "İhtiyaç Miktarı"])
                             val = iht if kalan >= iht else kalan
                             df_emirler_master.at[i, "Hazırlanan Adet"] = val
                             kalan -= val
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler_master)
-                st.success("Sanal tamamlama yapıldı ve hazırlık onaylandı!"); st.cache_data.clear(); st.rerun()
+                get_internal_data.clear()
+                st.success("Sanal tamamlama yapıldı ve hazırlık onaylandı!"); st.rerun()
 
 # --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
