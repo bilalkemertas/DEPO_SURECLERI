@@ -50,7 +50,6 @@ SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 @st.cache_data(ttl=30)
 def get_internal_data(worksheet_name):
     df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
-    # Hata koruması: Eğer sütunlar yoksa (eski veri) oluştur
     if worksheet_name == "Is_Emirleri" and not df.empty:
         for col in ["Birim", "Mamül Kodu", "Mamül Adı"]:
             if col not in df.columns: df[col] = "ADET" if col == "Birim" else "-"
@@ -78,6 +77,7 @@ def get_local_time():
 
 def check_address_stock(kod, adres, miktar):
     df = get_internal_data("Stok")
+    if adres == "STOK YOK": return False, 0
     df['Miktar'] = pd.to_numeric(df['Miktar'], errors='coerce').fillna(0)
     current = df[(df['Kod'] == kod) & (df['Adres'] == adres)]['Miktar'].sum()
     return current >= miktar, current
@@ -100,17 +100,21 @@ def log_movement(islem, adres, kod, isim, miktar):
 def update_stock_record(kod, isim, adres, miktar, is_increase=True):
     stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
     stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
-    mask = (stok_df['Kod'] == kod) & (stok_df['Adres'] == adres)
+    # Eğer adres STOK YOK ise ve giriş yapıyorsak GENEL rafa koyalım
+    hedef_adres = "GENEL" if adres == "STOK YOK" else adres
+    mask = (stok_df['Kod'] == kod) & (stok_df['Adres'] == hedef_adres)
+    
     if mask.any():
         if is_increase: stok_df.loc[mask, 'Miktar'] += float(miktar)
         else: stok_df.loc[mask, 'Miktar'] -= float(miktar)
     elif is_increase:
-        new_row = pd.DataFrame([{"Adres": adres, "Kod": kod, "İsim": isim if isim else find_name_by_code(kod), "Birim": "ADET", "Miktar": float(miktar)}])
+        new_row = pd.DataFrame([{"Adres": hedef_adres, "Kod": kod, "İsim": isim if isim else find_name_by_code(kod), "Birim": "ADET", "Miktar": float(miktar)}])
         stok_df = pd.concat([stok_df, new_row], ignore_index=True)
+    
     stok_df = stok_df[stok_df['Miktar'] > 0]
     conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df)
     st.cache_data.clear()
-    return isim
+    return hedef_adres
 
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
@@ -137,8 +141,8 @@ elif st.session_state.page == 'stok':
             if is_t == "ÇIKIŞ":
                 ok, mev = check_address_stock(kod, adr, qty)
                 if not ok: st.error(f"Yetersiz Stok! Mevcut: {mev}"); st.stop()
-            g_isim = update_stock_record(kod, isim, adr, qty, is_increase=(is_t == "GİRİŞ"))
-            log_movement(is_t, adr, kod, g_isim, qty)
+            update_stock_record(kod, isim, adr, qty, is_increase=(is_t == "GİRİŞ"))
+            log_movement(is_t, adr, kod, isim, qty)
             st.success("İşlem Başarılı!")
 
     with t2:
@@ -199,8 +203,6 @@ elif st.session_state.page == 'uretim':
         s = st.selectbox("İş Emri Seç:", ["Seçiniz..."] + sorted(df_emirler_master["İş Emri"].unique().tolist()), key="u_sel")
         if s != "Seçiniz...":
             df_is_emri = df_emirler_master[df_emirler_master["İş Emri"] == s].copy()
-            
-            # --- HAZIRLIK EKRANI KONSOLİDASYONU ---
             df_prep = df_is_emri.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
             
             stok_verisi = get_internal_data("Stok")
@@ -213,7 +215,6 @@ elif st.session_state.page == 'uretim':
 
             df_prep["Alınan Adres"] = df_prep["Stok Kodu"].apply(get_best_address)
             
-            # --- BİRİM BAZLI ÖZET ---
             bt = df_prep.groupby('Birim')['İhtiyaç Miktarı'].sum()
             ozet = " | ".join([f"{m:.2f} {b}" for b, m in bt.items()])
             st.info(f"💡 Toplam {len(df_prep)} Kalem | {ozet}")
@@ -224,12 +225,21 @@ elif st.session_state.page == 'uretim':
                 for idx, row in ed.iterrows():
                     fark = float(row["Hazırlanan Adet"]) - float(df_prep.loc[idx, "Hazırlanan Adet"])
                     if fark > 0:
-                        ok, mev = check_address_stock(row["Stok Kodu"], row["Alınan Adres"], fark)
-                        if not ok: st.error(f"{row['Stok Adı']} Yetersiz! ({row['Alınan Adres']})"); st.stop()
-                        update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], fark, is_increase=False)
-                        log_movement(f"{s} ÜRETİM ÇIKIŞ", row["Alınan Adres"], row["Stok Kodu"], row["Stok Adı"], fark)
+                        # --- PATRONUN YENİ MANTIĞI: SANAL TAMAMLAMA ---
+                        ok, mevcut = check_address_stock(row["Stok Kodu"], row["Alınan Adres"], fark)
                         
-                        # Master Tablo Dağıtımı (FIFO Dağıtım)
+                        if not ok:
+                            # Eksik olan miktar kadar sisteme "Otomatik Giriş" yap
+                            eksik = fark - mevcut
+                            hedef_adr = update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], eksik, is_increase=True)
+                            log_movement("OTOMATİK SİSTEM GİRİŞİ (HAZIRLIK)", hedef_adr, row["Stok Kodu"], row["Stok Adı"], eksik)
+                            # Artık stokta 'fark' kadar ürün var, hazırlığa devam et
+                        
+                        # Hazırlık Çıkışını yap
+                        adr_son = update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], fark, is_increase=False)
+                        log_movement(f"{s} ÜRETİM ÇIKIŞ", adr_son, row["Stok Kodu"], row["Stok Adı"], fark)
+                        
+                        # Master Tablo Dağıtımı
                         kalan = float(row["Hazırlanan Adet"])
                         mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"] == row["Stok Kodu"])
                         for i in df_emirler_master[mask].index:
@@ -238,7 +248,7 @@ elif st.session_state.page == 'uretim':
                             df_emirler_master.at[i, "Hazırlanan Adet"] = val
                             kalan -= val
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler_master)
-                st.success("Başarılı!"); st.cache_data.clear(); st.rerun()
+                st.success("Sanal tamamlama yapıldı ve hazırlık onaylandı!"); st.cache_data.clear(); st.rerun()
 
 # --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
@@ -249,8 +259,6 @@ elif st.session_state.page == 'rapor':
     with rt2:
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
-            df_h['İhtiyaç Miktarı'] = pd.to_numeric(df_h['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            df_h['Hazırlanan Adet'] = pd.to_numeric(df_h['Hazırlanan Adet'], errors='coerce').fillna(0)
             summary = df_h.groupby('İş Emri')[['İhtiyaç Miktarı', 'Hazırlanan Adet']].sum().reset_index()
             summary['%'] = (summary['Hazırlanan Adet'] / summary['İhtiyaç Miktarı'] * 100).round(1)
             st.dataframe(summary, column_config={"%": st.column_config.ProgressColumn("İlerleme", format="%.1f%%", min_value=0, max_value=100)}, use_container_width=True, hide_index=True)
