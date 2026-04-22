@@ -139,6 +139,11 @@ elif st.session_state.page == 'stok':
         t_sec = st.selectbox("Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog_list, key="st_tr_s")
         t_kod = st.text_input("Ürün Kodu:", value=t_sec.split(" | ")[0] if t_sec != "+ MANUEL GİRİŞ" else "", key="st_tr_k").strip().upper()
         t_qty = st.number_input("Miktar:", min_value=0.1, key="st_tr_q")
+        if kc and ac and mc:
+        df_f = df_r[[kc, ac, mc]].copy()
+        df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
+        df_f["Birim"] = df_r[bc] if bc else "ADET" # Varsa al, yoksa ADET yaz
+        # ... (diğer kayıt işlemleri)
         if st.button("TRANSFERİ ONAYLA", use_container_width=True, type="primary", key="st_tr_btn"):
             stok_df = get_internal_data("Stok")
             mev = stok_df[(stok_df['Kod']==t_kod) & (stok_df['Adres']==e_adr)]['Miktar'].sum()
