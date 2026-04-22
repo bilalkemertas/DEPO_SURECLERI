@@ -118,7 +118,7 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
 
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
-    st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;'>📦 Depo Süreç Takip</h3>", unsafe_allow_html=True)
     st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary", on_click=go_stok)
     st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_uretim)
     st.button("📈 RAPORLAR", use_container_width=True, type="primary", on_click=go_rapor)
