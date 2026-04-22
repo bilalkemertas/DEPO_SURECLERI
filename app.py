@@ -187,7 +187,7 @@ elif st.session_state.page == 'uretim':
         if s != "Seçiniz...":
             df_sub = df_e[df_e["İş Emri"] == s].copy()
             
-            # --- Dinamik Adres Yönlendirme (Raf Temizliği Algoritması) ---
+            # --- Dinamik Adres Yönlendirme  ---
             stok_verisi = get_internal_data("Stok")
             stok_verisi['Miktar'] = pd.to_numeric(stok_verisi['Miktar'], errors='coerce').fillna(0)
 
