@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. SAYFA AYARLARI ---
-st.set_page_config(page_title="Bilal BRN Depo Pro", layout="centered", page_icon="📦")
+st.set_page_config(page_title="Bilal BRN Depo", layout="centered", page_icon="📦")
 
 st.markdown("""
     <style>
