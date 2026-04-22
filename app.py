@@ -203,7 +203,6 @@ elif st.session_state.page == 'uretim':
             # Her satır için tek tek en az stok olan adresi sorgula
             df_d["Alınan Adres"] = df_d["Stok Kodu"].apply(get_best_address)
             
-            st.info("💡 Sistem sizi içinde en az ürün kalan rafa yönlendirdi.")
             ed = st.data_editor(df_d, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"], hide_index=True, use_container_width=True, key="u_ed")
             
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
