@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. SAYFA AYARLARI ---
-st.set_page_config(page_title="Bilal BRN Depo Pro", layout="centered", page_icon="📦")
+st.set_page_config(page_title="Bilal BRN Depo", layout="centered", page_icon="📦")
 
 st.markdown("""
     <style>
@@ -169,6 +169,10 @@ elif st.session_state.page == 'uretim':
             try:
                 eno = f.name.split('.')[0]
                 df_r = pd.read_excel(f, sheet_name="HAZIRLIK", skiprows=3).ffill()
+                kc = next((c for c in df_r.columns if "STOK KOD" in str(c).upper()), None)
+                ac = next((c for c in df_r.columns if "STOK AD" in str(c).upper()), None)
+                mc = next((c for c in df_r.columns if "TOTAL" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
+                bc = next((c for c in df_r.columns if "BİRİM" in str(c).upper() or "UNIT" in str(c).upper()), None) # Birim sütununu bul
                 kc = next((c for c in df_r.columns if "STOK KOD" in str(c).upper()), None)
                 ac = next((c for c in df_r.columns if "STOK AD" in str(c).upper()), None)
                 mc = next((c for c in df_r.columns if "TOTAL" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
