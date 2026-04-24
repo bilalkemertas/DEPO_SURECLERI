@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. SAYFA AYARLARI ---
-st.set_page_config(page_title="Bilal BRN Depo", layout="centered", page_icon="📦")
+st.set_page_config(page_title="Bilal BRN Depo Pro", layout="centered", page_icon="📦")
 
 st.markdown("""
     <style>
@@ -57,7 +57,6 @@ def get_internal_data(worksheet_name):
 
 @st.cache_data(ttl=60)
 def get_kod_map():
-    """Performans İyileştirmesi: Kod-İsim eşleşmesini sözlük olarak tutar"""
     df = get_internal_data("Stok")
     if not df.empty:
         df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
@@ -76,7 +75,6 @@ def get_katalog():
     return pd.DataFrame(), []
 
 def find_name_by_code(kod):
-    """Cache'li sözlük üzerinden anında bulur, db sorgusu yapmaz."""
     if not kod: return ""
     kod_str = str(kod).strip().upper()
     return get_kod_map().get(kod_str, "")
@@ -113,12 +111,10 @@ def log_movement(islem, adres, kod, isim, miktar):
         st.error(f"Sisteme Log Yazılamadı: {e}")
 
 def update_stock_record(kod, isim, adres, miktar, is_increase=True):
-    """Race Condition ve Negatif Stok korumalı Gelişmiş Güncelleme"""
     kod_str = str(kod).strip().upper()
     adr_str = str(adres).strip().upper()
     hedef_adres = "GENEL" if adr_str == "STOK YOK" else adr_str
     
-    # 1. Okuma (Race Condition koruması için tam yazma öncesi taze veri çekilir)
     stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
     stok_df['Kod'] = stok_df['Kod'].astype(str).str.strip().str.upper()
     stok_df['Adres'] = stok_df['Adres'].astype(str).str.strip().str.upper()
@@ -126,7 +122,6 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
     
     mask = (stok_df['Kod'] == kod_str) & (stok_df['Adres'] == hedef_adres)
     
-    # 2. İşlem (Negatif stok koruması clip ile)
     if mask.any():
         if is_increase: 
             stok_df.loc[mask, 'Miktar'] += float(miktar)
@@ -137,11 +132,9 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
         new_row = pd.DataFrame([{"Adres": hedef_adres, "Kod": kod_str, "İsim": gercek_isim, "Birim": "ADET", "Miktar": float(miktar)}])
         stok_df = pd.concat([stok_df, new_row], ignore_index=True)
     
-    # 3. Temizlik ve Yazma
     stok_df = stok_df[stok_df['Miktar'] > 0]
     conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df)
     
-    # 4. Hedefli Cache Temizliği
     get_internal_data.clear()
     get_kod_map.clear()
     
@@ -218,7 +211,6 @@ elif st.session_state.page == 'uretim':
                 uac = next((c for c in df_r.columns if "MAMÜL AD" in str(c).upper() or "ÜRÜN AD" in str(c).upper()), None)
                 ukc = next((c for c in df_r.columns if "MAMÜL KOD" in str(c).upper() or "ÜRÜN KOD" in str(c).upper()), None)
                 
-                # Excel Kırılganlık Koruması
                 if not kc or not ac or not mc:
                     st.error("Excel formatı uyumsuz! 'STOK KOD', 'STOK AD' ve 'MİKTAR/TOTAL' sütunları bulunamadı.")
                     st.stop()
@@ -314,6 +306,15 @@ elif st.session_state.page == 'rapor':
             secilen = st.selectbox("Detay:", ["Seçiniz..."] + sorted(summary['İş Emri'].unique().tolist()), key="rep_s")
             if secilen != "Seçiniz...":
                 detay = df_h[df_h['İş Emri'] == secilen].copy()
+                
+                # --- YENİ EKLENEN MAMÜL ADI FİLTRESİ ---
+                mamul_listesi = ["TÜMÜ"] + sorted(detay['Mamül Adı'].astype(str).unique().tolist())
+                secilen_mamul = st.selectbox("Mamül Adı Filtresi:", mamul_listesi, key="rep_mamul_s")
+                
+                if secilen_mamul != "TÜMÜ":
+                    detay = detay[detay['Mamül Adı'] == secilen_mamul]
+                # ---------------------------------------
+                
                 st.dataframe(detay[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]], use_container_width=True, hide_index=True)
     
     with rt3:
