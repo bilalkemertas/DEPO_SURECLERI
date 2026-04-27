@@ -3,18 +3,23 @@ import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
-# --- AYAR ---
-st.set_page_config(page_title="Depo Pro", layout="wide")
+# --- 1. SAYFA AYARLARI ---
+st.set_page_config(page_title="Bilal BRN Depo Pro", layout="wide", page_icon="📦")
+
+st.markdown("""
+<style>
+#MainMenu, footer, header, .stDeployButton {display: none !important;}
+.block-container { padding: 0.5rem !important; }
+input { font-size: 16px !important; }
+.stButton>button { height: 3em; font-size: 16px !important; }
+</style>
+""", unsafe_allow_html=True)
 
 # --- SESSION ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "page" not in st.session_state:
-    st.session_state.page = "home"
-if "sayim_list" not in st.session_state:
-    st.session_state.sayim_list = []
-if "uretim_list" not in st.session_state:
-    st.session_state.uretim_list = []
+if "logged_in" not in st.session_state: st.session_state.logged_in = False
+if "page" not in st.session_state: st.session_state.page = "home"
+if "gecici_sayim_listesi" not in st.session_state: st.session_state.gecici_sayim_listesi = []
+if "delete_confirm" not in st.session_state: st.session_state.delete_confirm = None
 
 # --- LOGIN ---
 if not st.session_state.logged_in:
@@ -22,8 +27,7 @@ if not st.session_state.logged_in:
         u = st.text_input("Kullanıcı")
         p = st.text_input("Şifre", type="password")
         if st.form_submit_button("Giriş"):
-            users = st.secrets["users"]
-            if u.lower() in users and users[u.lower()] == p:
+            if u == "admin" and p == "1234":
                 st.session_state.logged_in = True
                 st.session_state.user = u
                 st.rerun()
@@ -31,186 +35,143 @@ if not st.session_state.logged_in:
                 st.error("Hatalı giriş")
     st.stop()
 
-# --- BAĞLANTI ---
+# --- CONNECTION ---
 conn = st.connection("gsheets", type=GSheetsConnection)
-SHEET_ID = st.secrets["connections"]["gsheets"]["spreadsheet"]
+SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
-@st.cache_data(ttl=5)
-def read_data(sheet):
+@st.cache_data(ttl=0)
+def read(ws):
     try:
-        return conn.read(spreadsheet=SHEET_ID, worksheet=sheet)
-    except Exception as e:
-        st.error(f"{sheet} okunamadı: {e}")
+        return conn.read(spreadsheet=SHEET_URL, worksheet=ws)
+    except:
         return pd.DataFrame()
 
-# --- NET STOK ---
-def hesapla_net_stok():
-    df = read_data("Sayfa1")
-
+def kod_map():
+    df = read("Stok")
     if df.empty:
-        return pd.DataFrame()
+        return {}
+    return dict(zip(df["Kod"].astype(str), df["İsim"].astype(str)))
 
-    # kolon temizleme
-    df.columns = df.columns.str.strip()
-
-    gerekli_kolonlar = ["Kod", "Miktar", "İşlem"]
-
-    for col in gerekli_kolonlar:
-        if col not in df.columns:
-            st.error(f"❌ '{col}' kolonu eksik!")
-            st.write("Mevcut kolonlar:", df.columns.tolist())
-            return pd.DataFrame()
-
-    df['Miktar'] = pd.to_numeric(df['Miktar'], errors='coerce').fillna(0)
-
-    giris = df[df['İşlem'] == 'Giriş'].groupby('Kod')['Miktar'].sum()
-    cikis = df[df['İşlem'] == 'Çıkış'].groupby('Kod')['Miktar'].sum()
-
-    net = (giris - cikis).fillna(0).reset_index()
-    net.columns = ['Kod', 'Net Stok']
-
-    return net
-
-# --- ANA MENÜ ---
+# --- HOME ---
 if st.session_state.page == "home":
-    st.title("📦 Depo Paneli")
+    st.title("📦 Depo Kontrol")
 
     c1, c2 = st.columns(2)
 
     with c1:
-        if st.button("📊 Stok"):
-            st.session_state.page = "stok"
-            st.rerun()
-
-        if st.button("📝 Sayım"):
-            st.session_state.page = "sayim"
-            st.rerun()
+        if st.button("📊 STOK"):
+            st.session_state.page = "stok"; st.rerun()
+        if st.button("🏭 ÜRETİM"):
+            st.session_state.page = "uretim"; st.rerun()
 
     with c2:
-        if st.button("🏭 Üretim Hazırlık"):
-            st.session_state.page = "uretim"
-            st.rerun()
-
-        if st.button("📈 Rapor"):
-            st.session_state.page = "rapor"
-            st.rerun()
+        if st.button("📝 SAYIM"):
+            st.session_state.page = "sayim"; st.rerun()
+        if st.button("📈 RAPOR"):
+            st.session_state.page = "rapor"; st.rerun()
 
 # --- STOK ---
 elif st.session_state.page == "stok":
-    if st.button("⬅️ Menü"):
-        st.session_state.page = "home"
-        st.rerun()
+    if st.button("⬅️"):
+        st.session_state.page = "home"; st.rerun()
 
-    st.subheader("📦 Net Stok")
+    st.subheader("Stok Giriş / Çıkış")
 
-    if st.button("🔄 Yenile"):
-        st.cache_data.clear()
-        st.rerun()
+    km = kod_map()
 
-    df = hesapla_net_stok()
-
-    if not df.empty:
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.warning("Veri yok")
-
-# --- SAYIM ---
-elif st.session_state.page == "sayim":
-    if st.button("⬅️ Menü"):
-        st.session_state.page = "home"
-        st.rerun()
-
-    st.subheader("📝 Sayım")
-
-    kod = st.text_input("Kod")
-    miktar = st.number_input("Miktar", min_value=0.0)
+    islem = st.selectbox("İşlem", ["Giriş", "Çıkış"])
+    kod = st.selectbox("Kod", [""] + list(km.keys()))
+    miktar = st.number_input("Miktar", 0.0)
     adres = st.text_input("Adres")
 
-    if st.button("➕ Ekle"):
-        if kod and adres:
-            st.session_state.sayim_list.append({
-                "Tarih": datetime.now().strftime("%Y-%m-%d"),
+    if st.button("Kaydet"):
+        if kod:
+            yeni = pd.DataFrame([{
+                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "Kod": kod,
+                "İşlem": islem,
                 "Miktar": miktar,
-                "Adres": adres,
-                "Personel": st.session_state.user
-            })
-            st.success("Eklendi")
+                "Adres": adres
+            }])
 
-    if st.session_state.sayim_list:
-        st.dataframe(pd.DataFrame(st.session_state.sayim_list))
-
-        if st.button("📤 Kaydet"):
-            df_old = read_data("sayim")
-            new_df = pd.concat([df_old, pd.DataFrame(st.session_state.sayim_list)], ignore_index=True)
-
-            conn.update(spreadsheet=SHEET_ID, worksheet="sayim", data=new_df)
-            st.session_state.sayim_list = []
+            df = read("Sayfa1")
+            conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1",
+                        data=pd.concat([df, yeni], ignore_index=True))
             st.success("Kaydedildi")
             st.rerun()
 
-# --- ÜRETİM HAZIRLIK ---
-elif st.session_state.page == "uretim":
-    if st.button("⬅️ Menü"):
-        st.session_state.page = "home"
-        st.rerun()
+# --- SAYIM ---
+elif st.session_state.page == "sayim":
+    if st.button("⬅️"):
+        st.session_state.page = "home"; st.rerun()
 
-    st.subheader("🏭 Üretim Hazırlık")
+    st.subheader("Sayım")
 
-    net_stok = hesapla_net_stok()
+    km = kod_map()
 
-    kod = st.text_input("Ürün Kodu")
-    miktar = st.number_input("Kullanılacak Miktar", min_value=0.0)
+    adr = st.text_input("Adres")
+    kod = st.selectbox("Kod", [""] + list(km.keys()))
+    mik = st.number_input("Miktar", 0.0)
 
-    mevcut = 0
-    if not net_stok.empty and kod in net_stok['Kod'].values:
-        mevcut = net_stok[net_stok['Kod'] == kod]['Net Stok'].values[0]
+    if st.button("Listeye Ekle"):
+        st.session_state.gecici_sayim_listesi.append({
+            "Tarih": datetime.now().strftime("%Y-%m-%d"),
+            "Kod": kod,
+            "Adres": adr,
+            "Miktar": mik
+        })
 
-    st.info(f"Mevcut Stok: {mevcut}")
+    if st.session_state.gecici_sayim_listesi:
+        st.write(st.session_state.gecici_sayim_listesi)
 
-    if st.button("➕ Listeye Ekle"):
-        if miktar > mevcut:
-            st.error("Yetersiz stok!")
-        else:
-            st.session_state.uretim_list.append({
-                "Kod": kod,
-                "Miktar": miktar,
-                "Tarih": datetime.now().strftime("%Y-%m-%d")
-            })
-            st.success("Eklendi")
-
-    if st.session_state.uretim_list:
-        st.write("### Hazırlık Listesi")
-        st.dataframe(pd.DataFrame(st.session_state.uretim_list))
-
-        if st.button("🚀 Üretime Gönder"):
-            df_old = read_data("Sayfa1")
-
-            cikislar = pd.DataFrame(st.session_state.uretim_list)
-            cikislar["Tip"] = "Çıkış"
-
-            new_df = pd.concat([df_old, cikislar], ignore_index=True)
-
-            conn.update(spreadsheet=SHEET_ID, worksheet="Sayfa1", data=new_df)
-
-            st.session_state.uretim_list = []
-            st.success("Üretim düşüldü (stoktan çıktı)")
+        if st.button("Kaydet"):
+            df = read("sayim")
+            conn.update(spreadsheet=SHEET_URL, worksheet="sayim",
+                        data=pd.concat([df, pd.DataFrame(st.session_state.gecici_sayim_listesi)], ignore_index=True))
+            st.session_state.gecici_sayim_listesi = []
+            st.success("Kaydedildi")
             st.rerun()
+
+# --- ÜRETİM ---
+elif st.session_state.page == "uretim":
+    if st.button("⬅️"):
+        st.session_state.page = "home"; st.rerun()
+
+    st.subheader("Net Stok")
+
+    df = read("Sayfa1")
+
+    if not df.empty:
+        df["Miktar"] = pd.to_numeric(df["Miktar"], errors="coerce").fillna(0)
+
+        giris = df[df["İşlem"] == "Giriş"].groupby("Kod")["Miktar"].sum()
+        cikis = df[df["İşlem"] == "Çıkış"].groupby("Kod")["Miktar"].sum()
+
+        net = (giris - cikis).fillna(0).reset_index()
+        net.columns = ["Kod", "Net"]
+
+        st.dataframe(net)
+
+    if st.button("Yenile"):
+        st.cache_data.clear()
+        st.rerun()
 
 # --- RAPOR ---
 elif st.session_state.page == "rapor":
-    if st.button("⬅️ Menü"):
-        st.session_state.page = "home"
-        st.rerun()
+    if st.button("⬅️"):
+        st.session_state.page = "home"; st.rerun()
 
-    st.subheader("📈 Hareketler")
+    t1, t2 = st.tabs(["Net Stok", "Hareketler"])
 
-    df = read_data("Sayfa1")
+    with t1:
+        df = read("Sayfa1")
+        if not df.empty:
+            df["Miktar"] = pd.to_numeric(df["Miktar"], errors="coerce").fillna(0)
+            giris = df[df["İşlem"] == "Giriş"].groupby("Kod")["Miktar"].sum()
+            cikis = df[df["İşlem"] == "Çıkış"].groupby("Kod")["Miktar"].sum()
+            net = (giris - cikis).fillna(0).reset_index()
+            net.columns = ["Kod", "Net"]
+            st.dataframe(net)
 
-    if not df.empty:
-        st.dataframe(df.iloc[::-1], use_container_width=True)
-    else:
-        st.warning("Veri yok")
-
-# --- FOOTER ---
-st.markdown("<hr><center>Depo Sistemi</center>", unsafe_allow_html=True)
+    with t2:
+        st.dataframe(read("Sayfa1").iloc[::-1])
