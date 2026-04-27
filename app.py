@@ -68,32 +68,48 @@ def get_internal_data(worksheet_name):
     except:
         return pd.DataFrame()
 
-# ÜRÜN LİSTESİNİ CATCH (ÖNBELLEĞE) ALAN VE GÜNCELLEYEN ANA FONKSİYON
-@st.cache_data(ttl=60) # 60 saniyede bir yeni malzemeleri kontrol eder
+# ÜRÜN LİSTESİNİ CATCH EDEN VE AKILLI SÜTUN BULAN ANA FONKSİYON
+@st.cache_data(ttl=60)
 def get_kod_map():
-    # Artık ana kaynağımız "Urun_Listesi" sekmesi
-    df = get_internal_data("Urun_Listesi")
-    if df.empty: # Eğer Urun_Listesi boşsa hata vermemesi için Stok sayfasına bak
-        df = get_internal_data("Stok")
-    
-    if not df.empty:
-        df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
-        df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
-        return dict(zip(df['Kod'], df['İsim']))
+    try:
+        df = get_internal_data("Urun_Listesi")
+        # Eğer Urun_Listesi içinden mantıklı bir "KOD" sütunu çıkmazsa boş/hatalı demektir
+        k_col_check = next((c for c in df.columns if "KOD" in str(c).upper()), None) if not df.empty else None
+        
+        # Sekme boşsa veya sütun bulunamadıysa güvenli limana (Stok) dön
+        if df.empty or not k_col_check:
+            df = get_internal_data("Stok")
+            
+        if not df.empty:
+            # Sütun isimleri ne olursa olsun otomatik yakala
+            k_col = next((c for c in df.columns if "KOD" in str(c).upper()), 'Kod')
+            i_col = next((c for c in df.columns if any(x in str(c).upper() for x in ["AD", "İSİM", "ISIM"])), 'İsim')
+            
+            df['Kod'] = df[k_col].astype(str).str.strip().str.upper()
+            df['İsim'] = df[i_col].astype(str).str.strip().str.upper()
+            return dict(zip(df['Kod'], df['İsim']))
+    except: pass
     return {}
 
 def get_katalog():
-    # Katalog araması da artık catch edilen "Urun_Listesi" üzerinden çalışıyor
-    df_master = get_internal_data("Urun_Listesi")
-    if df_master.empty:
-        df_master = get_internal_data("Stok")
+    try:
+        df_master = get_internal_data("Urun_Listesi")
+        k_col_check = next((c for c in df_master.columns if "KOD" in str(c).upper()), None) if not df_master.empty else None
         
-    if not df_master.empty:
-        df_master['Kod'] = df_master['Kod'].astype(str).str.strip().str.upper()
-        df_master['İsim'] = df_master['İsim'].astype(str).str.strip().str.upper()
-        df_master['Arama'] = df_master['Kod'] + " | " + df_master['İsim']
-        liste = [x for x in df_master['Arama'].unique() if "|" in str(x) and "NAN" not in str(x)]
-        return df_master, sorted(liste)
+        if df_master.empty or not k_col_check:
+            df_master = get_internal_data("Stok")
+            
+        if not df_master.empty:
+            k_col = next((c for c in df_master.columns if "KOD" in str(c).upper()), 'Kod')
+            i_col = next((c for c in df_master.columns if any(x in str(c).upper() for x in ["AD", "İSİM", "ISIM"])), 'İsim')
+            
+            df_master['Kod'] = df_master[k_col].astype(str).str.strip().str.upper()
+            df_master['İsim'] = df_master[i_col].astype(str).str.strip().str.upper()
+            df_master['Arama'] = df_master['Kod'] + " | " + df_master['İsim']
+            
+            liste = [x for x in df_master['Arama'].unique() if "|" in str(x) and "NAN" not in str(x)]
+            return df_master, sorted(liste)
+    except: pass
     return pd.DataFrame(), []
 
 def find_name_by_code(kod):
