@@ -13,6 +13,8 @@ if "page" not in st.session_state:
     st.session_state.page = "home"
 if "sayim_list" not in st.session_state:
     st.session_state.sayim_list = []
+if "uretim_list" not in st.session_state:
+    st.session_state.uretim_list = []
 
 # --- LOGIN ---
 if not st.session_state.logged_in:
@@ -72,6 +74,10 @@ if st.session_state.page == "home":
             st.rerun()
 
     with c2:
+        if st.button("🏭 Üretim Hazırlık"):
+            st.session_state.page = "uretim"
+            st.rerun()
+
         if st.button("📈 Rapor"):
             st.session_state.page = "rapor"
             st.rerun()
@@ -101,7 +107,7 @@ elif st.session_state.page == "sayim":
         st.session_state.page = "home"
         st.rerun()
 
-    st.subheader("📝 Sayım Girişi")
+    st.subheader("📝 Sayım")
 
     kod = st.text_input("Kod")
     miktar = st.number_input("Miktar", min_value=0.0)
@@ -117,26 +123,65 @@ elif st.session_state.page == "sayim":
                 "Personel": st.session_state.user
             })
             st.success("Eklendi")
-        else:
-            st.warning("Eksik alan")
 
-    # liste göster
     if st.session_state.sayim_list:
-        st.write("### Bekleyen Kayıtlar")
         st.dataframe(pd.DataFrame(st.session_state.sayim_list))
 
         if st.button("📤 Kaydet"):
             df_old = read_data("sayim")
             new_df = pd.concat([df_old, pd.DataFrame(st.session_state.sayim_list)], ignore_index=True)
 
-            conn.update(
-                spreadsheet=SHEET_ID,
-                worksheet="sayim",
-                data=new_df
-            )
-
+            conn.update(spreadsheet=SHEET_ID, worksheet="sayim", data=new_df)
             st.session_state.sayim_list = []
             st.success("Kaydedildi")
+            st.rerun()
+
+# --- ÜRETİM HAZIRLIK ---
+elif st.session_state.page == "uretim":
+    if st.button("⬅️ Menü"):
+        st.session_state.page = "home"
+        st.rerun()
+
+    st.subheader("🏭 Üretim Hazırlık")
+
+    net_stok = hesapla_net_stok()
+
+    kod = st.text_input("Ürün Kodu")
+    miktar = st.number_input("Kullanılacak Miktar", min_value=0.0)
+
+    mevcut = 0
+    if not net_stok.empty and kod in net_stok['Kod'].values:
+        mevcut = net_stok[net_stok['Kod'] == kod]['Net Stok'].values[0]
+
+    st.info(f"Mevcut Stok: {mevcut}")
+
+    if st.button("➕ Listeye Ekle"):
+        if miktar > mevcut:
+            st.error("Yetersiz stok!")
+        else:
+            st.session_state.uretim_list.append({
+                "Kod": kod,
+                "Miktar": miktar,
+                "Tarih": datetime.now().strftime("%Y-%m-%d")
+            })
+            st.success("Eklendi")
+
+    if st.session_state.uretim_list:
+        st.write("### Hazırlık Listesi")
+        st.dataframe(pd.DataFrame(st.session_state.uretim_list))
+
+        if st.button("🚀 Üretime Gönder"):
+            df_old = read_data("Sayfa1")
+
+            cikislar = pd.DataFrame(st.session_state.uretim_list)
+            cikislar["Tip"] = "Çıkış"
+
+            new_df = pd.concat([df_old, cikislar], ignore_index=True)
+
+            conn.update(spreadsheet=SHEET_ID, worksheet="Sayfa1", data=new_df)
+
+            st.session_state.uretim_list = []
+            st.success("Üretim düşüldü (stoktan çıktı)")
             st.rerun()
 
 # --- RAPOR ---
