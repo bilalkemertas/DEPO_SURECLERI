@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. SAYFA AYARLARI VE MOBİL CSS ---
+# --- 1. SAYFA AYARLARI ---
 st.set_page_config(page_title="Bilal BRN Depo Pro", layout="wide", page_icon="📦")
 
 st.markdown("""
@@ -13,340 +13,158 @@ st.markdown("""
     input { font-size: 16px !important; }
     .stButton>button { height: 3em; font-size: 16px !important; }
     [data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 10px; }
-    .stDataFrame { width: 100% !important; overflow-x: auto !important; }
-    @media (max-width: 640px) {
-        .stMetric { padding: 5px !important; border: 1px solid #eee; margin-bottom: 5px; }
-        .row-font { font-size: 12px !important; }
-    }
+    @media (max-width: 640px) { .stMetric { padding: 5px !important; } .row-font { font-size: 12px !important; } }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. GÜVENLİK VE SESSION DURUMU ---
-if "logged_in" not in st.session_state: 
-    st.session_state.logged_in = False
-if 'gecici_sayim_listesi' not in st.session_state: 
-    st.session_state['gecici_sayim_listesi'] = []
-if 'page' not in st.session_state: 
-    st.session_state.page = 'home'
-if 'delete_confirm' not in st.session_state: 
-    st.session_state.delete_confirm = None
+# --- 2. GÜVENLİK ---
+if "logged_in" not in st.session_state: st.session_state.logged_in = False
+if 'page' not in st.session_state: st.session_state.page = 'home'
+if 'gecici_sayim_listesi' not in st.session_state: st.session_state['gecici_sayim_listesi'] = []
+if 'delete_confirm' not in st.session_state: st.session_state.delete_confirm = None
 
 if not st.session_state.logged_in:
     st.markdown("<h3 style='text-align:center;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
     with st.form("Giriş"):
-        u_raw = st.text_input("Kullanıcı:")
-        p_raw = st.text_input("Parola:", type="password")
+        u = st.text_input("Kullanıcı:").strip().lower()
+        p = st.text_input("Parola:", type="password").strip()
         if st.form_submit_button("SİSTEME GİRİŞ YAP", use_container_width=True):
-            if "users" in st.secrets:
-                users = st.secrets["users"]
-                if u_raw.strip().lower() in users and str(users[u_raw.strip().lower()]) == p_raw.strip():
-                    st.session_state.logged_in = True
-                    st.session_state.user = u_raw.lower()
-                    st.rerun()
-                else: 
-                    st.error("Hatalı Giriş Bilgisi!")
+            if "users" in st.secrets and u in st.secrets["users"] and str(st.secrets["users"][u]) == p:
+                st.session_state.logged_in = True
+                st.session_state.user = u
+                st.rerun()
+            else: st.error("Hatalı Giriş!")
     st.stop()
 
-# --- 3. BAĞLANTI VE YARDIMCI FONKSİYONLAR ---
+# --- 3. BAĞLANTI VE FONKSİYONLAR ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 @st.cache_data(ttl=0)
-def get_internal_data(worksheet_name):
-    try: 
-        return conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
-    except: 
-        return pd.DataFrame()
+def get_data(worksheet):
+    try: return conn.read(spreadsheet=SHEET_URL, worksheet=worksheet, ttl=0)
+    except: return pd.DataFrame()
 
-@st.cache_data(ttl=60)
-def get_kod_map():
-    df = get_internal_data("Stok")
-    if not df.empty: 
-        return dict(zip(df['Kod'].astype(str), df['İsim'].astype(str)))
-    return {}
-
-# Hareket Loglama Fonksiyonu
-def log_movement(islem, adres, kod, isim, miktar):
+def log_movement(islem, adr, kod, isim, mik):
     try:
-        log_df = get_internal_data("Sayfa1")
-        yeni_log = pd.DataFrame([{
-            "Tarih": (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M"), 
-            "İşlem": str(islem), 
-            "Adres": str(adres).upper(), 
-            "Malzeme Kodu": str(kod).upper(), 
-            "Malzeme Adı": isim, 
-            "Miktar": float(miktar), 
-            "Operatör": st.session_state.user
-        }])
-        conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([log_df, yeni_log], ignore_index=True))
-    except: 
-        pass
+        df = get_data("Sayfa1")
+        new_row = pd.DataFrame([{"Tarih": (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M"), 
+                                 "İşlem": islem, "Adres": adr.upper(), "Malzeme Kodu": str(kod).upper(), 
+                                 "Malzeme Adı": isim, "Miktar": float(mik), "Operatör": st.session_state.user}])
+        conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([df, new_row], ignore_index=True))
+    except: pass
 
-# --- 4. ANA EKRAN (NAVİGASYON) ---
+# --- 4. ANA EKRAN ---
 if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("📊 STOK HAREKETLERİ", use_container_width=True, type="primary"): 
-            st.session_state.page = 'stok'
-            st.rerun()
-        if st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary"): 
-            st.session_state.page = 'uretim'
-            st.rerun()
+        if st.button("📊 STOK HAREKETLERİ", use_container_width=True, type="primary"): st.session_state.page = 'stok'; st.rerun()
+        if st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary"): st.session_state.page = 'uretim'; st.rerun()
     with c2:
-        if st.button("📝 SAYIM EKRANLARI", use_container_width=True, type="primary"): 
-            st.session_state.page = 'sayim'
-            st.rerun()
-        if st.button("📈 RAPORLAR", use_container_width=True, type="primary"): 
-            st.session_state.page = 'rapor'
-            st.rerun()
-    if st.sidebar.button("Güvenli Çıkış"): 
-        st.session_state.clear()
-        st.rerun()
+        if st.button("📝 SAYIM EKRANLARI", use_container_width=True, type="primary"): st.session_state.page = 'sayim'; st.rerun()
+        if st.button("📈 RAPORLAR", use_container_width=True, type="primary"): st.session_state.page = 'rapor'; st.rerun()
+    if st.sidebar.button("Güvenli Çıkış"): st.session_state.clear(); st.rerun()
 
-# --- 5. STOK İŞLEMLERİ EKRANI ---
+# --- 5. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
-    if st.button("⬅️ ANA MENÜ"): 
-        st.session_state.page = 'home'
-        st.rerun()
-    st.title("📦 Stok Giriş / Çıkış ve Transfer")
+    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
+    st.title("🔄 Stok İşlemleri")
+    kod_map = dict(zip(get_data("Stok")['Kod'].astype(str), get_data("Stok")['İsim'].astype(str)))
     
-    t1, t2 = st.tabs(["🔄 Giriş / Çıkış", "🚚 Adres Transfer"])
-    kod_map = get_kod_map()
+    with st.container(border=True):
+        adr = st.text_input("📍 Adres").upper()
+        tip = st.radio("Arama:", ["Kod", "İsim"], horizontal=True)
+        if tip == "Kod":
+            kod = st.selectbox("📦 Kod", [""] + sorted(list(kod_map.keys())))
+            isim = kod_map.get(kod, "")
+        else:
+            im = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
+            isim = st.selectbox("📝 İsim", [""] + sorted(list(im.keys())))
+            kod = im.get(isim, "")
+        mik = st.number_input("Miktar", min_value=0.0, step=1.0)
+        
+        cg, cc = st.columns(2)
+        if cg.button("📥 GİRİŞ", use_container_width=True):
+            if adr and kod and mik > 0: log_movement("GİRİŞ", adr, kod, isim, mik); st.success("Kaydedildi"); st.rerun()
+        if cc.button("📤 ÇIKIŞ", use_container_width=True):
+            if adr and kod and mik > 0: log_movement("ÇIKIŞ", adr, kod, isim, mik); st.success("Kaydedildi"); st.rerun()
 
+# --- 6. ÜRETİM HAZIRLIK (YENİLENEN EKRAN) ---
+elif st.session_state.page == 'uretim':
+    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
+    st.title("🏭 Üretim Hazırlık")
+    
+    file = st.file_uploader("📂 İş Emri Dosyasını Yükleyin", type=["xlsx", "xls", "csv"])
+    if file:
+        df_u = pd.read_excel(file) if file.name.endswith(('.xlsx', '.xls')) else pd.read_csv(file)
+        
+        # İş Emri (Mamül) Seçimi
+        mamul_listesi = df_u['Mamül Adı'].unique().tolist()
+        secilen_is_emri = st.selectbox("🎯 Hazırlık Yapılacak İş Emrini Seçin", [""] + mamul_listesi)
+        
+        if secilen_is_emri:
+            # Sadece hammaddeleri filtrele (Mamül adı ALV'de olmayacak)
+            detay = df_u[df_u['Mamül Adı'] == secilen_is_emri][['Stok Kodu', 'Stok Adı', 'Miktar']].copy()
+            detay.columns = ['Hammadde Kodu', 'Hammadde Adı', 'İhtiyaç']
+            
+            st.markdown(f"### 📋 {secilen_is_emri} - İhtiyaç Listesi")
+            
+            # Dinamik ALV Yapısı
+            hazirlik_data = []
+            for i, row in detay.iterrows():
+                with st.expander(f"🛠️ {row['Hammadde Adı']}", expanded=True):
+                    c1, c2, c3, c4 = st.columns([2, 1, 1.5, 1.5])
+                    c1.write(f"**Kod:** {row['Hammadde Kodu']}\n\n**İhtiyaç:** {row['İhtiyaç']}")
+                    h_mik = c2.number_input("Hazırlanan", min_value=0.0, key=f"mik_{i}")
+                    h_adr = c3.text_input("Nereden Alındı?", key=f"adr_{i}").upper()
+                    h_bir = c4.text_input("Taşıma Birimi (Palet/Koli)", key=f"bir_{i}")
+                    
+                    if h_mik > 0:
+                        hazirlik_data.append({"Kod": row['Hammadde Kodu'], "Miktar": h_mik, "Adres": h_adr, "Birim": h_bir})
+            
+            if st.button("💾 HAZIRLIĞI TAMAMLA VE KAYDET", type="primary", use_container_width=True):
+                st.success(f"{len(hazirlik_data)} kalem hammadde hazırlığı kaydedildi (Simülasyon).")
+
+# --- 7. SAYIM SİSTEMİ ---
+elif st.session_state.page == 'sayim':
+    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
+    st.title("⚖️ Sayım Yönetimi")
+    t1, t2 = st.tabs(["📝 Sayım Girişi", "📊 Fark Raporu"])
+    kod_map = dict(zip(get_data("Stok")['Kod'].astype(str), get_data("Stok")['İsim'].astype(str)))
+    
     with t1:
         with st.container(border=True):
-            adr = st.text_input("📍 Adres").upper()
-            arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True, key="stok_arama")
-            
-            if arama_tipi == "📦 Koda Göre":
-                kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())), key="stok_kod")
-                isim = kod_map.get(kod, "")
-            else:
-                isim_map = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
-                isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())), key="stok_isim")
-                kod = isim_map.get(isim, "")
-            
-            st.caption(f"Seçilen Ürün: **{kod}** - {isim}")
-            mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="stok_mik")
-            
-            col_g, col_c = st.columns(2)
-            if col_g.button("📥 GİRİŞ YAP", type="primary", use_container_width=True):
-                if adr and kod and mik > 0:
-                    log_movement("GİRİŞ", adr, kod, isim, mik)
-                    st.success("Stok Girişi Loglara Kaydedildi!")
-                    st.rerun()
-                else: 
-                    st.warning("Adres, Kod ve Miktar zorunludur!")
-            
-            if col_c.button("📤 ÇIKIŞ YAP", type="primary", use_container_width=True):
-                if adr and kod and mik > 0:
-                    log_movement("ÇIKIŞ", adr, kod, isim, mik)
-                    st.success("Stok Çıkışı Loglara Kaydedildi!")
-                    st.rerun()
-                else: 
-                    st.warning("Adres, Kod ve Miktar zorunludur!")
-
-    with t2:
-        with st.container(border=True):
-            eski_adr = st.text_input("📍 Eski Adres (Çıkış)").upper()
-            yeni_adr = st.text_input("📍 Yeni Adres (Giriş)").upper()
-            
-            arama_tipi_t = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True, key="trans_arama")
-            if arama_tipi_t == "📦 Koda Göre":
-                t_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())), key="trans_kod")
-                t_isim = kod_map.get(t_kod, "")
-            else:
-                isim_map_t = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
-                t_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map_t.keys())), key="trans_isim")
-                t_kod = isim_map_t.get(t_isim, "")
-            
-            t_mik = st.number_input("Transfer Miktarı", min_value=0.0, step=1.0, key="trans_mik")
-            
-            if st.button("🚚 TRANSFERİ GERÇEKLEŞTİR", type="primary", use_container_width=True):
-                if eski_adr and yeni_adr and t_kod and t_mik > 0:
-                    log_movement("ÇIKIŞ", eski_adr, t_kod, t_isim, t_mik)
-                    log_movement("GİRİŞ", yeni_adr, t_kod, t_isim, t_mik)
-                    st.success(f"{t_kod} ürünü {eski_adr}'den {yeni_adr}'ye transfer edildi!")
-                    st.rerun()
-                else: 
-                    st.warning("Tüm alanların doldurulması zorunludur!")
-
-# --- 6. ÜRETİM HAZIRLIK EKRANI ---
-elif st.session_state.page == 'uretim':
-    if st.button("⬅️ ANA MENÜ"): 
-        st.session_state.page = 'home'
-        st.rerun()
-    st.title("🏭 Üretim Hazırlık")
-    st.info("💡 Üretim İş Emri Excel dosyanızı buraya yükleyerek içeriklerini görüntüleyebilirsiniz.")
-    
-    uploaded_file = st.file_uploader("📂 İş Emri Exceli / CSV Yükle", type=["xlsx", "xls", "csv"])
-    if uploaded_file:
-        try:
-            if uploaded_file.name.endswith('.csv'): 
-                df_uretim = pd.read_csv(uploaded_file)
-            else: 
-                df_uretim = pd.read_excel(uploaded_file)
-            st.success(f"✅ Dosya Yüklendi: {uploaded_file.name}")
-            st.dataframe(df_uretim, use_container_width=True)
-        except Exception as e:
-            st.error(f"Dosya okuma hatası: {e}")
-
-# --- 7. SAYIM SİSTEMİ EKRANI ---
-elif st.session_state.page == 'sayim':
-    if st.button("⬅️ ANA MENÜ"): 
-        st.session_state.page = 'home'
-        st.rerun()
-    st.title("⚖️ Sayım İşlemleri Ekranı")
-    
-    st_tab1, st_tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
-    kod_map = get_kod_map()
-    durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "İncelemede"]
-
-    with st_tab1:
-        with st.container(border=True):
-            s_adr = st.text_input("📍 Adres", key="sayim_adr").upper()
-            arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True, key="sayim_tip")
-            
-            if arama_tipi == "📦 Koda Göre":
-                s_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())), key="sayim_kod")
-                st.caption(f"Ürün Adı: {kod_map.get(s_kod, 'Seçilmedi')}")
-            else:
-                isim_map = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
-                s_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())), key="sayim_isim")
-                s_kod = isim_map.get(s_isim, "")
-                st.caption(f"Ürün Kodu: {s_kod if s_kod else 'Seçilmedi'}")
-            
-            s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="sayim_mik")
-            s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari, key="sayim_dur")
-            
+            s_adr = st.text_input("📍 Adres", key="s_adr").upper()
+            s_kod = st.selectbox("📦 Kod", [""] + sorted(list(kod_map.keys())), key="s_kod")
+            s_mik = st.number_input("Sayılan Miktar", min_value=0.0, key="s_mik")
+            s_dur = st.selectbox("🛠️ Durum", ["Kullanılabilir", "Hasarlı", "İncelemede"])
             if st.button("➕ Listeye Ekle", use_container_width=True):
-                if s_adr and s_kod:
-                    st.session_state['gecici_sayim_listesi'].append({
-                        "Tarih": datetime.now().strftime("%Y-%m-%d"),
-                        "Personel": st.session_state.user, 
-                        "Adres": s_adr, 
-                        "Kod": s_kod, 
-                        "Ürün Adı": kod_map.get(s_kod, ""), 
-                        "Miktar": s_mik, 
-                        "Durum": s_dur
-                    })
-                    st.toast("Eklendi")
-                else: 
-                    st.warning("Adres ve Ürün seçimi zorunludur!")
+                st.session_state['gecici_sayim_listesi'].append({"Tarih": datetime.now().strftime("%Y-%m-%d"), "Adres": s_adr, "Kod": s_kod, "Miktar": s_mik, "Durum": s_dur})
+                st.toast("Eklendi")
 
         if st.session_state['gecici_sayim_listesi']:
-            st.markdown("### 📥 Onay Bekleyenler")
-            h_cols = st.columns([1, 1.2, 1.5, 0.7, 1, 0.6])
-            h_cols[0].write("**Adres**")
-            h_cols[1].write("**Kod**")
-            h_cols[2].write("**Ürün**")
-            h_cols[3].write("**Mik.**")
-            h_cols[4].write("**Durum**")
-            h_cols[5].write("**Sil**")
-            st.markdown("---")
+            st.dataframe(pd.DataFrame(st.session_state['gecici_sayim_listesi']), use_container_width=True)
+            if st.button("📤 DRIVE'A GÖNDER", type="primary", use_container_width=True):
+                old = get_data("sayim")
+                conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=pd.concat([old, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
+                st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
 
-            for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
-                r_cols = st.columns([1, 1.2, 1.5, 0.7, 1, 0.6])
-                r_cols[0].write(item['Adres'])
-                r_cols[1].write(item['Kod'])
-                r_cols[2].markdown(f"<p class='row-font'>{item['Ürün Adı'][:15]}</p>", unsafe_allow_html=True)
-                r_cols[3].write(str(item['Miktar']))
-                r_cols[4].write(item['Durum'])
-                
-                if st.session_state.delete_confirm == idx:
-                    c_del, c_esc = r_cols[5].columns(2)
-                    if c_del.button("✅", key=f"conf_{idx}"):
-                        st.session_state['gecici_sayim_listesi'].pop(idx)
-                        st.session_state.delete_confirm = None
-                        st.rerun()
-                    if c_esc.button("❌", key=f"esc_{idx}"):
-                        st.session_state.delete_confirm = None
-                        st.rerun()
-                else:
-                    if r_cols[5].button("🗑️", key=f"del_{idx}"):
-                        st.session_state.delete_confirm = idx
-                        st.rerun()
-            
-            if st.button("📤 SAYIMI KAYDET", type="primary", use_container_width=True):
-                df_db = get_internal_data("sayim")
-                yeni_sayim_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
-                conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=pd.concat([df_db, yeni_sayim_df], ignore_index=True))
-                st.session_state['gecici_sayim_listesi'] = []
-                st.success("Drive güncellendi!")
-                st.rerun()
-
-    with st_tab2:
+    with t2:
         try:
-            df_s_db = get_internal_data("sayim")
-            df_stok_ana = get_internal_data("Stok")
-            
-            if not df_s_db.empty:
-                df_s_db['Miktar'] = pd.to_numeric(df_s_db['Miktar'], errors='coerce').fillna(0)
-                df_stok_ana['Miktar'] = pd.to_numeric(df_stok_ana['Miktar'], errors='coerce').fillna(0)
-                
-                with st.expander("🔍 Filtreler", expanded=True):
-                    col_f1, col_f2 = st.columns(2)
-                    col_f3, col_f4 = st.columns(2)
-                    
-                    f_t = col_f1.selectbox("📅 Tarih", ["Tümü"] + sorted(df_s_db["Tarih"].astype(str).unique().tolist(), reverse=True))
-                    sel_k = col_f2.multiselect("📦 Kod", sorted(df_s_db["Kod"].unique().tolist()))
-                    sel_a = col_f3.multiselect("📍 Adres", sorted(df_s_db["Adres"].unique().tolist()))
-                    
-                    if "Durum" in df_s_db.columns:
-                        durum_listesi = sorted(df_s_db["Durum"].astype(str).unique().tolist())
-                    else:
-                        durum_listesi = durum_opsiyonlari
-                    sel_d = col_f4.multiselect("🛠️ Durum", durum_listesi)
+            s_df = get_data("sayim"); st_df = get_data("Stok")
+            if not s_df.empty:
+                res = pd.merge(s_df.groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index(), 
+                               st_df.groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index(), on=['Adres', 'Kod'], how='left', suffixes=('_Sayım', '_Sistem')).fillna(0)
+                res['FARK'] = res['Miktar_Sayım'] - res['Miktar_Sistem']
+                st.dataframe(res.style.map(lambda v: 'color:red' if v < 0 else 'color:green' if v > 0 else '', subset=['FARK']), use_container_width=True)
+        except: st.info("Veri bekleniyor...")
 
-                # Koparma hatasına karşı güvenli filtre blokları
-                act = df_s_db.copy()
-                if f_t != "Tümü": 
-                    act = act[act["Tarih"] == f_t]
-                if sel_k: 
-                    act = act[act["Kod"].isin(sel_k)]
-                if sel_a: 
-                    act = act[act["Adres"].isin(sel_a)]
-                if sel_d: 
-                    act = act[act["Durum"].isin(sel_d)]
-
-                if not act.empty:
-                    say_ozet = act.groupby(['Adres', 'Kod', 'Ürün Adı', 'Durum'])['Miktar'].sum().reset_index()
-                    say_ozet.columns = ["Adres", "Kod", "Ürün Adı", "Durum", "Sayılan"]
-                    
-                    sis_ozet = df_stok_ana.groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index()
-                    sis_ozet.columns = ["Adres", "Kod", "Sistem"]
-                    
-                    res = pd.merge(say_ozet, sis_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
-                    res['FARK'] = res['Sayılan'] - res['Sistem']
-                    
-                    m1, m2 = st.columns(2)
-                    m1.metric("Sayılan (Filtreli)", f"{res['Sayılan'].sum():,.0f}")
-                    m2.metric("Fark", f"{res['FARK'].sum():,.0f}", delta=int(res['FARK'].sum()))
-                    
-                    def renk_ver(v):
-                        if v < 0: return 'color:red; font-weight:bold'
-                        elif v > 0: return 'color:green; font-weight:bold'
-                        return ''
-                    
-                    st.dataframe(res.style.map(renk_ver, subset=['FARK']), use_container_width=True, hide_index=True)
-                else: 
-                    st.warning("Seçilen filtrelere uygun sayım verisi bulunamadı.")
-            else: 
-                st.info("Sayım verisi bulunamadı.")
-        except Exception as e: 
-            st.error(f"Hata Oluştu: {e}")
-
-# --- 8. GENEL RAPORLAR ---
+# --- 8. RAPORLAR ---
 elif st.session_state.page == 'rapor':
-    if st.button("⬅️ ANA MENÜ"): 
-        st.session_state.page = 'home'
-        st.rerun()
-    st.title("📈 Genel Raporlar")
-    t1, t2 = st.tabs(["📋 Stok Listesi", "📜 Hareket Arşivi"])
-    with t1: 
-        st.dataframe(get_internal_data("Stok"), use_container_width=True)
-    with t2: 
-        st.dataframe(get_internal_data("Sayfa1").iloc[::-1], use_container_width=True)
+    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
+    t1, t2 = st.tabs(["📋 Güncel Stok", "📜 Hareket Arşivi"])
+    with t1: st.dataframe(get_data("Stok"), use_container_width=True)
+    with t2: st.dataframe(get_data("Sayfa1").iloc[::-1], use_container_width=True)
 
 st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
