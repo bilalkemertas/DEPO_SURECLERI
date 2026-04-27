@@ -3,23 +3,18 @@ import pandas as pd
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. SAYFA AYARLARI ---
-st.set_page_config(page_title="Depo Pro", layout="wide", page_icon="📦")
+# --- AYAR ---
+st.set_page_config(page_title="Depo Pro", layout="wide")
 
-st.markdown("""
-<style>
-#MainMenu, footer, header {display:none;}
-.block-container { padding: 0.5rem; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 2. SESSION ---
+# --- SESSION ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "page" not in st.session_state:
     st.session_state.page = "home"
+if "sayim_list" not in st.session_state:
+    st.session_state.sayim_list = []
 
-# --- 3. LOGIN ---
+# --- LOGIN ---
 if not st.session_state.logged_in:
     with st.form("login"):
         u = st.text_input("Kullanıcı")
@@ -28,16 +23,16 @@ if not st.session_state.logged_in:
             users = st.secrets["users"]
             if u.lower() in users and users[u.lower()] == p:
                 st.session_state.logged_in = True
+                st.session_state.user = u
                 st.rerun()
             else:
                 st.error("Hatalı giriş")
     st.stop()
 
-# --- 4. BAĞLANTI ---
+# --- BAĞLANTI ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_ID = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
-# --- 5. DATA OKUMA ---
 @st.cache_data(ttl=5)
 def read_data(sheet):
     try:
@@ -46,10 +41,9 @@ def read_data(sheet):
         st.error(f"{sheet} okunamadı: {e}")
         return pd.DataFrame()
 
-# --- 6. NET STOK HESAPLA ---
+# --- NET STOK ---
 def hesapla_net_stok():
-    df = read_data("Sayfa1")  # hareket tablosu
-
+    df = read_data("Sayfa1")
     if df.empty:
         return pd.DataFrame()
 
@@ -60,45 +54,92 @@ def hesapla_net_stok():
 
     net = (giris - cikis).fillna(0).reset_index()
     net.columns = ['Kod', 'Net Stok']
+    return net
 
-    return net.sort_values(by="Net Stok", ascending=False)
-
-# --- 7. NAV ---
+# --- ANA MENÜ ---
 if st.session_state.page == "home":
     st.title("📦 Depo Paneli")
 
     c1, c2 = st.columns(2)
 
     with c1:
-        if st.button("📊 Stok", use_container_width=True):
+        if st.button("📊 Stok"):
             st.session_state.page = "stok"
             st.rerun()
 
+        if st.button("📝 Sayım"):
+            st.session_state.page = "sayim"
+            st.rerun()
+
     with c2:
-        if st.button("📈 Rapor", use_container_width=True):
+        if st.button("📈 Rapor"):
             st.session_state.page = "rapor"
             st.rerun()
 
-# --- 8. STOK SAYFASI ---
+# --- STOK ---
 elif st.session_state.page == "stok":
     if st.button("⬅️ Menü"):
         st.session_state.page = "home"
         st.rerun()
 
-    st.subheader("📦 Net Stok Listesi")
+    st.subheader("📦 Net Stok")
 
-    if st.button("🔄 Hesapla / Yenile", use_container_width=True):
+    if st.button("🔄 Yenile"):
         st.cache_data.clear()
         st.rerun()
 
-    net_df = hesapla_net_stok()
+    df = hesapla_net_stok()
 
-    if not net_df.empty:
-        st.dataframe(net_df, use_container_width=True)
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
     else:
         st.warning("Veri yok")
 
-# --- 9. RAPOR ---
+# --- SAYIM ---
+elif st.session_state.page == "sayim":
+    if st.button("⬅️ Menü"):
+        st.session_state.page = "home"
+        st.rerun()
+
+    st.subheader("📝 Sayım Girişi")
+
+    kod = st.text_input("Kod")
+    miktar = st.number_input("Miktar", min_value=0.0)
+    adres = st.text_input("Adres")
+
+    if st.button("➕ Ekle"):
+        if kod and adres:
+            st.session_state.sayim_list.append({
+                "Tarih": datetime.now().strftime("%Y-%m-%d"),
+                "Kod": kod,
+                "Miktar": miktar,
+                "Adres": adres,
+                "Personel": st.session_state.user
+            })
+            st.success("Eklendi")
+        else:
+            st.warning("Eksik alan")
+
+    # liste göster
+    if st.session_state.sayim_list:
+        st.write("### Bekleyen Kayıtlar")
+        st.dataframe(pd.DataFrame(st.session_state.sayim_list))
+
+        if st.button("📤 Kaydet"):
+            df_old = read_data("sayim")
+            new_df = pd.concat([df_old, pd.DataFrame(st.session_state.sayim_list)], ignore_index=True)
+
+            conn.update(
+                spreadsheet=SHEET_ID,
+                worksheet="sayim",
+                data=new_df
+            )
+
+            st.session_state.sayim_list = []
+            st.success("Kaydedildi")
+            st.rerun()
+
+# --- RAPOR ---
 elif st.session_state.page == "rapor":
     if st.button("⬅️ Menü"):
         st.session_state.page = "home"
@@ -114,4 +155,4 @@ elif st.session_state.page == "rapor":
         st.warning("Veri yok")
 
 # --- FOOTER ---
-st.markdown("<hr><center>BRN Depo Sistemi</center>", unsafe_allow_html=True)
+st.markdown("<hr><center>Depo Sistemi</center>", unsafe_allow_html=True)
