@@ -62,34 +62,34 @@ if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("📊 STOK İŞLEMLERİ", use_container_width=True, type="primary"): st.session_state.page = 'stok'; st.rerun()
+        if st.button("📊 STOK HAREKETLERİ", use_container_width=True, type="primary"): st.session_state.page = 'stok'; st.rerun()
         if st.button("🏭 ÜRETİM HAZIRLIK", use_container_width=True, type="primary"): st.session_state.page = 'uretim'; st.rerun()
     with c2:
-        if st.button("📝 SAYIM SİSTEMİ", use_container_width=True, type="primary"): st.session_state.page = 'sayim'; st.rerun()
-        if st.button("📈 GENEL RAPORLAR", use_container_width=True, type="primary"): st.session_state.page = 'rapor'; st.rerun()
+        if st.button("📝 SAYIM EKRANLARI", use_container_width=True, type="primary"): st.session_state.page = 'sayim'; st.rerun()
+        if st.button("📈 RAPORLAR", use_container_width=True, type="primary"): st.session_state.page = 'rapor'; st.rerun()
     if st.sidebar.button("Güvenli Çıkış"): st.session_state.clear(); st.rerun()
 
 # --- 5. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
     if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
-    st.title("⚖️ Sayım ve Durum Yönetimi")
+    st.title("⚖️ Sayım İşlemleri Ekranı")
     
-    st_tab1, st_tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım & Fark Raporu"])
+    st_tab1, st_tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
     kod_map = get_kod_map()
-    durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "Kayıp", "İncelemede"]
+    durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "İncelemede"]
 
     with st_tab1:
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres").upper()
             
-            # --- İSİMDEN ARAMA BÖLÜMÜ (BURASI KESİN GÖRÜNECEK) ---
+            # --- İSİMDEN ARAMA BÖLÜMÜ
             arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True)
             
             if arama_tipi == "📦 Koda Göre":
                 s_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())))
                 st.caption(f"Ürün Adı: {kod_map.get(s_kod, 'Seçilmedi')}")
             else:
-                # İsme göre arama için haritayı tersine çeviriyoruz
+                
                 isim_map = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
                 s_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())))
                 s_kod = isim_map.get(s_isim, "")
@@ -139,7 +139,7 @@ elif st.session_state.page == 'sayim':
                         st.session_state.delete_confirm = idx
                         st.rerun()
             
-            if st.button("📤 DRIVE'A KAYDET", type="primary", use_container_width=True):
+            if st.button("📤 SAYIMI KAYDET", type="primary", use_container_width=True):
                 df_db = get_internal_data("sayim")
                 conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=pd.concat([df_db, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
                 st.session_state['gecici_sayim_listesi'] = []; st.success("Drive güncellendi!"); st.rerun()
