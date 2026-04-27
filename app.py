@@ -82,17 +82,19 @@ elif st.session_state.page == 'sayim':
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres").upper()
             
-            # --- İSİMDEN ARAMA EKLENDİ ---
-            arama_tipi = st.radio("Arama Yöntemi", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True)
+            # --- İSİMDEN ARAMA BÖLÜMÜ (BURASI KESİN GÖRÜNECEK) ---
+            arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True)
+            
             if arama_tipi == "📦 Koda Göre":
-                s_kod = st.selectbox("Kod Seçin", [""] + sorted(list(kod_map.keys())))
+                s_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())))
                 st.caption(f"Ürün Adı: {kod_map.get(s_kod, 'Seçilmedi')}")
             else:
-                isim_map = {v: k for k, v in kod_map.items()}
-                s_isim = st.selectbox("Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())))
+                # İsme göre arama için haritayı tersine çeviriyoruz
+                isim_map = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
+                s_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())))
                 s_kod = isim_map.get(s_isim, "")
                 st.caption(f"Ürün Kodu: {s_kod if s_kod else 'Seçilmedi'}")
-            # -------------------------------
+            # ----------------------------------------------------
             
             s_mik = st.number_input("Miktar", min_value=0.0, step=1.0)
             s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari)
@@ -105,7 +107,7 @@ elif st.session_state.page == 'sayim':
                         "Ürün Adı": kod_map.get(s_kod, ""), "Miktar": s_mik, "Durum": s_dur
                     })
                     st.toast("Eklendi")
-                else: st.warning("Adres ve Kod zorunludur!")
+                else: st.warning("Adres ve Ürün seçimi zorunludur!")
 
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("### 📥 Onay Bekleyenler")
@@ -151,15 +153,11 @@ elif st.session_state.page == 'sayim':
                 df_stok_ana['Miktar'] = pd.to_numeric(df_stok_ana['Miktar'], errors='coerce').fillna(0)
                 
                 with st.expander("🔍 Filtreler", expanded=True):
-                    # FİLTRELER: Her satırda 2 filtre olacak şekilde yerleştirildi
                     col_f1, col_f2 = st.columns(2)
                     col_f3, col_f4 = st.columns(2)
                     
-                    # 1. Satır Filtreleri
                     f_t = col_f1.selectbox("📅 Tarih", ["Tümü"] + sorted(df_s_db["Tarih"].astype(str).unique().tolist(), reverse=True))
                     sel_k = col_f2.multiselect("📦 Kod", sorted(df_s_db["Kod"].unique().tolist()))
-                    
-                    # 2. Satır Filtreleri
                     sel_a = col_f3.multiselect("📍 Adres", sorted(df_s_db["Adres"].unique().tolist()))
                     if "Durum" in df_s_db.columns:
                         durum_listesi = sorted(df_s_db["Durum"].astype(str).unique().tolist())
@@ -167,7 +165,6 @@ elif st.session_state.page == 'sayim':
                         durum_listesi = durum_opsiyonlari
                     sel_d = col_f4.multiselect("🛠️ Durum", durum_listesi)
 
-                # FİLTRE UYGULAMA ADIMLARI
                 act = df_s_db.copy()
                 if f_t != "Tümü": act = act[act["Tarih"] == f_t]
                 if sel_k: act = act[act["Kod"].isin(sel_k)]
