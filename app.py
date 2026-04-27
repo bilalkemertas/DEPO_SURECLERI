@@ -59,15 +59,23 @@ SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 # --- 4. YARDIMCI FONKSİYONLAR & PERFORMANS MOTORU ---
 @st.cache_data(ttl=0)
 def get_internal_data(worksheet_name):
-    df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
-    if worksheet_name == "Is_Emirleri" and not df.empty:
-        for col in ["Birim", "Mamül Kodu", "Mamül Adı"]:
-            if col not in df.columns: df[col] = "ADET" if col == "Birim" else "-"
-    return df
+    try:
+        df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
+        if worksheet_name == "Is_Emirleri" and not df.empty:
+            for col in ["Birim", "Mamül Kodu", "Mamül Adı"]:
+                if col not in df.columns: df[col] = "ADET" if col == "Birim" else "-"
+        return df
+    except:
+        return pd.DataFrame()
 
-@st.cache_data(ttl=60)
+# ÜRÜN LİSTESİNİ CATCH (ÖNBELLEĞE) ALAN VE GÜNCELLEYEN ANA FONKSİYON
+@st.cache_data(ttl=60) # 60 saniyede bir yeni malzemeleri kontrol eder
 def get_kod_map():
-    df = get_internal_data("Stok")
+    # Artık ana kaynağımız "Urun_Listesi" sekmesi
+    df = get_internal_data("Urun_Listesi")
+    if df.empty: # Eğer Urun_Listesi boşsa hata vermemesi için Stok sayfasına bak
+        df = get_internal_data("Stok")
+    
     if not df.empty:
         df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
         df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
@@ -75,13 +83,17 @@ def get_kod_map():
     return {}
 
 def get_katalog():
-    df = get_internal_data("Stok")
-    if not df.empty:
-        df['Kod'] = df['Kod'].astype(str).str.strip().str.upper()
-        df['İsim'] = df['İsim'].astype(str).str.strip().str.upper()
-        df['Arama'] = df['Kod'] + " | " + df['İsim']
-        liste = [x for x in df['Arama'].unique() if "|" in str(x) and "NAN" not in str(x)]
-        return df, sorted(liste)
+    # Katalog araması da artık catch edilen "Urun_Listesi" üzerinden çalışıyor
+    df_master = get_internal_data("Urun_Listesi")
+    if df_master.empty:
+        df_master = get_internal_data("Stok")
+        
+    if not df_master.empty:
+        df_master['Kod'] = df_master['Kod'].astype(str).str.strip().str.upper()
+        df_master['İsim'] = df_master['İsim'].astype(str).str.strip().str.upper()
+        df_master['Arama'] = df_master['Kod'] + " | " + df_master['İsim']
+        liste = [x for x in df_master['Arama'].unique() if "|" in str(x) and "NAN" not in str(x)]
+        return df_master, sorted(liste)
     return pd.DataFrame(), []
 
 def find_name_by_code(kod):
@@ -203,10 +215,12 @@ elif st.session_state.page == 'stok':
 
     with t3:
         search = st.text_input("🔍 Stok Sorgula:", key="st_sq_in").strip().upper()
-        if not stok_df_all.empty:
-            df_v = stok_df_all.copy()
+        if not katalog_list:
+            st.info("Katalog yükleniyor veya boş.")
+        else:
+            df_v, _ = get_katalog()
             if search: df_v = df_v[df_v['Kod'].str.contains(search, na=False) | df_v['İsim'].str.contains(search, na=False)]
-            st.dataframe(df_v[["Adres", "Kod", "İsim", "Miktar"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_v[["Kod", "İsim"]], use_container_width=True, hide_index=True)
 
 # --- 7. ÜRETİM HAZIRLIK ---
 elif st.session_state.page == 'uretim':
@@ -316,14 +330,14 @@ elif st.session_state.page == 'sayim':
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres", key="sayim_adr").upper()
             
-            # --- YENİ BİRLEŞTİRİLMİŞ AKILLI ARAMA ---
+            # --- AKILLI ARAMA (Urun_Listesi Catch Edildi) ---
             sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="sayim_is_s")
             k_i = sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else ""
             i_i = sec.split(" | ")[1] if sec != "+ MANUEL GİRİŞ" else ""
             
             s_kod = st.text_input("📦 Stok Kodu:", value=k_i, key="sayim_is_k").strip().upper()
             s_isim = st.text_input("📝 Stok Adı:", value=i_i if i_i else find_name_by_code(s_kod), key="sayim_is_i").strip().upper()
-            # ----------------------------------------
+            # -----------------------------------------------
             
             s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="sayim_mik")
             s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari, key="sayim_dur")
