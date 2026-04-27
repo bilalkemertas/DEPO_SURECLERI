@@ -73,15 +73,12 @@ def get_internal_data(worksheet_name):
 def get_kod_map():
     try:
         df = get_internal_data("Urun_Listesi")
-        # Eğer Urun_Listesi içinden mantıklı bir "KOD" sütunu çıkmazsa boş/hatalı demektir
         k_col_check = next((c for c in df.columns if "KOD" in str(c).upper()), None) if not df.empty else None
         
-        # Sekme boşsa veya sütun bulunamadıysa güvenli limana (Stok) dön
         if df.empty or not k_col_check:
             df = get_internal_data("Stok")
             
         if not df.empty:
-            # Sütun isimleri ne olursa olsun otomatik yakala
             k_col = next((c for c in df.columns if "KOD" in str(c).upper()), 'Kod')
             i_col = next((c for c in df.columns if any(x in str(c).upper() for x in ["AD", "İSİM", "ISIM"])), 'İsim')
             
@@ -198,10 +195,14 @@ elif st.session_state.page == 'stok':
     with t1:
         is_t = st.selectbox("İşlem:", ["GİRİŞ", "ÇIKIŞ"], key="st_is_t")
         sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="st_is_s")
-        k_i = sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else ""
-        i_i = sec.split(" | ")[1] if sec != "+ MANUEL GİRİŞ" else ""
-        kod = st.text_input("Stok Kodu:", value=k_i, key="st_is_k").strip().upper()
-        isim = st.text_input("Stok Adı:", value=i_i if i_i else find_name_by_code(kod), key="st_is_i").strip().upper()
+        is_manuel = (sec == "+ MANUEL GİRİŞ")
+        
+        k_i = sec.split(" | ")[0] if not is_manuel else ""
+        i_i = sec.split(" | ")[1] if not is_manuel else ""
+        
+        kod = st.text_input("Stok Kodu:", value=k_i, disabled=not is_manuel, key="st_is_k").strip().upper()
+        isim = st.text_input("Stok Adı:", value=i_i if i_i else find_name_by_code(kod), disabled=not is_manuel, key="st_is_i").strip().upper()
+        
         adr = st.text_input("Adres:", value="GENEL", key="st_is_a").strip().upper()
         qty = st.number_input("Miktar:", min_value=0.1, step=1.0, key="st_is_q")
         if st.button("KAYDET", use_container_width=True, type="primary", key="st_is_btn"):
@@ -216,7 +217,9 @@ elif st.session_state.page == 'stok':
         e_adr = st.text_input("Nereden:", key="st_tr_f").strip().upper()
         y_adr = st.text_input("Nereye:", key="st_tr_t").strip().upper()
         t_sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="st_tr_s")
-        t_kod = st.text_input("Ürün Kodu:", value=t_sec.split(" | ")[0] if t_sec != "+ MANUEL GİRİŞ" else "", key="st_tr_k").strip().upper()
+        t_is_manuel = (t_sec == "+ MANUEL GİRİŞ")
+        
+        t_kod = st.text_input("Ürün Kodu:", value=t_sec.split(" | ")[0] if not t_is_manuel else "", disabled=not t_is_manuel, key="st_tr_k").strip().upper()
         t_qty = st.number_input("Miktar:", min_value=0.1, step=1.0, key="st_tr_q")
         if st.button("TRANSFERİ ONAYLA", use_container_width=True, type="primary", key="st_tr_btn"):
             ok, mev = check_address_stock(t_kod, e_adr, t_qty)
@@ -346,13 +349,15 @@ elif st.session_state.page == 'sayim':
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres", key="sayim_adr").upper()
             
-            # --- AKILLI ARAMA (Urun_Listesi Catch Edildi) ---
+            # --- AKILLI ARAMA OTOMATİK DOLDURMA (GÜNCELLENDİ) ---
             sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="sayim_is_s")
-            k_i = sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else ""
-            i_i = sec.split(" | ")[1] if sec != "+ MANUEL GİRİŞ" else ""
+            is_manuel = (sec == "+ MANUEL GİRİŞ")
             
-            s_kod = st.text_input("📦 Stok Kodu:", value=k_i, key="sayim_is_k").strip().upper()
-            s_isim = st.text_input("📝 Stok Adı:", value=i_i if i_i else find_name_by_code(s_kod), key="sayim_is_i").strip().upper()
+            k_i = sec.split(" | ")[0] if not is_manuel else ""
+            i_i = sec.split(" | ")[1] if not is_manuel else ""
+            
+            s_kod = st.text_input("📦 Stok Kodu:", value=k_i, disabled=not is_manuel, key="sayim_is_k").strip().upper()
+            s_isim = st.text_input("📝 Stok Adı:", value=i_i if i_i else find_name_by_code(s_kod), disabled=not is_manuel, key="sayim_is_i").strip().upper()
             # -----------------------------------------------
             
             s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="sayim_mik")
