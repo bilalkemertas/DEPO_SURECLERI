@@ -46,16 +46,29 @@ def read_data(sheet):
 # --- NET STOK ---
 def hesapla_net_stok():
     df = read_data("Sayfa1")
+
     if df.empty:
         return pd.DataFrame()
 
+    # kolon temizleme
+    df.columns = df.columns.str.strip()
+
+    gerekli_kolonlar = ["Kod", "Miktar", "İşlem"]
+
+    for col in gerekli_kolonlar:
+        if col not in df.columns:
+            st.error(f"❌ '{col}' kolonu eksik!")
+            st.write("Mevcut kolonlar:", df.columns.tolist())
+            return pd.DataFrame()
+
     df['Miktar'] = pd.to_numeric(df['Miktar'], errors='coerce').fillna(0)
 
-    giris = df[df['Tip'] == 'Giriş'].groupby('Kod')['Miktar'].sum()
-    cikis = df[df['Tip'] == 'Çıkış'].groupby('Kod')['Miktar'].sum()
+    giris = df[df['İşlem'] == 'Giriş'].groupby('Kod')['Miktar'].sum()
+    cikis = df[df['İşlem'] == 'Çıkış'].groupby('Kod')['Miktar'].sum()
 
     net = (giris - cikis).fillna(0).reset_index()
     net.columns = ['Kod', 'Net Stok']
+
     return net
 
 # --- ANA MENÜ ---
