@@ -57,6 +57,18 @@ def get_kod_map():
     if not df.empty: return dict(zip(df['Kod'].astype(str), df['İsim'].astype(str)))
     return {}
 
+# Hareket Loglama Fonksiyonu (Stok ekranı için eklendi)
+def log_movement(islem, adres, kod, isim, miktar):
+    try:
+        log_df = get_internal_data("Sayfa1")
+        yeni_log = pd.DataFrame([{
+            "Tarih": (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M"), 
+            "İşlem": str(islem), "Adres": str(adres).upper(), "Malzeme Kodu": str(kod).upper(), 
+            "Malzeme Adı": isim, "Miktar": float(miktar), "Operatör": st.session_state.user
+        }])
+        conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([log_df, yeni_log], ignore_index=True))
+    except: pass
+
 # --- 4. ANA EKRAN (NAVİGASYON) ---
 if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
@@ -69,7 +81,85 @@ if st.session_state.page == 'home':
         if st.button("📈 RAPORLAR", use_container_width=True, type="primary"): st.session_state.page = 'rapor'; st.rerun()
     if st.sidebar.button("Güvenli Çıkış"): st.session_state.clear(); st.rerun()
 
-# --- 5. SAYIM SİSTEMİ ---
+# --- 5. STOK İŞLEMLERİ EKRANI (GERİ EKLENDİ) ---
+elif st.session_state.page == 'stok':
+    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
+    st.title("📦 Stok Giriş / Çıkış ve Transfer")
+    
+    t1, t2 = st.tabs(["🔄 Giriş / Çıkış", "🚚 Adres Transfer"])
+    kod_map = get_kod_map()
+
+    with t1:
+        with st.container(border=True):
+            adr = st.text_input("📍 Adres").upper()
+            arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True, key="stok_arama")
+            
+            if arama_tipi == "📦 Koda Göre":
+                kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())), key="stok_kod")
+                isim = kod_map.get(kod, "")
+            else:
+                isim_map = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
+                isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())), key="stok_isim")
+                kod = isim_map.get(isim, "")
+            
+            st.caption(f"Seçilen Ürün: **{kod}** - {isim}")
+            mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="stok_mik")
+            
+            col_g, col_c = st.columns(2)
+            if col_g.button("📥 GİRİŞ YAP", type="primary", use_container_width=True):
+                if adr and kod and mik > 0:
+                    log_movement("GİRİŞ", adr, kod, isim, mik)
+                    st.success("Stok Girişi Loglara Kaydedildi!"); st.rerun()
+                else: st.warning("Adres, Kod ve Miktar zorunludur!")
+            
+            if col_c.button("📤 ÇIKIŞ YAP", type="primary", use_container_width=True):
+                if adr and kod and mik > 0:
+                    log_movement("ÇIKIŞ", adr, kod, isim, mik)
+                    st.success("Stok Çıkışı Loglara Kaydedildi!"); st.rerun()
+                else: st.warning("Adres, Kod ve Miktar zorunludur!")
+
+    with t2:
+        with st.container(border=True):
+            eski_adr = st.text_input("📍 Eski Adres (Çıkış)").upper()
+            yeni_adr = st.text_input("📍 Yeni Adres (Giriş)").upper()
+            
+            arama_tipi_t = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True, key="trans_arama")
+            if arama_tipi_t == "📦 Koda Göre":
+                t_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())), key="trans_kod")
+                t_isim = kod_map.get(t_kod, "")
+            else:
+                isim_map_t = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
+                t_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map_t.keys())), key="trans_isim")
+                t_kod = isim_map_t.get(t_isim, "")
+            
+            t_mik = st.number_input("Transfer Miktarı", min_value=0.0, step=1.0, key="trans_mik")
+            
+            if st.button("🚚 TRANSFERİ GERÇEKLEŞTİR", type="primary", use_container_width=True):
+                if eski_adr and yeni_adr and t_kod and t_mik > 0:
+                    log_movement("ÇIKIŞ", eski_adr, t_kod, t_isim, t_mik)
+                    log_movement("GİRİŞ", yeni_adr, t_kod, t_isim, t_mik)
+                    st.success(f"{t_kod} ürünü {eski_adr}'den {yeni_adr}'ye transfer edildi!"); st.rerun()
+                else: st.warning("Tüm alanların doldurulması zorunludur!")
+
+# --- 6. ÜRETİM HAZIRLIK EKRANI (GERİ EKLENDİ) ---
+elif st.session_state.page == 'uretim':
+    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
+    st.title("🏭 Üretim Hazırlık")
+    st.info("💡 Üretim İş Emri Excel dosyanızı buraya yükleyerek içeriklerini görüntüleyebilirsiniz.")
+    
+    uploaded_file = st.file_uploader("📂 İş Emri Exceli / CSV Yükle", type=["xlsx", "xls", "csv"])
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith('.csv'): 
+                df_uretim = pd.read_csv(uploaded_file)
+            else: 
+                df_uretim = pd.read_excel(uploaded_file)
+            st.success(f"✅ Dosya Yüklendi: {uploaded_file.name}")
+            st.dataframe(df_uretim, use_container_width=True)
+        except Exception as e:
+            st.error(f"Dosya okuma hatası: {e}")
+
+# --- 7. SAYIM SİSTEMİ EKRANI ---
 elif st.session_state.page == 'sayim':
     if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
     st.title("⚖️ Sayım İşlemleri Ekranı")
@@ -80,24 +170,20 @@ elif st.session_state.page == 'sayim':
 
     with st_tab1:
         with st.container(border=True):
-            s_adr = st.text_input("📍 Adres").upper()
-            
-            # --- İSİMDEN ARAMA BÖLÜMÜ
-            arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True)
+            s_adr = st.text_input("📍 Adres", key="sayim_adr").upper()
+            arama_tipi = st.radio("Arama Yöntemi:", ["📦 Koda Göre", "📝 İsme Göre"], horizontal=True, key="sayim_tip")
             
             if arama_tipi == "📦 Koda Göre":
-                s_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())))
+                s_kod = st.selectbox("📦 Kod Seçin", [""] + sorted(list(kod_map.keys())), key="sayim_kod")
                 st.caption(f"Ürün Adı: {kod_map.get(s_kod, 'Seçilmedi')}")
             else:
-                
                 isim_map = {v: k for k, v in kod_map.items() if str(v).strip() != ""}
-                s_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())))
+                s_isim = st.selectbox("📝 Ürün Adı Seçin", [""] + sorted(list(isim_map.keys())), key="sayim_isim")
                 s_kod = isim_map.get(s_isim, "")
                 st.caption(f"Ürün Kodu: {s_kod if s_kod else 'Seçilmedi'}")
-            # ----------------------------------------------------
             
-            s_mik = st.number_input("Miktar", min_value=0.0, step=1.0)
-            s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari)
+            s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="sayim_mik")
+            s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari, key="sayim_dur")
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
                 if s_adr and s_kod:
@@ -124,7 +210,6 @@ elif st.session_state.page == 'sayim':
                 r_cols[3].write(str(item['Miktar']))
                 r_cols[4].write(item['Durum'])
                 
-                # GÜVENLİ SİLME
                 if st.session_state.delete_confirm == idx:
                     c_del, c_esc = r_cols[5].columns(2)
                     if c_del.button("✅", key=f"conf_{idx}"):
@@ -169,41 +254,4 @@ elif st.session_state.page == 'sayim':
                 if f_t != "Tümü": act = act[act["Tarih"] == f_t]
                 if sel_k: act = act[act["Kod"].isin(sel_k)]
                 if sel_a: act = act[act["Adres"].isin(sel_a)]
-                if sel_d: act = act[act["Durum"].isin(sel_d)]
-
-                if not act.empty:
-                    say_ozet = act.groupby(['Adres', 'Kod', 'Ürün Adı', 'Durum'])['Miktar'].sum().reset_index()
-                    say_ozet.columns = ["Adres", "Kod", "Ürün Adı", "Durum", "Sayılan"]
-                    
-                    sis_ozet = df_stok_ana.groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index()
-                    sis_ozet.columns = ["Adres", "Kod", "Sistem"]
-                    
-                    res = pd.merge(say_ozet, sis_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
-                    res['FARK'] = res['Sayılan'] - res['Sistem']
-                    
-                    m1, m2 = st.columns(2)
-                    m1.metric("Sayılan (Filtreli)", f"{res['Sayılan'].sum():,.0f}")
-                    m2.metric("Fark", f"{res['FARK'].sum():,.0f}", delta=int(res['FARK'].sum()))
-                    
-                    st.dataframe(res.style.map(lambda v: 'color:red; font-weight:bold' if v < 0 else 'color:green; font-weight:bold' if v > 0 else '', subset=['FARK']), use_container_width=True, hide_index=True)
-                else: st.warning("Seçilen filtrelere uygun sayım verisi bulunamadı.")
-            else: st.info("Sayım verisi bulunamadı.")
-        except Exception as e: st.error(f"Hata: {e}")
-
-# Diğer Ekranlar...
-elif st.session_state.page == 'stok':
-    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
-    st.subheader("📦 Stok Giriş/Çıkış")
-
-elif st.session_state.page == 'uretim':
-    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
-    st.subheader("🏭 Üretim Hazırlık")
-
-elif st.session_state.page == 'rapor':
-    if st.button("⬅️ ANA MENÜ"): st.session_state.page = 'home'; st.rerun()
-    st.subheader("📈 Genel Raporlar")
-    t1, t2 = st.tabs(["Stok Listesi", "Hareketler"])
-    with t1: st.dataframe(get_internal_data("Stok"), use_container_width=True)
-    with t2: st.dataframe(get_internal_data("Sayfa1").iloc[::-1], use_container_width=True)
-
-st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
+                if sel_d: act
