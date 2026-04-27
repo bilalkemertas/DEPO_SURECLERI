@@ -200,17 +200,23 @@ elif st.session_state.page == 'stok':
         k_i = sec.split(" | ")[0] if not is_manuel else ""
         i_i = sec.split(" | ")[1] if not is_manuel else ""
         
-        kod = st.text_input("Stok Kodu:", value=k_i, disabled=not is_manuel, key="st_is_k").strip().upper()
-        isim = st.text_input("Stok Adı:", value=i_i if i_i else find_name_by_code(kod), disabled=not is_manuel, key="st_is_i").strip().upper()
+        kod = st.text_input("Stok Kodu:", value=k_i, key="st_is_k").strip().upper()
+        isim = st.text_input("Stok Adı:", value=i_i if i_i else find_name_by_code(kod), key="st_is_i").strip().upper()
         
         adr = st.text_input("Adres:", value="GENEL", key="st_is_a").strip().upper()
         qty = st.number_input("Miktar:", min_value=0.1, step=1.0, key="st_is_q")
         if st.button("KAYDET", use_container_width=True, type="primary", key="st_is_btn"):
+            f_kod = kod if kod else k_i
+            f_isim = isim if isim else i_i
+            
+            if not f_kod: 
+                st.error("Stok Kodu zorunludur!"); st.stop()
+                
             if is_t == "ÇIKIŞ":
-                ok, mev = check_address_stock(kod, adr, qty)
+                ok, mev = check_address_stock(f_kod, adr, qty)
                 if not ok: st.error(f"Yetersiz Stok! Mevcut: {mev}"); st.stop()
-            update_stock_record(kod, isim, adr, qty, is_increase=(is_t == "GİRİŞ"))
-            log_movement(is_t, adr, kod, isim, qty)
+            update_stock_record(f_kod, f_isim, adr, qty, is_increase=(is_t == "GİRİŞ"))
+            log_movement(is_t, adr, f_kod, f_isim, qty)
             st.success("İşlem Başarılı!")
 
     with t2:
@@ -218,17 +224,23 @@ elif st.session_state.page == 'stok':
         y_adr = st.text_input("Nereye:", key="st_tr_t").strip().upper()
         t_sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="st_tr_s")
         t_is_manuel = (t_sec == "+ MANUEL GİRİŞ")
+        t_k_i = t_sec.split(" | ")[0] if not t_is_manuel else ""
         
-        t_kod = st.text_input("Ürün Kodu:", value=t_sec.split(" | ")[0] if not t_is_manuel else "", disabled=not t_is_manuel, key="st_tr_k").strip().upper()
+        t_kod = st.text_input("Ürün Kodu:", value=t_k_i, key="st_tr_k").strip().upper()
         t_qty = st.number_input("Miktar:", min_value=0.1, step=1.0, key="st_tr_q")
         if st.button("TRANSFERİ ONAYLA", use_container_width=True, type="primary", key="st_tr_btn"):
-            ok, mev = check_address_stock(t_kod, e_adr, t_qty)
+            f_t_kod = t_kod if t_kod else t_k_i
+            
+            if not f_t_kod: 
+                st.error("Ürün Kodu zorunludur!"); st.stop()
+                
+            ok, mev = check_address_stock(f_t_kod, e_adr, t_qty)
             if ok:
-                ti = find_name_by_code(t_kod)
-                update_stock_record(t_kod, ti, e_adr, t_qty, is_increase=False)
-                update_stock_record(t_kod, ti, y_adr, t_qty, is_increase=True)
-                log_movement("TRANSFER ÇIKIŞ", e_adr, t_kod, ti, t_qty)
-                log_movement("TRANSFER GİRİŞ", y_adr, t_kod, ti, t_qty)
+                ti = find_name_by_code(f_t_kod)
+                update_stock_record(f_t_kod, ti, e_adr, t_qty, is_increase=False)
+                update_stock_record(f_t_kod, ti, y_adr, t_qty, is_increase=True)
+                log_movement("TRANSFER ÇIKIŞ", e_adr, f_t_kod, ti, t_qty)
+                log_movement("TRANSFER GİRİŞ", y_adr, f_t_kod, ti, t_qty)
                 st.success("Transfer Başarılı!")
             else: st.error(f"Stok Yok! Mevcut: {mev}")
 
@@ -349,34 +361,38 @@ elif st.session_state.page == 'sayim':
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres", key="sayim_adr").upper()
             
-            # --- AKILLI ARAMA OTOMATİK DOLDURMA (GÜNCELLENDİ) ---
+            # --- AKILLI ARAMA OTOMATİK DOLDURMA (KİLİTLER KALDIRILDI) ---
             sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="sayim_is_s")
             is_manuel = (sec == "+ MANUEL GİRİŞ")
             
             k_i = sec.split(" | ")[0] if not is_manuel else ""
             i_i = sec.split(" | ")[1] if not is_manuel else ""
             
-            s_kod = st.text_input("📦 Stok Kodu:", value=k_i, disabled=not is_manuel, key="sayim_is_k").strip().upper()
-            s_isim = st.text_input("📝 Stok Adı:", value=i_i if i_i else find_name_by_code(s_kod), disabled=not is_manuel, key="sayim_is_i").strip().upper()
+            s_kod = st.text_input("📦 Stok Kodu:", value=k_i, key="sayim_is_k").strip().upper()
+            s_isim = st.text_input("📝 Stok Adı:", value=i_i if i_i else find_name_by_code(s_kod), key="sayim_is_i").strip().upper()
             # -----------------------------------------------
             
             s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="sayim_mik")
             s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari, key="sayim_dur")
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
-                if s_adr and s_kod and s_isim:
+                # Kutular boş kalsa bile listeden gelen veriyi kullanır (Zorunluluk Kalktı)
+                g_kod = s_kod if s_kod else k_i
+                g_isim = s_isim if s_isim else i_i
+                
+                if s_adr and g_kod:
                     st.session_state['gecici_sayim_listesi'].append({
                         "Tarih": datetime.now().strftime("%Y-%m-%d"),
                         "Personel": st.session_state.user, 
                         "Adres": s_adr, 
-                        "Kod": s_kod, 
-                        "Ürün Adı": s_isim, 
+                        "Kod": g_kod, 
+                        "Ürün Adı": g_isim, 
                         "Miktar": s_mik, 
                         "Durum": s_dur
                     })
                     st.toast("Eklendi")
                 else: 
-                    st.warning("Adres, Kod ve İsim alanları zorunludur!")
+                    st.warning("Adres ve Kod alanları zorunludur!")
 
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("### 📥 Onay Bekleyenler")
