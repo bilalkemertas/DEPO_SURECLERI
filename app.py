@@ -57,7 +57,8 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 # --- 4. YARDIMCI FONKSİYONLAR & PERFORMANS MOTORU ---
-@st.cache_data(ttl=0)
+# Her tuşa basıldığında API'ye gitmesini önlemek için veriyi 60 saniye önbellekte tutuyoruz.
+@st.cache_data(ttl=60)
 def get_internal_data(worksheet_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
@@ -68,7 +69,6 @@ def get_internal_data(worksheet_name):
     except:
         return pd.DataFrame()
 
-# ÜRÜN LİSTESİNİ CATCH EDEN VE AKILLI SÜTUN BULAN ANA FONKSİYON
 @st.cache_data(ttl=60)
 def get_kod_map():
     try:
@@ -88,6 +88,8 @@ def get_kod_map():
     except: pass
     return {}
 
+# Arama listesinin anında dolması ve gecikme yaşatmaması için cache'e alındı.
+@st.cache_data(ttl=60)
 def get_katalog():
     try:
         df_master = get_internal_data("Urun_Listesi")
@@ -131,7 +133,7 @@ def check_address_stock(kod, adres, miktar):
 
 def log_movement(islem, adres, kod, isim, miktar):
     try:
-        log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1", ttl=0)
+        log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1", ttl=0) # Anlık Güncel Okuma
         yeni_log = pd.DataFrame([{
             "Tarih": get_local_time(),
             "İşlem": str(islem),
@@ -150,7 +152,7 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
     adr_str = str(adres).strip().upper()
     hedef_adres = "GENEL" if adr_str == "STOK YOK" else adr_str
     
-    stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
+    stok_df = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0) # Anlık Güncel Okuma
     stok_df['Kod'] = stok_df['Kod'].astype(str).str.strip().str.upper()
     stok_df['Adres'] = stok_df['Adres'].astype(str).str.strip().str.upper()
     stok_df['Miktar'] = pd.to_numeric(stok_df['Miktar'], errors='coerce').fillna(0)
@@ -170,8 +172,10 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
     stok_df = stok_df[stok_df['Miktar'] > 0]
     conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=stok_df)
     
+    # İşlem sonrası önbelleği temizliyoruz ki arayüz anında güncellensin
     get_internal_data.clear()
     get_kod_map.clear()
+    get_katalog.clear()
     
     return hedef_adres
 
@@ -290,7 +294,7 @@ elif st.session_state.page == 'uretim':
                 df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
                 
                 if st.button(f"'{eno}' Kaydet", key="u_s_b"):
-                    old = get_internal_data("Is_Emirleri")
+                    old = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0) # Canlı Okuma
                     if not old.empty and "İş Emri" in old.columns:
                         old = old[old["İş Emri"] != eno]
                     conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
@@ -324,6 +328,7 @@ elif st.session_state.page == 'uretim':
             ed = st.data_editor(df_prep, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim"], hide_index=True, use_container_width=True, key="u_ed")
             
             if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
+                fresh_emirler = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0) # Canlı Okuma (Başkası Ezmesin Diye)
                 for idx, row in ed.iterrows():
                     fark = float(row["Hazırlanan Adet"]) - float(df_prep.loc[idx, "Hazırlanan Adet"])
                     if fark > 0:
@@ -338,13 +343,13 @@ elif st.session_state.page == 'uretim':
                         log_movement(f"{s} ÜRETİM ÇIKIŞ", adr_son, row["Stok Kodu"], row["Stok Adı"], fark)
                         
                         kalan = float(row["Hazırlanan Adet"])
-                        mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"].astype(str).str.strip().str.upper() == str(row["Stok Kodu"]).strip().upper())
-                        for i in df_emirler_master[mask].index:
-                            iht = float(df_emirler_master.at[i, "İhtiyaç Miktarı"])
+                        mask = (fresh_emirler["İş Emri"] == s) & (fresh_emirler["Stok Kodu"].astype(str).str.strip().str.upper() == str(row["Stok Kodu"]).strip().upper())
+                        for i in fresh_emirler[mask].index:
+                            iht = float(fresh_emirler.at[i, "İhtiyaç Miktarı"])
                             val = iht if kalan >= iht else kalan
-                            df_emirler_master.at[i, "Hazırlanan Adet"] = val
+                            fresh_emirler.at[i, "Hazırlanan Adet"] = val
                             kalan -= val
-                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler_master)
+                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
                 get_internal_data.clear()
                 st.success("Sanal tamamlama yapıldı ve hazırlık onaylandı!"); st.rerun()
 
@@ -355,13 +360,12 @@ elif st.session_state.page == 'sayim':
     
     st_tab1, st_tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
     durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "İncelemede"]
-    stok_df_all, katalog_list = get_katalog()
+    stok_df_all, katalog_list = get_katalog() # Önbellekten 0 gecikme ile gelir
 
     with st_tab1:
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres", key="sayim_adr").upper()
             
-            # --- AKILLI ARAMA OTOMATİK DOLDURMA (KİLİTLER KALDIRILDI) ---
             sec = st.selectbox("🔍 Ürün Seç (Kod/İsim):", ["+ MANUEL GİRİŞ"] + katalog_list, key="sayim_is_s")
             is_manuel = (sec == "+ MANUEL GİRİŞ")
             
@@ -370,13 +374,12 @@ elif st.session_state.page == 'sayim':
             
             s_kod = st.text_input("📦 Stok Kodu:", value=k_i, key="sayim_is_k").strip().upper()
             s_isim = st.text_input("📝 Stok Adı:", value=i_i if i_i else find_name_by_code(s_kod), key="sayim_is_i").strip().upper()
-            # -----------------------------------------------
             
             s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="sayim_mik")
             s_dur = st.selectbox("🛠️ Durum", durum_opsiyonlari, key="sayim_dur")
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
-                # Kutular boş kalsa bile listeden gelen veriyi kullanır (Zorunluluk Kalktı)
+                # Bu işlem sadece belleğe yazar, Google Sheets'e bağlamaz. Gecikme olmaz!
                 g_kod = s_kod if s_kod else k_i
                 g_isim = s_isim if s_isim else i_i
                 
@@ -390,12 +393,12 @@ elif st.session_state.page == 'sayim':
                         "Miktar": s_mik, 
                         "Durum": s_dur
                     })
-                    st.toast("Eklendi")
+                    st.toast("Listeye Eklendi (Lokal)")
                 else: 
                     st.warning("Adres ve Kod alanları zorunludur!")
 
         if st.session_state['gecici_sayim_listesi']:
-            st.markdown("### 📥 Onay Bekleyenler")
+            st.markdown("### 📥 Onay Bekleyenler (Kaydedilmedi)")
             h_cols = st.columns([1, 1.2, 1.5, 0.7, 1, 0.6])
             h_cols[0].write("**Adres**")
             h_cols[1].write("**Kod**")
@@ -427,13 +430,14 @@ elif st.session_state.page == 'sayim':
                         st.session_state.delete_confirm = idx
                         st.rerun()
             
-            if st.button("📤 SAYIMI KAYDET", type="primary", use_container_width=True):
-                df_db = get_internal_data("sayim")
+            if st.button("📤 SAYIMI KAYDET (Veritabanına Gönder)", type="primary", use_container_width=True):
+                # Yalnızca bu butona basıldığında Sheets'e istek atılır. Canlı okuma yapılır (Veri kaybını önler)
+                df_db = conn.read(spreadsheet=SHEET_URL, worksheet="sayim", ttl=0) 
                 yeni_sayim_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
                 conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=pd.concat([df_db, yeni_sayim_df], ignore_index=True))
                 st.session_state['gecici_sayim_listesi'] = []
                 get_internal_data.clear()
-                st.success("Drive güncellendi!")
+                st.success("Sayım Başarıyla Veritabanına Yazıldı!")
                 st.rerun()
 
     with st_tab2:
