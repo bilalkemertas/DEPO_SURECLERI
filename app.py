@@ -49,8 +49,13 @@ if not st.session_state.logged_in:
 if 'page' not in st.session_state: st.session_state.page = 'home'
 def go_home(): st.session_state.page = 'home'
 def go_stok(): st.session_state.page = 'stok'
+
+# SAYIM EKRANINA GİRERKEN KATALOĞU GÜNCELLEYEN FONKSİYON
+def go_sayim(): 
+    st.cache_data.clear() # Mevcut cache'i temizle
+    st.session_state.page = 'sayim'
+
 def go_uretim(): st.session_state.page = 'uretim'
-def go_sayim(): st.session_state.page = 'sayim'
 def go_rapor(): st.session_state.page = 'rapor'
 
 # --- 3. BAĞLANTI VE VERİ ÇEKME ---
@@ -67,7 +72,11 @@ def get_internal_data(worksheet_name):
         return pd.DataFrame()
 
 def get_katalog():
-    df = get_internal_data("Stok")
+    # Sayım ekranı için "Urun_Listesi" sekmesini bir defaya mahsus güncel çekiyoruz
+    df = get_internal_data("Urun_Listesi")
+    if df.empty: # Eğer Urun_Listesi boşsa ana Stok sekmesine bak
+        df = get_internal_data("Stok")
+    
     if not df.empty:
         df['Arama'] = df['Kod'].astype(str) + " | " + df['İsim'].astype(str)
         return sorted(df['Arama'].unique().tolist())
@@ -119,6 +128,7 @@ elif st.session_state.page == 'stok':
     st.subheader("📊 Stok Hareketleri")
     with st.container(border=True):
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
+        # Burada her ihtimale karşı ana stok kataloğu kullanılıyor
         katalog = get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         c1, c2 = st.columns(2)
@@ -140,13 +150,11 @@ elif st.session_state.page == 'uretim':
     df_stok_ana = get_internal_data("Stok")
     
     if not df_emirler.empty:
-        # FİLTRE 1: İş Emri
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
         
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
-            # FİLTRE 2: Mamül Kodu
             mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
             m_sec = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
             
@@ -154,7 +162,6 @@ elif st.session_state.page == 'uretim':
             if m_sec:
                 filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_sec)]
             
-            # Tamamlanma Yüzdesi Hesaplama
             filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                      pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
             
@@ -176,9 +183,7 @@ elif st.session_state.page == 'uretim':
                     if h_adet > 0:
                         mask = (fresh_stok['Kod'].astype(str) == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
                         if mask.any(): fresh_stok.loc[mask, 'Miktar'] -= h_adet
-                        
                         log_movement(f"{row['İş Emri']} ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
-                        
                         mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
                         fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = h_adet
 
@@ -195,7 +200,8 @@ elif st.session_state.page == 'sayim':
     with t1:
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres:").upper()
-            katalog = get_katalog()
+            # SAYIM EKRANINDA GÜNCEL Urun_Listesi ÇEKİLİYOR
+            katalog = get_katalog() 
             sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL"] + katalog)
             s_kod = st.text_input("📦 Kod:", value=sec.split(" | ")[0] if sec != "+ MANUEL" else "").upper()
             s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
@@ -236,7 +242,6 @@ elif st.session_state.page == 'sayim':
             rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left', suffixes=('_Sayilan', '_Sistem')).fillna(0)
             rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
             
-            # --- SAYIM RAPORU FİLTRELERİ (ÖZELLİKLE EKLENDİ) ---
             st.markdown("#### 🔍 Rapor Filtreleri")
             rf1, rf2, rf3 = st.columns(3)
             f_adr = rf1.text_input("📍 Adres Filtre:").upper()
