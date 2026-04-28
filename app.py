@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
@@ -176,6 +177,13 @@ def update_stock_record(kod, isim, adres, miktar, is_increase=True):
     
     return hedef_adres
 
+# --- EXCEL DÖNÜŞTÜRÜCÜ MOTORU ---
+def get_excel_buffer(df, sheet_name="Rapor"):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return output.getvalue()
+
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
@@ -210,7 +218,6 @@ elif st.session_state.page == 'stok':
             f_kod = kod if kod else k_i
             f_isim = isim if isim else i_i
             
-            # KOD ZORUNLULUĞU BURADAN DA KALDIRILDI!
             if is_t == "ÇIKIŞ":
                 ok, mev = check_address_stock(f_kod, adr, qty)
                 if not ok: st.error(f"Yetersiz Stok! Mevcut: {mev}"); st.stop()
@@ -230,7 +237,6 @@ elif st.session_state.page == 'stok':
         if st.button("TRANSFERİ ONAYLA", use_container_width=True, type="primary", key="st_tr_btn"):
             f_t_kod = t_kod if t_kod else t_k_i
             
-            # KOD ZORUNLULUĞU BURADAN DA KALDIRILDI!
             ok, mev = check_address_stock(f_t_kod, e_adr, t_qty)
             if ok:
                 ti = find_name_by_code(f_t_kod)
@@ -375,7 +381,6 @@ elif st.session_state.page == 'sayim':
                 g_kod = s_kod if s_kod else k_i
                 g_isim = s_isim if s_isim else i_i
                 
-                # --- İSİM VE KOD ZORUNLULUĞU KALKTI, SADECE ADRES YETERLİ ---
                 if s_adr:
                     st.session_state['gecici_sayim_listesi'].append({
                         "Tarih": datetime.now().strftime("%Y-%m-%d"),
@@ -485,6 +490,16 @@ elif st.session_state.page == 'sayim':
                         return ''
                     
                     st.dataframe(res.style.map(renk_ver, subset=['FARK']), use_container_width=True, hide_index=True)
+                    
+                    # YENİ EKLENEN EXCEL İNDİRME BUTONU (SAYIM RAPORU)
+                    st.download_button(
+                        label="📥 Raporu Excel Olarak İndir (.xlsx)",
+                        data=get_excel_buffer(res, "Sayim_Farki"),
+                        file_name=f"Sayim_Fark_Raporu_{f_t}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
                 else: 
                     st.warning("Seçilen filtrelere uygun sayım verisi bulunamadı.")
             else: 
@@ -497,7 +512,19 @@ elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ", key="n_r"): go_home(); st.rerun()
     st.subheader("📊 Merkezi Raporlar")
     rt1, rt2, rt3 = st.tabs(["🏠 Stok Durumu", "🏭 Hazırlık Takibi", "📜 Hareket Arşivi"])
-    with rt1: st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
+    
+    with rt1: 
+        stok_veritabani = get_internal_data("Stok")
+        st.dataframe(stok_veritabani, use_container_width=True, hide_index=True)
+        # YENİ EKLENEN EXCEL İNDİRME BUTONU (TÜM VERİTABANI)
+        st.download_button(
+            label="📥 Tüm Veritabanını Excel İndir (.xlsx)",
+            data=get_excel_buffer(stok_veritabani, "Stoklar"),
+            file_name="Guncel_Stok_Veritabani.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
     with rt2:
         df_h = get_internal_data("Is_Emirleri")
         if not df_h.empty:
@@ -517,7 +544,17 @@ elif st.session_state.page == 'rapor':
                 if secilen_mamul != "TÜMÜ":
                     detay = detay[detay['Mamül Adı'] == secilen_mamul]
                 
-                st.dataframe(detay[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]], use_container_width=True, hide_index=True)
+                gosterilecek_detay = detay[["Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]]
+                st.dataframe(gosterilecek_detay, use_container_width=True, hide_index=True)
+                
+                # YENİ EKLENEN EXCEL İNDİRME BUTONU (İŞ EMRİ)
+                st.download_button(
+                    label=f"📥 {secilen} İş Emrini Excel İndir (.xlsx)",
+                    data=get_excel_buffer(gosterilecek_detay, "Is_Emri_Detay"),
+                    file_name=f"Hazirlik_Is_Emri_{secilen}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
     
     with rt3:
         hareketler = get_internal_data("Sayfa1")
@@ -530,6 +567,17 @@ elif st.session_state.page == 'rapor':
             if fk: df_f = df_f[df_f['Malzeme Kodu'].astype(str).str.contains(fk, na=False)]
             if fi: df_f = df_f[df_f['Malzeme Adı'].astype(str).str.contains(fi, na=False)]
             if fa: df_f = df_f[df_f['Adres'].astype(str).str.contains(fa, na=False)]
-            st.dataframe(df_f.iloc[::-1], use_container_width=True, hide_index=True)
+            
+            gosterilecek_hareketler = df_f.iloc[::-1]
+            st.dataframe(gosterilecek_hareketler, use_container_width=True, hide_index=True)
+            
+            # YENİ EKLENEN EXCEL İNDİRME BUTONU (HAREKET ARŞİVİ)
+            st.download_button(
+                label="📥 Filtrelenmiş Hareketleri Excel İndir (.xlsx)",
+                data=get_excel_buffer(gosterilecek_hareketler, "Hareket_Raporu"),
+                file_name="Hareket_Gecmisi_Raporu.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
 st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
