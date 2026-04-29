@@ -264,7 +264,7 @@ elif st.session_state.page == 'sayim':
             st.warning("Kayıtlı sayım bulunamadı.")
         else:
             # SADECE SAYILANLARI BAZ ALAN REFERANS
-            pivot_sayim = df_sayim_db.groupby('Kod')['Miktar'].sum().reset_index()
+            pivot_sayim = df_sayim_db.groupby('Adres')('Kod')['Miktar'].sum().reset_index()
             pivot_sayim.columns = ['Kod', 'Sayılan']
             
             pivot_stok = df_stok.groupby('Kod')['Miktar'].sum().reset_index()
