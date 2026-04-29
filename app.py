@@ -174,14 +174,14 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # 1. Dosya adından İş Emri ismini al (Örn: DT57 NECTAR)
-                dosya_adi_is_emri = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
+                # 1. Dosya adından İş Emri ismini al (DT57 NECTAR)
+                dosya_adi = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
                 
-                # 2. Excel'i oku
+                # 2. Excel'i oku ve sütun başlıklarını temizle
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # 3. Senin Excel sütunlarını sisteme uyduruyoruz (Rename)
+                # 3. SENİN EXCEL SÜTUNLARINI SİSTEME UYARLA
                 mapping = {
                     "Ürün Kodu": "Mamül Kodu",
                     "Total": "İhtiyaç Miktarı",
@@ -191,60 +191,56 @@ elif st.session_state.page == 'uretim':
                 }
                 df_raw = df_raw.rename(columns=mapping)
                 
-                # 4. Eksik sütunları oluştur ve dosya adını İş Emri olarak ekle
-                df_raw["İş Emri"] = dosya_adi_is_emri
+                # 4. Eksik sütunları sisteme hazırla
+                df_raw["İş Emri"] = dosya_adi
                 if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
                 if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
                 
-                # 5. Kritik Sütun Kontrolü
-                required = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
-                missing = [c for c in required if c not in df_raw.columns]
+                # 5. Kritik sütun kontrolü (Rename sonrası kontrol)
+                check_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
+                missing = [c for c in check_cols if c not in df_raw.columns]
                 
                 if missing:
-                    st.error(f"Excel'de şu veriler eşleşmedi: {missing}")
+                    st.error(f"Eşleşme Hatası! Şu sütunlar bulunamadı: {missing}")
+                    st.write("Excel'inizde bulunan sütunlar:", df_raw.columns.tolist())
                 else:
                     df_raw = df_raw.dropna(subset=["Stok Kodu"])
-                    st.info(f"İş Emri: **{dosya_adi_is_emri}** | Satır Sayısı: {len(df_raw)}")
+                    st.info(f"İş Emri: {dosya_adi} | Satır: {len(df_raw)}")
                     
                     if st.button("📥 VERİLERİ SİSTEME AKTAR"):
-                        current_emirler = get_internal_data("Is_Emirleri")
-                        if not current_emirler.empty:
-                            # Aynı iş emri varsa mükerrer kaydı önlemek için eskisini temizle
-                            current_emirler = current_emirler[current_emirler["İş Emri"].astype(str) != dosya_adi_is_emri]
+                        current_db = get_internal_data("Is_Emirleri")
+                        if not current_db.empty:
+                            # Aynı iş emri varsa üzerine yazmak için temizle
+                            current_db = current_db[current_db["İş Emri"].astype(str) != dosya_adi]
                         
-                        # Drive'daki sütun sıralamasına tam uyum
+                        # Drive'daki sütun sırasına diz
                         final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                         df_final = df_raw[final_cols]
                         
-                        yeni_liste = pd.concat([current_emirler, df_final], ignore_index=True)
+                        yeni_liste = pd.concat([current_db, df_final], ignore_index=True)
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
                         st.cache_data.clear()
-                        st.success(f"{dosya_adi_is_emri} başarıyla sisteme aktarıldı!"); st.rerun()
+                        st.success(f"{dosya_adi} yüklendi!"); st.rerun()
             except Exception as e:
-                st.error(f"Excel okuma hatası: {e}")
+                st.error(f"Hata: {e}")
 
-    # --- LİSTELEME VE HAZIRLIK ONAYI ---
+    # --- LİSTELEME ---
     if not df_emirler.empty:
-        # FİLTRE 1: İş Emri Seçimi
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
         
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
-            
-            # FİLTRE 2: Mamül Kodu Filtrele
-            mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
-            m_secim = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
+            m_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
+            m_secim = st.multiselect("🏗️ Mamül Kodu Filtrele:", m_list)
             
             filtered = temp_df.copy()
             if m_secim:
                 filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_secim)]
             
-            # Sayısal dönüşümler
             filtered['İhtiyaç Miktarı'] = pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             filtered['Hazırlanan Adet'] = pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0)
             
-            # Adres Getirme Fonksiyonu
             def get_best_adr(kod):
                 if df_stok_ana.empty: return "STOK YOK"
                 res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
@@ -252,47 +248,38 @@ elif st.session_state.page == 'uretim':
             
             filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
             
-            st.markdown(f"#### 📝 Filtreli Hazırlık Listesi")
-            # Düzenlenebilir tablo: Sadece 'Hazırlanan Adet' sütununa veri girişine izin verir
+            st.markdown(f"#### 📝 Hazırlık Listesi")
             ed = st.data_editor(filtered, 
                                disabled=["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim", "Alınacak Adres"], 
-                               hide_index=True, 
-                               use_container_width=True)
+                               hide_index=True, use_container_width=True)
             
-            if st.button("✅ HAZIRLIĞI ONAYLA VE STOKTAN DÜŞ", use_container_width=True, type="primary"):
+            if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
                 fresh_stok = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
                 fresh_emirler = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
-                
-                # Veri tiplerini eşitle
-                fresh_stok['Kod'] = fresh_stok['Kod'].astype(str)
-                fresh_emirler['İş Emri'] = fresh_emirler['İş Emri'].astype(str)
-                fresh_emirler['Stok Kodu'] = fresh_emirler['Stok Kodu'].astype(str)
                 
                 for idx, row in ed.iterrows():
                     h_adet = float(row["Hazırlanan Adet"])
                     if h_adet > 0:
-                        # 1. Stoktan düşme işlemi
-                        mask = (fresh_stok['Kod'] == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
+                        # Stoktan düş
+                        mask = (fresh_stok['Kod'].astype(str) == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
                         if mask.any():
-                            yeni_mik = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0).values[0] - h_adet
-                            fresh_stok.loc[mask, 'Miktar'] = yeni_mik
+                            fresh_stok.loc[mask, 'Miktar'] = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0) - h_adet
                         
-                        # 2. Hareket Logu Yaz
-                        log_movement(f"{row['İş Emri']} ÜRETİM ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
+                        log_movement(f"{row['İş Emri']} ÜRETİM", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
                         
-                        # 3. İş Emri tablosundaki hazırlanan miktarı güncelle
-                        mask_e = (fresh_emirler["İş Emri"] == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"] == str(row["Stok Kodu"]))
+                        # Is_Emirleri miktarını güncelle
+                        mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
                         if mask_e.any():
-                            eski_hazir = pd.to_numeric(fresh_emirler.loc[mask_e, "Hazırlanan Adet"], errors='coerce').fillna(0).values[0]
-                            fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = eski_hazir + h_adet
+                            eski = pd.to_numeric(fresh_emirler.loc[mask_e, "Hazırlanan Adet"], errors='coerce').fillna(0)
+                            fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = eski + h_adet
 
-                # Google Sheets güncelleme
                 conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
                 st.cache_data.clear()
-                st.success("Hazırlık başarıyla kaydedildi ve stok güncellendi!"); st.rerun()
+                st.success("Kaydedildi!"); st.rerun()
     else:
-        st.info("Sistemde yüklü iş emri bulunamadı. Lütfen yukarıdan Excel yükleyin.")
+        st.info("İş emri bulunamadı. Lütfen Excel yükleyin.")
+        
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
