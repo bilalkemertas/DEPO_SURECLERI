@@ -170,6 +170,36 @@ elif st.session_state.page == 'uretim':
     df_emirler = get_internal_data("Is_Emirleri")
     df_stok_ana = get_internal_data("Stok")
     
+    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
+        uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
+        if uploaded_file:
+            try:
+                # Dosya adından İş Emri ismini al
+                dosya_adi_is_emri = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                df_raw["İş Emri"] = dosya_adi_is_emri
+                
+                required_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
+                missing_cols = [c for c in required_cols if c not in df_raw.columns]
+                
+                if missing_cols:
+                    st.error(f"Excel'de şu sütunlar eksik: {missing_cols}")
+                else:
+                    df_raw = df_raw.dropna(subset=["Stok Kodu"])
+                    st.info(f"Tespit Edilen İş Emri: **{dosya_adi_is_emri}**")
+                    if st.button("📥 VERİLERİ SİSTEME AKTAR"):
+                        current_emirler = get_internal_data("Is_Emirleri")
+                        if not current_emirler.empty:
+                            current_emirler = current_emirler[current_emirler["İş Emri"] != dosya_adi_is_emri]
+                        yeni_liste = pd.concat([current_emirler, df_raw], ignore_index=True)
+                        conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
+                        st.cache_data.clear()
+                        st.success(f"{dosya_adi_is_emri} yüklendi!"); st.rerun()
+            except Exception as e:
+                st.error(f"Hata: {e}")
+
+    # Veri Listeleme Kısmı
     if not df_emirler.empty:
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
@@ -177,32 +207,43 @@ elif st.session_state.page == 'uretim':
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
             mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
-            m_sec = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
+            m_secim = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
             
             filtered = temp_df.copy()
-            if m_sec:
-                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_sec)]
+            if m_secim:
+                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_secim)]
             
-            filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
-                                     pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+            filtered['İhtiyaç Miktarı'] = pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            filtered['Hazırlanan Adet'] = pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0)
             
             def get_best_adr(kod):
-                # Stok sayfasındaki başlığa göre arama yap ("Kod")
-                if 'Kod' in df_stok_ana.columns:
-                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
-                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
-                return "STOK YOK"
+                res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
+                return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
             
-            # Is_Emirleri içindeki başlığa göre işlem yap
-            s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
-            filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
+            filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
             
-            st.markdown("#### 📝 Hazırlık Detay Listesi")
-            ed = st.data_editor(filtered, hide_index=True, use_container_width=True)
+            st.markdown(f"#### 📝 Hazırlık Listesi")
+            ed = st.data_editor(filtered, disabled=["İş Emri", "Mamül Kodu", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim", "Alınacak Adres"], hide_index=True, use_container_width=True)
             
             if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
+                fresh_stok = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
+                fresh_emirler = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
+                
+                for idx, row in ed.iterrows():
+                    h_adet = float(row["Hazırlanan Adet"])
+                    if h_adet > 0:
+                        mask = (fresh_stok['Kod'].astype(str) == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
+                        if mask.any():
+                            fresh_stok.loc[mask, 'Miktar'] = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0) - h_adet
+                        
+                        log_movement(f"{row['İş Emri']} ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
+                        
+                        mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
+                        fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = h_adet
 
+                conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
+                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
+                st.success("Kaydedildi!"); st.rerun()
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
