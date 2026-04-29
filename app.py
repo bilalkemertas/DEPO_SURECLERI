@@ -136,13 +136,14 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # "hazırlık" sekmesini oku
-                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                # PATRON TALİMATI: "hazırlık" sekmesini oku
+                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="hazırlık")
                 df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
                 
-                # "total" sütununu "İhtiyaç Miktarı" yap
-                if "total" in df_uploaded_raw.columns:
-                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw["total"]
+                # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
+                total_col = [c for c in df_uploaded_raw.columns if c.lower() == 'total']
+                if total_col:
+                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw[total_col[0]]
                 
                 is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
                 df_uploaded_raw['İş Emri'] = is_emri_adi_f
