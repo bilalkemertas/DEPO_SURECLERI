@@ -213,7 +213,7 @@ elif st.session_state.page == 'uretim':
                     st.cache_data.clear()
                     st.success("Aktarım Tamamlandı!"); st.rerun()
             except Exception as e:
-                st.error(f"Cuma günü tanımlanan yapıya uymayan dosya: {e}")
+                st.error(f"Sütun İsimleri Eşleştirilemedi: {e}")
 
     # --- LİSTELEME ---
     if not df_emirler.empty:
