@@ -180,6 +180,9 @@ elif st.session_state.page == 'uretim':
                 
                 if "Mamül Kodu" in df_raw.columns:
                     df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
+
+                if "Stok Kodu" in df_raw.columns:
+                    df_raw["Stok Kodu"] = df_raw["Stok Kodu"]
                 
                 is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
                 df_raw['İş Emri'] = is_emri_adi
