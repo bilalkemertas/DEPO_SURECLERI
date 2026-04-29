@@ -65,30 +65,31 @@ SHEET_URL = st.secrets["connections"]["gsheets"]["spreadsheet"]
 def get_internal_data(worksheet_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
-        df = df.fillna("-")
-        return df
+        df.columns = df.columns.str.strip()
+        # Kodları string yapıp sonlarındaki .0'ları silerek eşleşme sorunlarını çözüyoruz
+        if 'Kod' in df.columns:
+            df['Kod'] = df['Kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
+        if 'kod' in df.columns:
+            df['kod'] = df['kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
+        return df.fillna("-")
     except:
         return pd.DataFrame()
 
 def get_katalog():
-    # Güncel Urun_Listesi sekmesini çekiyoruz
+    # 1. Öncelik: Urun_Listesi sekmesindeki "kod" ve "isim" sütunları
     df = get_internal_data("Urun_Listesi")
+    if df.empty: df = get_internal_data("ürün listesi")
+    if df.empty: df = get_internal_data("Ürün Listesi")
     
-    # Sütun isimlerini senin belirttiğin başlıklara (Malzeme Kodu, Malzeme Adı) göre kontrol ediyoruz
-    if not df.empty and 'Malzeme Kodu' in df.columns and 'Malzeme Adı' in df.columns:
-        df['Arama'] = df['Malzeme Kodu'].astype(str) + " | " + df['Malzeme Adı'].astype(str)
+    if not df.empty and 'kod' in df.columns and 'isim' in df.columns:
+        df['Arama'] = df['kod'].astype(str) + " | " + df['isim'].astype(str)
         return sorted(df['Arama'].unique().tolist())
     
-    # Eğer Urun_Listesi sekmesinde sorun varsa Stok sekmesine bak (eski başlıklar için yedek)
+    # 2. Öncelik: Stok sekmesindeki "Kod" ve "İsim" sütunları
     df_stok = get_internal_data("Stok")
-    if not df_stok.empty:
-        # Stok sekmesinde başlıklar hala 'Kod' ise onu kullanır
-        kod_col = 'Malzeme Kodu' if 'Malzeme Kodu' in df_stok.columns else 'Kod'
-        isim_col = 'Malzeme Adı' if 'Malzeme Adı' in df_stok.columns else 'İsim'
-        
-        if kod_col in df_stok.columns and isim_col in df_stok.columns:
-            df_stok['Arama'] = df_stok[kod_col].astype(str) + " | " + df_stok[isim_col].astype(str)
-            return sorted(df_stok['Arama'].unique().tolist())
+    if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
+        df_stok['Arama'] = df_stok['Kod'].astype(str) + " | " + df_stok['İsim'].astype(str)
+        return sorted(df_stok['Arama'].unique().tolist())
             
     return []
 
@@ -122,16 +123,14 @@ if st.session_state.page == 'home':
     df_ana = get_internal_data("Stok")
     m1, m2 = st.columns(2)
     
-    # Metrikler için sütun kontrolü
+    # Metrikler tam olarak "Kod" ve "Miktar" sütun isimlerine ayarlandı
     sku_count = 0
     total_stok = 0
     if not df_ana.empty:
-        k_col = 'Malzeme Kodu' if 'Malzeme Kodu' in df_ana.columns else 'Kod'
-        m_col = 'Miktar'
-        if k_col in df_ana.columns:
-            sku_count = len(df_ana[k_col].unique())
-        if m_col in df_ana.columns:
-            total_stok = pd.to_numeric(df_ana[m_col], errors='coerce').sum()
+        if 'Kod' in df_ana.columns:
+            sku_count = len(df_ana['Kod'].unique())
+        if 'Miktar' in df_ana.columns:
+            total_stok = pd.to_numeric(df_ana['Miktar'], errors='coerce').sum()
 
     m1.metric("SKU Çeşitliliği", sku_count)
     m2.metric("Toplam Stok", f"{total_stok:,.0f}")
@@ -188,10 +187,11 @@ elif st.session_state.page == 'uretim':
                                      pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
             
             def get_best_adr(kod):
-                # Stok sayfasındaki başlığa göre arama yap
-                k_col = 'Malzeme Kodu' if 'Malzeme Kodu' in df_stok_ana.columns else 'Kod'
-                res = df_stok_ana[df_stok_ana[k_col].astype(str) == str(kod)]
-                return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
+                # Stok sayfasındaki başlığa göre arama yap ("Kod")
+                if 'Kod' in df_stok_ana.columns:
+                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
+                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
+                return "STOK YOK"
             
             # Is_Emirleri içindeki başlığa göre işlem yap
             s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
@@ -215,12 +215,23 @@ elif st.session_state.page == 'sayim':
             katalog = get_katalog() 
             sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL"] + katalog)
             s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL" else "").upper()
+            
+            # İsim parçasını katalogdan çeker
+            s_isim = sec.split(" | ")[1] if sec != "+ MANUEL" and len(sec.split(" | ")) > 1 else ""
+            
             s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
             s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
             if st.button("➕ Listeye Ekle", use_container_width=True):
+                # Excel'deki "sayim" sekme başlıklarına birebir uygun formatlandı
                 st.session_state['gecici_sayim_listesi'].append({
-                    "Tarih": get_local_time(), "Personel": st.session_state.user,
-                    "Adres": s_adr, "Kod": s_kod, "Miktar": s_mik, "Durum": s_durum
+                    "Tarih": get_local_time(), 
+                    "Adres": s_adr, 
+                    "Kod": s_kod, 
+                    "Miktar": s_mik,
+                    "Birim": "-", 
+                    "Personel": st.session_state.user, 
+                    "isim": s_isim, 
+                    "Durum": s_durum
                 })
                 st.toast("Eklendi")
         
@@ -246,18 +257,44 @@ elif st.session_state.page == 'sayim':
     with t2:
         df_sayim = get_internal_data("sayim")
         df_stok = get_internal_data("Stok")
+        
+        # Ürün listesini de garantilemek için çekiyoruz
+        df_urun = get_internal_data("Urun_Listesi")
+        if df_urun.empty: df_urun = get_internal_data("ürün listesi")
+        if df_urun.empty: df_urun = get_internal_data("Ürün Listesi")
+
         if not df_sayim.empty:
-            s_ozet = df_sayim.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+            df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
+            if 'Durum' not in df_sayim.columns: df_sayim['Durum'] = "Belirtilmemiş"
             
-            # Stok sekmesindeki başlığa göre join yap
-            k_col = 'Malzeme Kodu' if 'Malzeme Kodu' in df_stok.columns else 'Kod'
-            n_col = 'Malzeme Adı' if 'Malzeme Adı' in df_stok.columns else 'İsim'
+            # Sayım sekmesi: 'Adres', 'Kod' (büyük), 'isim' (küçük) ve 'Durum'
+            s_ozet = df_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
+            s_ozet.rename(columns={'Miktar': 'Miktar_Sayilan'}, inplace=True)
             
-            st_ozet = df_stok.groupby(['Adres', k_col, n_col], sort=False)['Miktar'].sum().reset_index()
-            st_ozet.rename(columns={k_col: 'Kod', n_col: 'İsim'}, inplace=True)
+            if not df_stok.empty:
+                df_stok['Miktar'] = pd.to_numeric(df_stok['Miktar'], errors='coerce').fillna(0)
+                # Stok sekmesi: 'Adres', 'Kod', 'İsim' (büyük)
+                st_ozet = df_stok.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+                st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
+            else:
+                st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
             
-            rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left', suffixes=('_Sayilan', '_Sistem')).fillna(0)
+            # BÜYÜK/KÜÇÜK HARFE GÖRE ZIRHLANDIRILMIŞ İSİM HAVUZU (TANIMSIZ'A SON)
+            isim_sozlugu = {}
+            if not df_stok.empty and 'İsim' in df_stok.columns and 'Kod' in df_stok.columns:
+                isim_sozlugu.update(df_stok.drop_duplicates(subset=['Kod']).set_index('Kod')['İsim'].to_dict())
+            if 'isim' in df_sayim.columns and 'Kod' in df_sayim.columns:
+                isim_sozlugu.update(df_sayim.drop_duplicates(subset=['Kod']).set_index('Kod')['isim'].to_dict())
+            if not df_urun.empty and 'isim' in df_urun.columns and 'kod' in df_urun.columns:
+                isim_sozlugu.update(df_urun.drop_duplicates(subset=['kod']).set_index('kod')['isim'].to_dict())
+            
+            rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
+            
+            # İsimleri sözlükten Kod'a göre çekiyoruz
+            rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
             rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
+            
+            rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
             
             st.markdown("#### 🔍 Rapor Filtreleri")
             rf1, rf2, rf3 = st.columns(3)
