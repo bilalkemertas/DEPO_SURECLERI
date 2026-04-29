@@ -170,6 +170,13 @@ elif st.session_state.page == 'uretim':
     df_emirler = get_internal_data("Is_Emirleri")
     df_stok_ana = get_internal_data("Stok")
     
+    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
+        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
+        if uploaded_file:
+            try:
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+
     if not df_emirler.empty:
         # FİLTRE 1: İş Emri Seçimi
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
