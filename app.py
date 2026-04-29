@@ -170,13 +170,50 @@ elif st.session_state.page == 'uretim':
     df_emirler = get_internal_data("Is_Emirleri")
     df_stok_ana = get_internal_data("Stok")
     
+    # --- YENİ EXCEL YÜKLEME BÖLÜMÜ (BOZMADAN EKLENDİ) ---
+    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
+        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
+        if uploaded_file:
+            try:
+                # Cuma günkü ayar: 5 satır atla
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=5)
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                is_emri_no = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
+                
+                mapping = {
+                    "Ürün Kodu": "Mamül Kodu",
+                    "Mamül Adı": "Mamül Adı",
+                    "Stok Kodu": "Stok Kodu",
+                    "Stok Adı": "Stok Adı",
+                    "Total": "İhtiyaç Miktarı"
+                }
+                df_raw = df_raw.rename(columns=mapping)
+                df_raw["İş Emri"] = is_emri_no
+                if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
+                if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
+                
+                final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
+                df_final = df_raw[final_cols].dropna(subset=["Stok Kodu"])
+                
+                st.info(f"İş Emri: {is_emri_no} yüklenebilir.")
+                if st.button("📥 VERİLERİ SİSTEME AKTAR"):
+                    existing = get_internal_data("Is_Emirleri")
+                    if not existing.empty:
+                        existing = existing[existing["İş Emri"].astype(str) != is_emri_no]
+                    yeni_liste = pd.concat([existing, df_final], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
+                    st.cache_data.clear()
+                    st.success("Excel sisteme kaydedildi!"); st.rerun()
+            except Exception as e:
+                st.error(f"Excel hatası: {e}")
+    # ------------------------------------------------
+
     if not df_emirler.empty:
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
         
         if s_list:
             filtered = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
-            # ASLA SADELEŞTİRİLMEDİ: Detaylı kalem listesi
             df_prep = filtered.copy()
             
             # Tamamlanma Yüzdesi hesaplama (Kalem bazlı)
