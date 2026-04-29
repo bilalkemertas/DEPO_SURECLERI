@@ -71,7 +71,9 @@ def get_internal_data(worksheet_name):
             df['Kod'] = df['Kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
         if 'kod' in df.columns:
             df['kod'] = df['kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
-        return df.fillna("-")
+            
+        # DÜZELTME: Veriyi bozan fillna("") ve replace saçmalığı tamamen kaldırıldı.
+        return df
     except:
         return pd.DataFrame()
 
@@ -123,7 +125,6 @@ if st.session_state.page == 'home':
     df_ana = get_internal_data("Stok")
     m1, m2 = st.columns(2)
     
-    # Metrikler tam olarak "Kod" ve "Miktar" sütun isimlerine ayarlandı
     sku_count = 0
     total_stok = 0
     if not df_ana.empty:
@@ -153,9 +154,10 @@ elif st.session_state.page == 'stok':
         katalog = get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         
-        # DİNAMİK KİLİT MEKANİZMASI
+        # Liste okuma düzeltmesi korundu (Sadece ayrıştırma için)
         if sec != "+ MANUEL GİRİŞ":
-            val_s_kod = sec.split(" | ")[0]
+            parcalar = sec.split(" | ", 1)
+            val_s_kod = parcalar[0].strip()
         else:
             val_s_kod = ""
             
@@ -194,13 +196,11 @@ elif st.session_state.page == 'uretim':
                                      pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
             
             def get_best_adr(kod):
-                # Stok sayfasındaki başlığa göre arama yap ("Kod")
                 if 'Kod' in df_stok_ana.columns:
                     res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
                     return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
                 return "STOK YOK"
             
-            # Is_Emirleri içindeki başlığa göre işlem yap
             s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
             filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
             
@@ -222,10 +222,14 @@ elif st.session_state.page == 'sayim':
             katalog = get_katalog() 
             sec = st.selectbox("🔍 Ürün Seç:", ["+ BARKOD / MANUEL GİRİŞ"] + katalog)
             
-            # DİNAMİK KİLİT MEKANİZMASI
             if sec != "+ BARKOD / MANUEL GİRİŞ":
-                val_kod = sec.split(" | ")[0]
-                val_isim = sec.split(" | ")[1] if len(sec.split(" | ")) > 1 else ""
+                parcalar = sec.split(" | ", 1)
+                val_kod = parcalar[0].strip()
+                val_isim = parcalar[1].strip() if len(parcalar) > 1 else ""
+                
+                # Excel'deki veri cidden eksik veya nan ise, KUTUCUĞU temiz göstermek için ekran bazlı filtre (Datayı bozmaz)
+                if val_isim.lower() in ["nan", "none", "-"]: 
+                    val_isim = ""
             else:
                 val_kod, val_isim = "", ""
                 
@@ -239,24 +243,22 @@ elif st.session_state.page == 'sayim':
             s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
-                # 1. GÜVENLİK DUVARI: Sistemdeki geçerli kodların listesini oluştur
-                valid_codes = [k.split(" | ")[0].upper() for k in katalog]
+                valid_codes = [k.split(" | ", 1)[0].upper().strip() for k in katalog]
                 
                 if not s_kod:
                     st.warning("⚠️ Lütfen bir malzeme kodu giriniz!")
-                # 2. EĞER GİRİLEN KOD SİSTEMDE YOKSA RET VER!
                 elif s_kod not in valid_codes:
                     st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! Blok firesi, kapak veya sisteme açılmamış ürünlerin sayımı yapılamaz.")
                 else:
-                    # Barkod okutulup isim boş bırakılırsa diye güvenlik yedeği (Katalogdan doğru ismi bulur)
                     dogru_isim = s_isim
                     if sec == "+ BARKOD / MANUEL GİRİŞ":
                         for k in katalog:
-                            if k.split(" | ")[0].upper() == s_kod:
-                                dogru_isim = k.split(" | ")[1]
+                            k_parts = k.split(" | ", 1)
+                            if k_parts[0].upper().strip() == s_kod:
+                                dogru_isim = k_parts[1].strip() if len(k_parts) > 1 else ""
+                                if dogru_isim.lower() in ["nan", "none", "-"]: dogru_isim = ""
                                 break
                     
-                    # Excel'deki "sayim" sekme başlıklarına birebir uygun formatlandı
                     st.session_state['gecici_sayim_listesi'].append({
                         "Tarih": get_local_time(), 
                         "Adres": s_adr, 
@@ -287,7 +289,6 @@ elif st.session_state.page == 'sayim':
                 eski = get_internal_data("sayim")
                 yeni_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
                 
-                # --- SÜTUN KAYMASI VE İSİM KARIŞMASI KESİN ÇÖZÜMÜ ---
                 sutunlar = ["Tarih", "Adres", "Kod", "Miktar", "Birim", "Personel", "isim", "Durum"]
                 
                 if not eski.empty:
@@ -306,7 +307,6 @@ elif st.session_state.page == 'sayim':
         df_sayim = get_internal_data("sayim")
         df_stok = get_internal_data("Stok")
         
-        # Ürün listesini de garantilemek için çekiyoruz
         df_urun = get_internal_data("Urun_Listesi")
         if df_urun.empty: df_urun = get_internal_data("ürün listesi")
         if df_urun.empty: df_urun = get_internal_data("Ürün Listesi")
@@ -315,19 +315,16 @@ elif st.session_state.page == 'sayim':
             df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
             if 'Durum' not in df_sayim.columns: df_sayim['Durum'] = "Belirtilmemiş"
             
-            # Sayım sekmesi: 'Adres', 'Kod' (büyük), 'isim' (küçük) ve 'Durum'
             s_ozet = df_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
             s_ozet.rename(columns={'Miktar': 'Miktar_Sayilan'}, inplace=True)
             
             if not df_stok.empty:
                 df_stok['Miktar'] = pd.to_numeric(df_stok['Miktar'], errors='coerce').fillna(0)
-                # Stok sekmesi: 'Adres', 'Kod', 'İsim' (büyük)
                 st_ozet = df_stok.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
                 st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
             else:
                 st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
             
-            # BÜYÜK/KÜÇÜK HARFE GÖRE ZIRHLANDIRILMIŞ İSİM HAVUZU (TANIMSIZ'A SON)
             isim_sozlugu = {}
             if not df_stok.empty and 'İsim' in df_stok.columns and 'Kod' in df_stok.columns:
                 isim_sozlugu.update(df_stok.drop_duplicates(subset=['Kod']).set_index('Kod')['İsim'].to_dict())
@@ -337,11 +334,8 @@ elif st.session_state.page == 'sayim':
                 isim_sozlugu.update(df_urun.drop_duplicates(subset=['kod']).set_index('kod')['isim'].to_dict())
             
             rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
-            
-            # İsimleri sözlükten Kod'a göre çekiyoruz
             rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
             rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
-            
             rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
             
             st.markdown("#### 🔍 Rapor Filtreleri")
