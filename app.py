@@ -174,28 +174,53 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # Dosya adından İş Emri ismini al
+                # 1. Dosya adından İş Emri ismini al (Örn: DT57 NECTAR)
                 dosya_adi_is_emri = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
+                
+                # 2. Excel'i oku
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                
+                # 3. SENİN EXCEL SÜTUNLARINI SİSTEME UYDURUYORUZ (RENAME)
+                # Sol taraf senin Excel'deki adın, sağ taraf sistemin beklediği ad
+                mapping = {
+                    "Ürün Kodu": "Mamül Kodu",
+                    "Total": "İhtiyaç Miktarı",
+                    "Mamül Adı": "Mamül Adı",
+                    "Stok Kodu": "Stok Kodu",
+                    "Stok Adı": "Stok Adı"
+                }
+                df_raw = df_raw.rename(columns=mapping)
+                
+                # 4. Eksik sütunları oluştur (Drive'daki yapıya tam uyum için)
                 df_raw["İş Emri"] = dosya_adi_is_emri
+                if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
+                if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
                 
-                required_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
-                missing_cols = [c for c in required_cols if c not in df_raw.columns]
+                # 5. Kritik Kontrol
+                required = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
+                missing = [c for c in required if c not in df_raw.columns]
                 
-                if missing_cols:
-                    st.error(f"Excel'de şu sütunlar eksik: {missing_cols}")
+                if missing:
+                    st.error(f"Excel'de şu veriler eşleşmedi: {missing}")
+                    st.write("Mevcut Sütunların:", df_raw.columns.tolist())
                 else:
                     df_raw = df_raw.dropna(subset=["Stok Kodu"])
-                    st.info(f"Tespit Edilen İş Emri: **{dosya_adi_is_emri}**")
+                    st.info(f"İş Emri: **{dosya_adi_is_emri}** | Satır Sayısı: {len(df_raw)}")
+                    
                     if st.button("📥 VERİLERİ SİSTEME AKTAR"):
                         current_emirler = get_internal_data("Is_Emirleri")
                         if not current_emirler.empty:
                             current_emirler = current_emirler[current_emirler["İş Emri"] != dosya_adi_is_emri]
-                        yeni_liste = pd.concat([current_emirler, df_raw], ignore_index=True)
+                        
+                        # Drive'daki sütun sıralamasına göre düzenle
+                        final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
+                        df_final = df_raw[final_cols]
+                        
+                        yeni_liste = pd.concat([current_emirler, df_final], ignore_index=True)
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
                         st.cache_data.clear()
-                        st.success(f"{dosya_adi_is_emri} yüklendi!"); st.rerun()
+                        st.success("Yükleme Başarılı!"); st.rerun()
             except Exception as e:
                 st.error(f"Hata: {e}")
 
