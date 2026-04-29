@@ -44,7 +44,7 @@ def goster():
     st.markdown("---")
 
     df_emirler = veritabani.get_internal_data("Is_Emirleri")
-    df_stok_ana = veritabani.get_internal_data("Stok")
+    df_stok_ana = veritabani.get_internal_data("sayim")
     
     if not df_emirler.empty:
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
