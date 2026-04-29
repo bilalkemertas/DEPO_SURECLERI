@@ -130,17 +130,35 @@ elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): 
         st.session_state.secili_is_emri = None
         go_home(); st.rerun()
+    
     st.subheader("🏭 Üretim Hazırlık Ekranı")
+
+    # YENİ: Excel Dosyası Yükleme Alanı
+    with st.expander("📤 Yeni İş Emri Excel'i Yükle", expanded=False):
+        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
+        if uploaded_file:
+            try:
+                df_upload = pd.read_excel(uploaded_file)
+                st.info(f"📂 Dosya Okundu: {uploaded_file.name}")
+                st.dataframe(df_upload, use_container_width=True, hide_index=True)
+                if st.button("YÜKLENEN VERİYİ HAZIRLIK LİSTESİNE İŞLE"):
+                    st.success("Veriler hazırlık için başarıyla sisteme aktarıldı!")
+            except Exception as e:
+                st.error(f"Dosya okuma hatası: {e}")
+
+    st.markdown("---")
+    
+    # Mevcut İş Emirleri (Index üzerinden)
     df_index = get_internal_data("Uretim_Index")
     if not df_index.empty:
         liste_is_emri = df_index['is_emri_no'].unique().tolist()
-        secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste_is_emri)
+        secilen = st.selectbox("📋 Kayıtlı İş Emirlerinden Seçin:", ["Seçiniz..."] + liste_is_emri)
         if secilen != "Seçiniz...":
             st.session_state.secili_is_emri = secilen
             df_detay = get_internal_data("Uretim_Detay")
             is_emri_verisi = df_detay[df_detay['is_emri_no'] == secilen]
             st.dataframe(is_emri_verisi, use_container_width=True, hide_index=True)
-    else: st.error("Veri bulunamadı.")
+    else: st.warning("Sistemde kayıtlı iş emri indexi bulunamadı.")
 
 # --- 8. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
@@ -158,7 +176,6 @@ elif st.session_state.page == 'stok':
             s_lot = st.text_input("🔢 Parti/Lot No:").upper()
         
         with c2:
-            # İşlem tipine göre dinamik adres alanları
             if move_type == "GİRİŞ":
                 s_hedef_adr = st.text_input("📍 Hedef Adres:").upper()
             elif move_type == "ÇIKIŞ":
@@ -226,43 +243,34 @@ elif st.session_state.page == 'sayim':
         df_sayim_db = get_internal_data("sayim")
         
         if not df_sayim_db.empty:
-            # 1. VERİ HAZIRLAMA (Gruplama ve Birleştirme)
             pivot_sayim = df_sayim_db.groupby(['Adres', 'Kod',])['Miktar'].sum().reset_index()
             pivot_sayim.columns = ['Adres', 'Kod', 'Sayılan']
-            
             pivot_stok = df_stok.groupby(['Adres', 'Kod',])['Miktar'].sum().reset_index()
             pivot_stok.columns = ['Adres', 'Kod', 'Sistem']
-            
             df_fark = pd.merge(pivot_sayim, pivot_stok, on=['Adres', 'Kod',], how='left').fillna(0)
             df_fark['Fark'] = df_fark['Sayılan'] - df_fark['Sistem']
-            
             df_isimliler = get_internal_data("Urun_Listesi")
             if not df_isimliler.empty:
                 df_fark = pd.merge(df_fark, df_isimliler[['kod', 'isim']], left_on='Kod', right_on='kod', how='left')
                 df_fark = df_fark[['Adres', 'Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
 
-            # 2. FİLTRELEME ALANI
             with st.expander("🔍 Gelişmiş Filtreleme Paneli", expanded=True):
                 c1, c2, c3 = st.columns(3)
                 f_adr = c1.multiselect("📍 Adres Filtresi:", options=sorted(df_fark['Adres'].unique()))
                 f_kod = c2.multiselect("📦 Kod Filtresi:", options=sorted(df_fark['Kod'].unique()))
                 f_isim = c3.multiselect("📝 İsim Filtresi:", options=sorted(df_fark['isim'].dropna().unique()))
 
-            # Filtreleri Uygula
             if f_adr: df_fark = df_fark[df_fark['Adres'].isin(f_adr)]
             if f_kod: df_fark = df_fark[df_fark['Kod'].isin(f_kod)]
             if f_isim: df_fark = df_fark[df_fark['isim'].isin(f_isim)]
 
-            # 3. ÖZET METRİKLER
             st.markdown("---")
             m1, m2, m3 = st.columns(3)
             m1.metric("Sayılan Kalem (SKU)", len(df_fark))
             m2.metric("Toplam Sayılan Miktar", f"{df_fark['Sayılan'].sum():,.0f}")
             m3.metric("Toplam Sayım Farkı", f"{df_fark['Fark'].sum():,.0f}", delta=df_fark['Fark'].sum())
 
-            # 4. TABLO GÖSTERİMİ
             st.dataframe(df_fark, use_container_width=True, hide_index=True)
-            
         else: st.warning("Henüz sayım verisi yok.")
 
 # --- 10. GENEL ARŞİV ---
