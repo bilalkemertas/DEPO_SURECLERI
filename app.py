@@ -28,7 +28,6 @@ if 'gecici_sayim_listesi' not in st.session_state:
     st.session_state['gecici_sayim_listesi'] = []
 if 'delete_confirm' not in st.session_state: 
     st.session_state.delete_confirm = None
-# VERİ HAFIZASI (Drive yükünü azaltan kısım)
 if 'katalog_hafiza' not in st.session_state:
     st.session_state['katalog_hafiza'] = None
 
@@ -55,7 +54,7 @@ def go_stok(): st.session_state.page = 'stok'
 
 def go_sayim(): 
     st.cache_data.clear() 
-    st.session_state['katalog_hafiza'] = None # Sayıma girerken hafızayı sil ki Drive'dan günceli çeksin
+    st.session_state['katalog_hafiza'] = None 
     st.session_state.page = 'sayim'
 
 def go_uretim(): st.session_state.page = 'uretim'
@@ -78,8 +77,7 @@ def get_internal_data(worksheet_name):
         return pd.DataFrame()
 
 def load_katalog_to_session():
-    """Drive'a gider, veriyi çeker ve session_state içine hapseder."""
-    with st.spinner("📦 Güncel ürün listesi Sunucu'dan getiriliyor..."):
+    with st.spinner("📦 Güncel ürün listesi Drive'dan getiriliyor..."):
         df = get_internal_data("Urun_Listesi")
         if df.empty: df = get_internal_data("ürün listesi")
         if df.empty: df = get_internal_data("Ürün Listesi")
@@ -90,17 +88,14 @@ def load_katalog_to_session():
             temp_df['Arama'] = temp_df['kod'].astype(str) + " | " + temp_df['isim'].astype(str)
             final_list = sorted([str(x) for x in temp_df['Arama'].unique() if "nan" not in str(x).lower()])
         else:
-            # Fallback: Stok sekmesi
             df_stok = get_internal_data("Stok")
             if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
                 temp_stok = df_stok.dropna(subset=['Kod']).copy()
                 temp_stok['Arama'] = temp_stok['Kod'].astype(str) + " | " + temp_stok['İsim'].astype(str)
                 final_list = sorted([str(x) for x in temp_stok['Arama'].unique() if "nan" not in str(x).lower()])
-        
         st.session_state['katalog_hafiza'] = final_list
 
 def get_katalog():
-    """Hafızada varsa oradan verir, yoksa Drive'dan yükletir."""
     if st.session_state['katalog_hafiza'] is None:
         load_katalog_to_session()
     return st.session_state['katalog_hafiza']
@@ -133,7 +128,7 @@ if st.session_state.page == 'home':
 elif st.session_state.page == 'stok':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("📊 Stok Hareketleri")
-    katalog = get_katalog() # Hafızadan gelir
+    katalog = get_katalog()
     with st.container(border=True):
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
@@ -158,7 +153,7 @@ elif st.session_state.page == 'sayim':
     with t1:
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres:").upper()
-            katalog = get_katalog() # Hafızadan gelir (Sayıma girişte silindiği için Drive'dan 1 kez çekildi)
+            katalog = get_katalog() 
             sec = st.selectbox("🔍 Ürün Seç:", ["+ BARKOD / MANUEL GİRİŞ"] + katalog)
             
             if sec != "+ BARKOD / MANUEL GİRİŞ":
@@ -191,7 +186,6 @@ elif st.session_state.page == 'sayim':
                     })
                     st.toast("✅ Başarıyla Eklendi")
         
-        # --- SİLME ONAYLI GEÇİCİ LİSTE ---
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("---")
             for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
@@ -220,10 +214,45 @@ elif st.session_state.page == 'sayim':
                 st.session_state['gecici_sayim_listesi'] = []
                 st.rerun()
 
+    with t2:
+        st.markdown("#### 📊 Sayım Fark Raporu")
+        df_stok = get_internal_data("Stok")
+        df_sayim_db = get_internal_data("sayim")
+        
+        if df_sayim_db.empty:
+            st.warning("Veritabanında henüz kayıtlı bir sayım bulunamadı.")
+        else:
+            # Sayım verilerini Kod bazında topla
+            pivot_sayim = df_sayim_db.groupby('Kod')['Miktar'].sum().reset_index()
+            pivot_sayim.columns = ['Kod', 'Sayılan']
+            
+            # Stok verilerini Kod bazında topla (Sistem Stoğu)
+            pivot_stok = df_stok.groupby('Kod')['Miktar'].sum().reset_index()
+            pivot_stok.columns = ['Kod', 'Sistem']
+            
+            # İki tabloyu birleştir
+            df_fark = pd.merge(pivot_stok, pivot_sayim, on='Kod', how='outer').fillna(0)
+            df_fark['Fark'] = df_fark['Sayılan'] - df_fark['Sistem']
+            
+            # Ürün isimlerini getir
+            df_isimliler = get_internal_data("Urun_Listesi")
+            if not df_isimliler.empty:
+                df_fark = pd.merge(df_fark, df_isimliler[['kod', 'isim']], left_on='Kod', right_on='kod', how='left')
+                df_fark = df_fark[['Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
+            
+            # Metrikler
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Sayılan SKU", len(df_fark[df_fark['Sayılan'] > 0]))
+            c2.metric("Toplam Sayılan", f"{df_fark['Sayılan'].sum():,.0f}")
+            c3.metric("Toplam Fark", f"{df_fark['Fark'].sum():,.0f}", delta=df_fark['Fark'].sum())
+            
+            st.markdown("---")
+            st.dataframe(df_fark, use_container_width=True, hide_index=True)
+
 # --- 9. RAPORLAR VE ARŞİV ---
 elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
-    st.subheader("📈 Raporlar ve Arşiv")
+    st.subheader("📈 Genel Stok Arşivi")
     st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
 
 st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
