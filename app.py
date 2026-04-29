@@ -51,7 +51,7 @@ def go_home(): st.session_state.page = 'home'
 def go_stok(): st.session_state.page = 'stok'
 
 def go_sayim(): 
-    st.cache_data.clear() # Sayım ekranına girişte veriyi tazeler
+    st.cache_data.clear() 
     st.session_state.page = 'sayim'
 
 def go_uretim(): st.session_state.page = 'uretim'
@@ -66,58 +66,40 @@ def get_internal_data(worksheet_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
         df.columns = df.columns.str.strip()
-        # Kodları string yapıp sonlarındaki .0'ları silerek eşleşme sorunlarını çözüyoruz
         if 'Kod' in df.columns:
             df['Kod'] = df['Kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
         if 'kod' in df.columns:
             df['kod'] = df['kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
-            
-        # DÜZELTME: Veriyi bozan fillna("") ve replace saçmalığı tamamen kaldırıldı.
         return df
     except:
         return pd.DataFrame()
 
 def get_katalog():
-    # 1. Öncelik: Urun_Listesi sekmesindeki "kod" ve "isim" sütunları
+    # Ürün Listesi'ni kontrol et
     df = get_internal_data("Urun_Listesi")
     if df.empty: df = get_internal_data("ürün listesi")
     if df.empty: df = get_internal_data("Ürün Listesi")
     
     if not df.empty and 'kod' in df.columns and 'isim' in df.columns:
-        df['Arama'] = df['kod'].astype(str) + " | " + df['isim'].astype(str)
-        return sorted(df['Arama'].unique().tolist())
+        # KRİTİK DÜZELTME: NaN değerleri ayıklayıp sadece dolu ve string olanları birleştiriyoruz
+        # Böylece sorted() fonksiyonu karışık tip (str ve float) görmediği için çökmeyecek.
+        temp_df = df.dropna(subset=['kod']).copy()
+        temp_df['Arama'] = temp_df['kod'].astype(str) + " | " + temp_df['isim'].astype(str)
+        liste = [str(x) for x in temp_df['Arama'].unique() if "nan" not in str(x).lower()]
+        return sorted(liste)
     
-    # 2. Öncelik: Stok sekmesindeki "Kod" ve "İsim" sütunları
+    # Alternatif: Stok sekmesi
     df_stok = get_internal_data("Stok")
     if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
-        df_stok['Arama'] = df_stok['Kod'].astype(str) + " | " + df_stok['İsim'].astype(str)
-        return sorted(df_stok['Arama'].unique().tolist())
+        temp_stok = df_stok.dropna(subset=['Kod']).copy()
+        temp_stok['Arama'] = temp_stok['Kod'].astype(str) + " | " + temp_stok['İsim'].astype(str)
+        liste = [str(x) for x in temp_stok['Arama'].unique() if "nan" not in str(x).lower()]
+        return sorted(liste)
             
     return []
 
 def get_local_time():
     return (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
-
-def log_movement(islem, adres, kod, isim, miktar):
-    try:
-        log_df = conn.read(spreadsheet=SHEET_URL, worksheet="Sayfa1", ttl=0)
-        yeni_log = pd.DataFrame([{
-            "Tarih": get_local_time(),
-            "İşlem": str(islem),
-            "Adres": str(adres).upper(),
-            "Malzeme Kodu": str(kod).upper(),
-            "Malzeme Adı": str(isim).upper(),
-            "Miktar": float(miktar),
-            "Operatör": st.session_state.user
-        }])
-        conn.update(spreadsheet=SHEET_URL, worksheet="Sayfa1", data=pd.concat([log_df, yeni_log], ignore_index=True))
-    except: pass
-
-def get_excel_buffer(df, sheet_name="Rapor"):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name=sheet_name)
-    return output.getvalue()
 
 # --- 5. ANA EKRAN ---
 if st.session_state.page == 'home':
@@ -154,7 +136,6 @@ elif st.session_state.page == 'stok':
         katalog = get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         
-        # Liste okuma düzeltmesi korundu (Sadece ayrıştırma için)
         if sec != "+ MANUEL GİRİŞ":
             parcalar = sec.split(" | ", 1)
             val_s_kod = parcalar[0].strip()
@@ -172,44 +153,6 @@ elif st.session_state.page == 'stok':
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success("Kayıt Başarılı!")
 
-# --- 7. ÜRETİM HAZIRLIK ---
-elif st.session_state.page == 'uretim':
-    if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
-    st.subheader("🏭 Üretim Hazırlık")
-    df_emirler = get_internal_data("Is_Emirleri")
-    df_stok_ana = get_internal_data("Stok")
-    
-    if not df_emirler.empty:
-        emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
-        s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
-        
-        if s_list:
-            temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
-            mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
-            m_sec = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
-            
-            filtered = temp_df.copy()
-            if m_sec:
-                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_sec)]
-            
-            filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
-                                     pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
-            
-            def get_best_adr(kod):
-                if 'Kod' in df_stok_ana.columns:
-                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
-                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
-                return "STOK YOK"
-            
-            s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
-            filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
-            
-            st.markdown("#### 📝 Hazırlık Detay Listesi")
-            ed = st.data_editor(filtered, hide_index=True, use_container_width=True)
-            
-            if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
-
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
@@ -226,10 +169,7 @@ elif st.session_state.page == 'sayim':
                 parcalar = sec.split(" | ", 1)
                 val_kod = parcalar[0].strip()
                 val_isim = parcalar[1].strip() if len(parcalar) > 1 else ""
-                
-                # Excel'deki veri cidden eksik veya nan ise, KUTUCUĞU temiz göstermek için ekran bazlı filtre (Datayı bozmaz)
-                if val_isim.lower() in ["nan", "none", "-"]: 
-                    val_isim = ""
+                if val_isim.lower() in ["nan", "none", "-"]: val_isim = ""
             else:
                 val_kod, val_isim = "", ""
                 
@@ -244,143 +184,29 @@ elif st.session_state.page == 'sayim':
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
                 valid_codes = [k.split(" | ", 1)[0].upper().strip() for k in katalog]
-                
                 if not s_kod:
                     st.warning("⚠️ Lütfen bir malzeme kodu giriniz!")
                 elif s_kod not in valid_codes:
-                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! Blok firesi, kapak veya sisteme açılmamış ürünlerin sayımı yapılamaz.")
+                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil!")
                 else:
-                    dogru_isim = s_isim
-                    if sec == "+ BARKOD / MANUEL GİRİŞ":
-                        for k in katalog:
-                            k_parts = k.split(" | ", 1)
-                            if k_parts[0].upper().strip() == s_kod:
-                                dogru_isim = k_parts[1].strip() if len(k_parts) > 1 else ""
-                                if dogru_isim.lower() in ["nan", "none", "-"]: dogru_isim = ""
-                                break
-                    
                     st.session_state['gecici_sayim_listesi'].append({
-                        "Tarih": get_local_time(), 
-                        "Adres": s_adr, 
-                        "Kod": s_kod, 
-                        "Miktar": s_mik,
-                        "Birim": "-", 
-                        "Personel": st.session_state.user, 
-                        "isim": dogru_isim, 
-                        "Durum": s_durum
+                        "Tarih": get_local_time(), "Adres": s_adr, "Kod": s_kod, 
+                        "Miktar": s_mik, "Birim": "-", "Personel": st.session_state.user, 
+                        "isim": s_isim, "Durum": s_durum
                     })
                     st.toast("✅ Başarıyla Eklendi")
         
         if st.session_state['gecici_sayim_listesi']:
             for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                 cols = st.columns([3, 1])
-                cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']} ({item['Durum']})")
-                if st.session_state.delete_confirm == idx:
-                    c_del, c_esc = cols[1].columns(2)
-                    if c_del.button("✅", key=f"conf_{idx}"):
-                        st.session_state['gecici_sayim_listesi'].pop(idx); st.session_state.delete_confirm = None; st.rerun()
-                    if c_esc.button("❌", key=f"esc_{idx}"):
-                        st.session_state.delete_confirm = None; st.rerun()
-                else:
-                    if cols[1].button("🗑️", key=f"del_{idx}"):
-                        st.session_state.delete_confirm = idx; st.rerun()
-            
-            if st.button("📤 VERİTABANINA GÖNDER", type="primary", use_container_width=True):
-                eski = get_internal_data("sayim")
-                yeni_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
-                
-                sutunlar = ["Tarih", "Adres", "Kod", "Miktar", "Birim", "Personel", "isim", "Durum"]
-                
-                if not eski.empty:
-                    for col in sutunlar:
-                        if col not in eski.columns:
-                            eski[col] = "-"
-                    eski = eski[sutunlar] 
-                    guncel_df = pd.concat([eski, yeni_df], ignore_index=True)
-                else:
-                    guncel_df = yeni_df[sutunlar]
-                
-                conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=guncel_df)
-                st.session_state['gecici_sayim_listesi'] = []; st.rerun()
-
-    with t2:
-        df_sayim = get_internal_data("sayim")
-        df_stok = get_internal_data("Stok")
-        
-        df_urun = get_internal_data("Urun_Listesi")
-        if df_urun.empty: df_urun = get_internal_data("ürün listesi")
-        if df_urun.empty: df_urun = get_internal_data("Ürün Listesi")
-
-        if not df_sayim.empty:
-            df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
-            if 'Durum' not in df_sayim.columns: df_sayim['Durum'] = "Belirtilmemiş"
-            
-            s_ozet = df_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
-            s_ozet.rename(columns={'Miktar': 'Miktar_Sayilan'}, inplace=True)
-            
-            if not df_stok.empty:
-                df_stok['Miktar'] = pd.to_numeric(df_stok['Miktar'], errors='coerce').fillna(0)
-                st_ozet = df_stok.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
-                st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
-            else:
-                st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
-            
-            isim_sozlugu = {}
-            if not df_stok.empty and 'İsim' in df_stok.columns and 'Kod' in df_stok.columns:
-                isim_sozlugu.update(df_stok.drop_duplicates(subset=['Kod']).set_index('Kod')['İsim'].to_dict())
-            if 'isim' in df_sayim.columns and 'Kod' in df_sayim.columns:
-                isim_sozlugu.update(df_sayim.drop_duplicates(subset=['Kod']).set_index('Kod')['isim'].to_dict())
-            if not df_urun.empty and 'isim' in df_urun.columns and 'kod' in df_urun.columns:
-                isim_sozlugu.update(df_urun.drop_duplicates(subset=['kod']).set_index('kod')['isim'].to_dict())
-            
-            rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
-            rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
-            rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
-            rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
-            
-            st.markdown("#### 🔍 Rapor Filtreleri")
-            rf1, rf2, rf3 = st.columns(3)
-            f_adr = rf1.text_input("📍 Adres Filtre:").upper()
-            f_kod = rf2.text_input("📦 Kod Filtre:").upper()
-            f_isim = rf3.text_input("📝 İsim Filtre:").upper()
-            
-            if f_adr: rapor = rapor[rapor['Adres'].astype(str).str.contains(f_adr)]
-            if f_kod: rapor = rapor[rapor['Kod'].astype(str).str.contains(f_kod)]
-            if f_isim: rapor = rapor[rapor['İsim'].astype(str).str.contains(f_isim, case=False)]
-            
-            m1, m2 = st.columns(2)
-            m1.metric("Toplam Sayılan", f"{rapor['Miktar_Sayilan'].sum():,.0f}")
-            m2.metric("Toplam Fark", f"{rapor['FARK'].sum():,.0f}")
-            
-            def color_diff(val): return f'color: {"red" if val < 0 else "green" if val > 0 else "black"}; font-weight: bold'
-            st.dataframe(rapor.style.map(color_diff, subset=['FARK']), use_container_width=True, hide_index=True)
+                cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']}")
+                if cols[1].button("🗑️", key=f"del_{idx}"):
+                    st.session_state['gecici_sayim_listesi'].pop(idx); st.rerun()
 
 # --- 9. RAPORLAR VE ARŞİV ---
 elif st.session_state.page == 'rapor':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("📈 Raporlar ve Arşiv")
-    rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazırlık Raporu", "📜 Hareket Arşivi"])
-    
-    with rt1: st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
-    with rt2:
-        df_h = get_internal_data("Is_Emirleri").copy()
-        if not df_h.empty:
-            r_emir_list = sorted(df_h["İş Emri"].astype(str).unique().tolist())
-            r_emir = st.multiselect("📋 İş Emri Filtrele:", r_emir_list, key="r_emir")
-            r_df = df_h.copy()
-            if r_emir:
-                r_df = r_df[r_df["İş Emri"].astype(str).isin(r_emir)]
-            st.dataframe(r_df, use_container_width=True, hide_index=True)
-            
-    with rt3:
-        hareketler = get_internal_data("Sayfa1")
-        if not hareketler.empty:
-            f1, f2, f3 = st.columns(3)
-            f_tar, f_kod, f_isi = f1.text_input("📅 Tarih:"), f2.text_input("📦 Kod:"), f3.text_input("📝 İsim:")
-            df_f = hareketler.copy()
-            if f_tar: df_f = df_f[df_f['Tarih'].astype(str).str.contains(f_tar)]
-            if f_kod: df_f = df_f[df_f['Malzeme Kodu'].astype(str).str.contains(f_kod, case=False)]
-            if f_isi: df_f = df_f[df_f['Malzeme Adı'].astype(str).str.contains(f_isi, case=False)]
-            st.dataframe(df_f.iloc[::-1], use_container_width=True, hide_index=True)
+    st.dataframe(get_internal_data("Stok"), use_container_width=True, hide_index=True)
 
 st.markdown("<br><hr><center>BRN SLEEP PRODUCTS - BİLAL KEMERTAŞ</center>", unsafe_allow_html=True)
