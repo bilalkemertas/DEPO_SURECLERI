@@ -264,7 +264,7 @@ elif st.session_state.page == 'sayim':
             st.warning("Kayıtlı sayım bulunamadı.")
         else:
             # SADECE SAYILANLARI BAZ ALAN REFERANS
-            pivot_sayim = df_sayim_db.groupby['Adres']('Kod')['Miktar'].sum().reset_index()
+            pivot_sayim = df_sayim_db.groupby('Kod')['Miktar'].sum().reset_index()
             pivot_sayim.columns = ['Kod', 'Sayılan']
             
             pivot_stok = df_stok.groupby('Kod')['Miktar'].sum().reset_index()
@@ -277,7 +277,7 @@ elif st.session_state.page == 'sayim':
             df_isimliler = get_internal_data("Urun_Listesi")
             if not df_isimliler.empty:
                 df_fark = pd.merge(df_fark, df_isimliler[['kod', 'isim']], left_on='Kod', right_on='kod', how='left')
-                df_fark = df_fark[['Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
+                df_fark = df_fark[['Adres', 'Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
             
             c1, c2, c3 = st.columns(3)
             c1.metric("Sayılan SKU", len(df_fark))
