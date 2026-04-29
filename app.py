@@ -174,14 +174,25 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # 1. Dosya adından İş Emri ismini al (DT57 NECTAR)
+                # 1. Dosya adından İş Emri ismini al
                 dosya_adi = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
                 
-                # 2. Excel'i oku ve sütun başlıklarını temizle
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                # 2. Excel'i oku (Header'ı henüz belirlemiyoruz)
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
+                
+                # 3. AKILLI BAŞLIK BULUCU: "Stok Kodu" veya "Ürün Kodu" geçen satırı bul
+                header_row = 0
+                for i, row in df_raw.iterrows():
+                    row_values = [str(val).strip() for val in row.values]
+                    if "Stok Kodu" in row_values or "Ürün Kodu" in row_values:
+                        header_row = i
+                        break
+                
+                # Başlık satırını bulduk, tabloyu oradan itibaren tekrar oku
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=header_row)
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # 3. SENİN EXCEL SÜTUNLARINI SİSTEME UYARLA
+                # 4. SÜTUN EŞLEŞTİRME
                 mapping = {
                     "Ürün Kodu": "Mamül Kodu",
                     "Total": "İhtiyaç Miktarı",
@@ -191,36 +202,34 @@ elif st.session_state.page == 'uretim':
                 }
                 df_raw = df_raw.rename(columns=mapping)
                 
-                # 4. Eksik sütunları sisteme hazırla
+                # 5. Eksik verileri tamamla
                 df_raw["İş Emri"] = dosya_adi
                 if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
                 if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
                 
-                # 5. Kritik sütun kontrolü (Rename sonrası kontrol)
+                # 6. Kontrol
                 check_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
                 missing = [c for c in check_cols if c not in df_raw.columns]
                 
                 if missing:
-                    st.error(f"Eşleşme Hatası! Şu sütunlar bulunamadı: {missing}")
-                    st.write("Excel'inizde bulunan sütunlar:", df_raw.columns.tolist())
+                    st.error(f"Başlıklar Bulunamadı! Eksik: {missing}")
+                    st.write("Okunan Başlıklar:", df_raw.columns.tolist())
                 else:
                     df_raw = df_raw.dropna(subset=["Stok Kodu"])
-                    st.info(f"İş Emri: {dosya_adi} | Satır: {len(df_raw)}")
+                    st.info(f"✅ Başlıklar 5. satırda bulundu! İş Emri: {dosya_adi}")
                     
                     if st.button("📥 VERİLERİ SİSTEME AKTAR"):
                         current_db = get_internal_data("Is_Emirleri")
                         if not current_db.empty:
-                            # Aynı iş emri varsa üzerine yazmak için temizle
                             current_db = current_db[current_db["İş Emri"].astype(str) != dosya_adi]
                         
-                        # Drive'daki sütun sırasına diz
                         final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                         df_final = df_raw[final_cols]
                         
                         yeni_liste = pd.concat([current_db, df_final], ignore_index=True)
                         conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
                         st.cache_data.clear()
-                        st.success(f"{dosya_adi} yüklendi!"); st.rerun()
+                        st.success(f"Başarıyla yüklendi!"); st.rerun()
             except Exception as e:
                 st.error(f"Hata: {e}")
 
@@ -260,14 +269,12 @@ elif st.session_state.page == 'uretim':
                 for idx, row in ed.iterrows():
                     h_adet = float(row["Hazırlanan Adet"])
                     if h_adet > 0:
-                        # Stoktan düş
                         mask = (fresh_stok['Kod'].astype(str) == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
                         if mask.any():
                             fresh_stok.loc[mask, 'Miktar'] = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0) - h_adet
                         
                         log_movement(f"{row['İş Emri']} ÜRETİM", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
                         
-                        # Is_Emirleri miktarını güncelle
                         mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
                         if mask_e.any():
                             eski = pd.to_numeric(fresh_emirler.loc[mask_e, "Hazırlanan Adet"], errors='coerce').fillna(0)
@@ -276,9 +283,9 @@ elif st.session_state.page == 'uretim':
                 conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
                 st.cache_data.clear()
-                st.success("Kaydedildi!"); st.rerun()
+                st.success("İşlem Başarılı!"); st.rerun()
     else:
-        st.info("İş emri bulunamadı. Lütfen Excel yükleyin.")
+        st.info("İş emri bulunamadı.")
         
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
