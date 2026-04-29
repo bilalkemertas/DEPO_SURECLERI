@@ -233,7 +233,7 @@ elif st.session_state.page == 'sayim':
                     st.warning("⚠️ Lütfen bir malzeme kodu giriniz!")
                 # 2. EĞER GİRİLEN KOD SİSTEMDE YOKSA RET VER!
                 elif s_kod not in valid_codes:
-                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! Blok firesi, kapak veya sisteme açılmamış ürünlerin sayımı yapılamaz.")
+                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! sistemde tanımı olmayan ürünlerin sayımı yapılamaz.")
                 else:
                     # Barkod okutulup isim boş bırakılırsa diye güvenlik yedeği (Katalogdan doğru ismi bulur)
                     dogru_isim = s_isim
