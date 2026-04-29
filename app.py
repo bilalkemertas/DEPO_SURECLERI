@@ -133,7 +133,6 @@ elif st.session_state.page == 'uretim':
     
     st.subheader("🏭 Üretim Hazırlık Ekranı")
 
-    # YENİ: Excel Dosyası Yükleme Alanı
     with st.expander("📤 Yeni İş Emri Excel'i Yükle", expanded=False):
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
@@ -148,17 +147,46 @@ elif st.session_state.page == 'uretim':
 
     st.markdown("---")
     
-    # Mevcut İş Emirleri (Index üzerinden)
     df_index = get_internal_data("Uretim_Index")
     if not df_index.empty:
         liste_is_emri = df_index['is_emri_no'].unique().tolist()
-        secilen = st.selectbox("📋 Kayıtlı İş Emirlerinden Seçin:", ["Seçiniz..."] + liste_is_emri)
+        secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste_is_emri)
+        
         if secilen != "Seçiniz...":
             st.session_state.secili_is_emri = secilen
             df_detay = get_internal_data("Uretim_Detay")
-            is_emri_verisi = df_detay[df_detay['is_emri_no'] == secilen]
-            st.dataframe(is_emri_verisi, use_container_width=True, hide_index=True)
-    else: st.warning("Sistemde kayıtlı iş emri indexi bulunamadı.")
+            is_emri_verisi = df_detay[df_detay['is_emri_no'] == secilen].copy()
+            
+            if not is_emri_verisi.empty:
+                st.markdown(f"#### 🛠️ {secilen} Nolu İş Emri Toplama Listesi")
+                
+                # SADECE GEREKLİ SÜTUNLARI FİLTRELE
+                hazirlik_df = is_emri_verisi[['urun_kodu', 'urun_adi', 'ihtiyac', 'hazirlanan']].copy()
+                
+                # PERSONEL GİRİŞ TABLOSU (Editör)
+                edited_df = st.data_editor(
+                    hazirlik_df,
+                    column_config={
+                        "urun_kodu": st.column_config.TextColumn("Hammadde Kodu", disabled=True),
+                        "urun_adi": st.column_config.TextColumn("Hammadde Adı", disabled=True),
+                        "ihtiyac": st.column_config.NumberColumn("İhtiyaç Miktarı", disabled=True),
+                        "hazirlanan": st.column_config.NumberColumn(
+                            "Toplanan Miktar",
+                            help="Topladığınız miktarı buraya giriniz.",
+                            min_value=0,
+                            required=True
+                        )
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                    key="pre_prod_editor"
+                )
+                
+                if st.button("TOPlANAN MİKTARLARI KAYDET", use_container_width=True, type="primary"):
+                    st.success("Hazırlık miktarları başarıyla kaydedildi! (Simülasyon)")
+            else:
+                st.warning("Bu iş emrine ait detay bulunamadı.")
+    else: st.warning("Sistemde kayıtlı iş emri bulunamadı.")
 
 # --- 8. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
@@ -216,7 +244,6 @@ elif st.session_state.page == 'sayim':
                 })
                 st.toast("✅ Eklendi")
         
-        # ONAYLI SİLME
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("---")
             for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
