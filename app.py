@@ -215,14 +215,13 @@ elif st.session_state.page == 'sayim':
         df_sayim_db = get_internal_data("sayim")
         
         if not df_sayim_db.empty:
-            # ADRES BAZLI GRUPLAMA (Kritik Düzeltme)
+            # 1. VERİ HAZIRLAMA (Gruplama ve Birleştirme)
             pivot_sayim = df_sayim_db.groupby(['Adres', 'Kod',])['Miktar'].sum().reset_index()
             pivot_sayim.columns = ['Adres', 'Kod', 'Sayılan']
             
             pivot_stok = df_stok.groupby(['Adres', 'Kod',])['Miktar'].sum().reset_index()
             pivot_stok.columns = ['Adres', 'Kod', 'Sistem']
             
-            # Sadece sayılanları ve ilgili adreslerini getir
             df_fark = pd.merge(pivot_sayim, pivot_stok, on=['Adres', 'Kod',], how='left').fillna(0)
             df_fark['Fark'] = df_fark['Sayılan'] - df_fark['Sistem']
             
@@ -230,8 +229,29 @@ elif st.session_state.page == 'sayim':
             if not df_isimliler.empty:
                 df_fark = pd.merge(df_fark, df_isimliler[['kod', 'isim']], left_on='Kod', right_on='kod', how='left')
                 df_fark = df_fark[['Adres', 'Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
-            
+
+            # 2. FİLTRELEME ALANI
+            with st.expander("🔍 Gelişmiş Filtreleme Paneli", expanded=True):
+                c1, c2, c3 = st.columns(3)
+                f_adr = c1.multiselect("📍 Adres Filtresi:", options=sorted(df_fark['Adres'].unique()))
+                f_kod = c2.multiselect("📦 Kod Filtresi:", options=sorted(df_fark['Kod'].unique()))
+                f_isim = c3.multiselect("📝 İsim Filtresi:", options=sorted(df_fark['isim'].dropna().unique()))
+
+            # Filtreleri Uygula
+            if f_adr: df_fark = df_fark[df_fark['Adres'].isin(f_adr)]
+            if f_kod: df_fark = df_fark[df_fark['Kod'].isin(f_kod)]
+            if f_isim: df_fark = df_fark[df_fark['isim'].isin(f_isim)]
+
+            # 3. ÖZET METRİKLER
+            st.markdown("---")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Sayılan Kalem (SKU)", len(df_fark))
+            m2.metric("Toplam Sayılan Miktar", f"{df_fark['Sayılan'].sum():,.0f}")
+            m3.metric("Toplam Sayım Farkı", f"{df_fark['Fark'].sum():,.0f}", delta=df_fark['Fark'].sum())
+
+            # 4. TABLO GÖSTERİMİ
             st.dataframe(df_fark, use_container_width=True, hide_index=True)
+            
         else: st.warning("Henüz sayım verisi yok.")
 
 # --- 10. GENEL ARŞİV ---
