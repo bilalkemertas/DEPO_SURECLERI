@@ -163,7 +163,7 @@ elif st.session_state.page == 'stok':
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success("Kayıt Başarılı!")
 
-# --- 7. ÜRETİM HAZIRLIK (ÇİFT FİLTRE: İŞ EMRİ + MAMÜL KODU) ---
+# --- 7. ÜRETİM HAZIRLIK ---
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
@@ -171,37 +171,43 @@ elif st.session_state.page == 'uretim':
     df_stok_ana = get_internal_data("Stok")
     
     with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
-        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
+        uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
+                # 1. Excel'i oku
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
-                # Buraya yükleme mantığı eklenebilir
+                
+                # 2. Gereksiz boş satırları temizle
+                df_raw = df_raw.dropna(subset=["İş Emri", "Stok Kodu"])
+                
+                if st.button("📥 VERİLERİ SİSTEME AKTAR"):
+                    # 3. Veritabanını güncelle (Eskisinin üzerine yazar veya pd.concat ile ekleyebilirsin)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_raw)
+                    st.success("Yeni iş emirleri başarıyla yüklendi!")
+                    st.cache_data.clear() # Önbelleği temizle ki yeni veri gelsin
+                    st.rerun()
+                    
             except Exception as e:
-                st.error(f"Dosya okuma hatası: {e}")
+                st.error(f"Hata oluştu: {e}. Lütfen Excel sayfa adının 'HAZIRLIK' olduğundan emin olun.")
 
-    # Hatanın çözüldüğü yer: Try bloğunun dışı
+    # Veri varsa listeleme kısmına geç
     if not df_emirler.empty:
-        # FİLTRE 1: İş Emri Seçimi
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
         
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
-            
-            # FİLTRE 2: Mamül Kodu Seçimi (Sadece seçilen iş emrindeki mamüller)
             mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
             m_secim = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
             
-            # Filtreleme Uygula
             filtered = temp_df.copy()
             if m_secim:
                 filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_secim)]
             
-            # Tamamlanma ve Adres Hesaplamaları
+            # Hesaplamalar
             filtered['İhtiyaç Miktarı'] = pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             filtered['Hazırlanan Adet'] = pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0)
-            filtered['Doluluk %'] = (filtered['Hazırlanan Adet'] / filtered['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
             
             def get_best_adr(kod):
                 res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
@@ -210,9 +216,10 @@ elif st.session_state.page == 'uretim':
             filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
             
             st.markdown(f"#### 📝 Filtreli Hazırlık Listesi")
-            ed = st.data_editor(filtered, disabled=["İş Emri", "Mamül Kodu", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim", "Doluluk %", "Alınacak Adres"], hide_index=True, use_container_width=True)
+            ed = st.data_editor(filtered, disabled=["İş Emri", "Mamül Kodu", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim", "Alınacak Adres"], hide_index=True, use_container_width=True)
             
             if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
+                # Kayıt işlemleri (Önceki kodun devamı)
                 fresh_stok = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
                 fresh_emirler = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
                 
@@ -223,7 +230,7 @@ elif st.session_state.page == 'uretim':
                         if mask.any():
                             fresh_stok.loc[mask, 'Miktar'] = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0) - h_adet
                         
-                        log_movement(f"{row['İş Emri']} - {row['Mamül Kodu']} ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
+                        log_movement(f"{row['İş Emri']} ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
                         
                         mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
                         fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = h_adet
@@ -231,6 +238,8 @@ elif st.session_state.page == 'uretim':
                 conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
                 st.success("İşlemler Kaydedildi!"); st.rerun()
+    else:
+        st.info("Sistemde yüklü iş emri bulunamadı. Lütfen yukarıdan dosya yükleyin.")
 
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
