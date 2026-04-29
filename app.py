@@ -216,14 +216,14 @@ elif st.session_state.page == 'sayim':
         
         if not df_sayim_db.empty:
             # ADRES BAZLI GRUPLAMA (Kritik Düzeltme)
-            pivot_sayim = df_sayim_db.groupby(['Kod', 'Adres'])['Miktar'].sum().reset_index()
-            pivot_sayim.columns = ['Kod', 'Adres', 'Sayılan']
+            pivot_sayim = df_sayim_db.groupby(['Adres', 'Kod',])['Miktar'].sum().reset_index()
+            pivot_sayim.columns = ['Adres', 'Kod', 'Sayılan']
             
-            pivot_stok = df_stok.groupby(['Kod', 'Adres'])['Miktar'].sum().reset_index()
-            pivot_stok.columns = ['Kod', 'Adres', 'Sistem']
+            pivot_stok = df_stok.groupby(['Adres', 'Kod',])['Miktar'].sum().reset_index()
+            pivot_stok.columns = ['Adres', 'Kod', 'Sistem']
             
             # Sadece sayılanları ve ilgili adreslerini getir
-            df_fark = pd.merge(pivot_sayim, pivot_stok, on=['Kod', 'Adres'], how='left').fillna(0)
+            df_fark = pd.merge(pivot_sayim, pivot_stok, on=['Adres', 'Kod',], how='left').fillna(0)
             df_fark['Fark'] = df_fark['Sayılan'] - df_fark['Sistem']
             
             df_isimliler = get_internal_data("Urun_Listesi")
