@@ -79,7 +79,7 @@ def get_internal_data(worksheet_name):
 
 def load_katalog_to_session():
     """Drive'a gider, veriyi çeker ve session_state içine hapseder."""
-    with st.spinner("📦 Güncel ürün listesi Drive'dan getiriliyor..."):
+    with st.spinner("📦 Güncel ürün listesi Sunucu'dan getiriliyor..."):
         df = get_internal_data("Urun_Listesi")
         if df.empty: df = get_internal_data("ürün listesi")
         if df.empty: df = get_internal_data("Ürün Listesi")
