@@ -51,12 +51,15 @@ def goster():
         
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
-            mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
-            m_sec = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
+            
+            # --- DEĞİŞEN KISIM BURASI: Mamül Kodu yerine Mamül Adı çekiliyor ---
+            mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
+            m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
             
             filtered = temp_df.copy()
             if m_sec:
-                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_sec)]
+                filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
+            # -------------------------------------------------------------------
             
             filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                      pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
