@@ -136,14 +136,17 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # PATRON: Sekme adı "HAZIRLIK" olarak sabitlendi.
+                # PATRON: "HAZIRLIK" sekmesi ve gönderdiğin görseldeki sütun isimleri
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # "total" sütununu bulup "İhtiyaç Miktarı"na eşitleme
-                total_cols = [c for c in df_raw.columns if c.lower() == 'total']
-                if total_cols:
-                    df_raw["İhtiyaç Miktarı"] = df_raw[total_cols[0]]
+                # Resimdeki "total" sütununu "İhtiyaç Miktarı"na eşitleme
+                if "total" in df_raw.columns:
+                    df_raw["İhtiyaç Miktarı"] = df_raw["total"]
+                
+                # Resimdeki "Mamül Kodu" -> Veritabanındaki "Ürün Kodu"
+                if "Mamül Kodu" in df_raw.columns:
+                    df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
                 
                 is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
                 df_raw['İş Emri'] = is_emri_adi
@@ -152,7 +155,7 @@ elif st.session_state.page == 'uretim':
                 cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
                 for c in cols_target:
                     if c not in df_raw.columns:
-                        df_raw[c] = 0 if "Adet" in c or "Miktar" in c else ""
+                        df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
                 
                 df_final_save = df_raw[cols_target]
                 
@@ -166,7 +169,7 @@ elif st.session_state.page == 'uretim':
                     st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
                     st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Hata: 'HAZIRLIK' sekmesi veya 'total' sütunu kontrol edilmeli. -> {e}")
+                st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
 
     st.markdown("---")
     
@@ -182,7 +185,7 @@ elif st.session_state.page == 'uretim':
             if not v_data.empty:
                 st.markdown(f"#### 🛠️ {secilen} Nolu Toplama Listesi")
                 
-                # PATRON: Ürün Kodu kaldırıldı. Stok Kodu, Stok Adı ve Mamül Adı Excel'den çekiliyor.
+                # PATRON: Ürün Kodu ekrandan kaldırıldı. Mamül Adı, Stok Kodu ve Stok Adı resimdeki gibi çekiliyor.
                 hazirlik_ekran_df = v_data[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
                 
                 edited = st.data_editor(
@@ -194,11 +197,10 @@ elif st.session_state.page == 'uretim':
                         "İhtiyaç Miktarı": st.column_config.NumberColumn("İhtiyaç", disabled=True),
                         "Hazırlanan Adet": st.column_config.NumberColumn("Toplanan", min_value=0)
                     },
-                    use_container_width=True, hide_index=True, key="prep_editor_v2"
+                    use_container_width=True, hide_index=True, key="prep_editor_v12"
                 )
                 
                 if st.button("MİKTARLARI VERİTABANINA İŞLE", use_container_width=True, type="primary"):
-                    # Veritabanını güncelleme mantığı (Korumalı)
                     full_db = get_internal_data("Is_Emirleri")
                     others = full_db[full_db['İş Emri'].astype(str) != str(secilen)]
                     v_data["Hazırlanan Adet"] = edited["Hazırlanan Adet"].values
