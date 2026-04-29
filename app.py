@@ -132,17 +132,17 @@ elif st.session_state.page == 'uretim':
     
     st.subheader("🏭 Üretim Hazırlık Ekranı")
 
-    with st.expander("📤 Yeni İş Emri Excel'i Yükle (hazırlık sekmesi)", expanded=False):
+    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
                 # PATRON TALİMATI: "hazırlık" sekmesini oku
-                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="hazırlık")
+                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
                 
                 # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
                 if "total" in df_uploaded_raw.columns:
-                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw["total"]
+                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw["Total"]
                 
                 is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
                 df_uploaded_raw['İş Emri'] = is_emri_adi_f
