@@ -136,64 +136,57 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # PATRON TALİMATI: "HAZIRLIK" sekmesini oku
-                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
-                df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
+                # PATRON: Sekme adı "HAZIRLIK" olarak sabitlendi.
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # Kolon isimlerini küçük harfe çevirerek "total" sütununu bul
-                cols_lower = [c.lower() for c in df_uploaded_raw.columns]
+                # "total" sütununu bulup "İhtiyaç Miktarı"na eşitleme
+                total_cols = [c for c in df_raw.columns if c.lower() == 'total']
+                if total_cols:
+                    df_raw["İhtiyaç Miktarı"] = df_raw[total_cols[0]]
                 
-                # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
-                if "total" in cols_lower:
-                    idx = cols_lower.index("total")
-                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw.iloc[:, idx]
-
-                # Dosya adından İş Emri ismini al
-                is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
-                df_uploaded_raw['İş Emri'] = is_emri_adi_f
+                is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
+                df_raw['İş Emri'] = is_emri_adi
                 
-                # Standart 9 Kolon Yapısı (Veritabanı için)
+                # Veritabanı için 9 sütun yapısı
                 cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
-                
-                # Eksik kolonları tamamla
                 for c in cols_target:
-                    if c not in df_uploaded_raw.columns:
-                        df_uploaded_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
+                    if c not in df_raw.columns:
+                        df_raw[c] = 0 if "Adet" in c or "Miktar" in c else ""
                 
-                df_save = df_uploaded_raw[cols_target]
+                df_final_save = df_raw[cols_target]
                 
-                st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi_f}")
-                st.dataframe(df_save, use_container_width=True, hide_index=True)
+                st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
+                st.dataframe(df_final_save[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
-                    eski_veri = get_internal_data("Is_Emirleri")
-                    guncel_veri = pd.concat([eski_veri, df_save], ignore_index=True)
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=guncel_veri)
-                    st.success(f"✅ {is_emri_adi_f} veritabanına başarıyla eklendi!")
+                    existing = get_internal_data("Is_Emirleri")
+                    updated = pd.concat([existing, df_final_save], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=updated)
+                    st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
                     st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Hata: 'HAZIRLIK' sekmesi bulunamadı veya veri yapısı hatalı. -> {e}")
+                st.error(f"Hata: 'HAZIRLIK' sekmesi veya 'total' sütunu kontrol edilmeli. -> {e}")
 
     st.markdown("---")
     
-    df_is_emirleri = get_internal_data("Is_Emirleri")
-    if not df_is_emirleri.empty:
-        # İş Emri listesini getir
-        liste_is_emri = sorted(df_is_emirleri['İş Emri'].unique().tolist(), reverse=True)
-        secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste_is_emri)
+    df_db = get_internal_data("Is_Emirleri")
+    if not df_db.empty:
+        liste = sorted(df_db['İş Emri'].unique().tolist(), reverse=True)
+        secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste)
         
         if secilen != "Seçiniz...":
             st.session_state.secili_is_emri = secilen
-            is_emri_verisi = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == str(secilen)].copy()
+            v_data = df_db[df_db['İş Emri'].astype(str) == str(secilen)].copy()
             
-            if not is_emri_verisi.empty:
+            if not v_data.empty:
                 st.markdown(f"#### 🛠️ {secilen} Nolu Toplama Listesi")
                 
-                # PATRON TALİMATI: Ürün Kodu kaldırıldı, Mamül Adı, Stok Kodu ve Stok Adı eklendi
-                hazirlik_df = is_emri_verisi[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
+                # PATRON: Ürün Kodu kaldırıldı. Stok Kodu, Stok Adı ve Mamül Adı Excel'den çekiliyor.
+                hazirlik_ekran_df = v_data[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
                 
-                edited_df = st.data_editor(
-                    hazirlik_df,
+                edited = st.data_editor(
+                    hazirlik_ekran_df,
                     column_config={
                         "Mamül Adı": st.column_config.TextColumn("Mamül Adı", disabled=True),
                         "Stok Kodu": st.column_config.TextColumn("Stok Kodu", disabled=True),
@@ -201,22 +194,19 @@ elif st.session_state.page == 'uretim':
                         "İhtiyaç Miktarı": st.column_config.NumberColumn("İhtiyaç", disabled=True),
                         "Hazırlanan Adet": st.column_config.NumberColumn("Toplanan", min_value=0)
                     },
-                    use_container_width=True, hide_index=True, key="prod_prep_editor"
+                    use_container_width=True, hide_index=True, key="prep_editor_v2"
                 )
                 
                 if st.button("MİKTARLARI VERİTABANINA İŞLE", use_container_width=True, type="primary"):
-                    # Ana veriden bu iş emrini çıkarıp yenisini ekleyerek güncelleme yapıyoruz
-                    df_all = get_internal_data("Is_Emirleri")
-                    df_others = df_all[df_all['İş Emri'].astype(str) != str(secilen)]
-                    is_emri_verisi["Hazırlanan Adet"] = edited_df["Hazırlanan Adet"].values
-                    final_df = pd.concat([df_others, is_emri_verisi], ignore_index=True)
-                    
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=final_df)
-                    st.success("✅ Veritabanı güncellendi!")
+                    # Veritabanını güncelleme mantığı (Korumalı)
+                    full_db = get_internal_data("Is_Emirleri")
+                    others = full_db[full_db['İş Emri'].astype(str) != str(secilen)]
+                    v_data["Hazırlanan Adet"] = edited["Hazırlanan Adet"].values
+                    new_db = pd.concat([others, v_data], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=new_db)
+                    st.success("✅ Kayıt başarılı!")
                     st.cache_data.clear(); st.rerun()
-            else:
-                st.warning(f"'{secilen}' detayları bulunamadı.")
-    else: st.warning("Sistemde kayıtlı iş emri bulunamadı. Lütfen Excel yükleyin.")
+    else: st.warning("Kayıtlı iş emri yok. Lütfen Excel yükleyin.")
 
 # --- 8. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
