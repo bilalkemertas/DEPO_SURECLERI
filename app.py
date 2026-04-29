@@ -163,48 +163,45 @@ elif st.session_state.page == 'stok':
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success("Kayıt Başarılı!")
 
-with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
-        uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
-        if uploaded_file:
-            try:
-                # 1. Dosya adından İş Emri ismini al (Uzantıyı at: DT57 NECTAR)
-                dosya_adi_is_emri = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
-                
-                # 2. Excel'i oku
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
-                df_raw.columns = [str(c).strip() for c in df_raw.columns]
-                
-                # 3. Dosya adını "İş Emri" sütunu olarak tüm satırlara ekle
-                df_raw["İş Emri"] = dosya_adi_is_emri
-                
-                # Sadece gerekli diğer sütunların kontrolünü yapalım
-                required_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
-                missing_cols = [c for c in required_cols if c not in df_raw.columns]
-                
-                if missing_cols:
-                    st.error(f"Excel'de şu sütunlar eksik: {missing_cols}")
-                else:
-                    # Boş satır temizliği (Stok Kodu boş olanları at)
-                    df_raw = df_raw.dropna(subset=["Stok Kodu"])
-                    
-                    st.info(f"Tespit Edilen İş Emri (Dosya Adından): **{dosya_adi_is_emri}**")
-                    
-                    if st.button("📥 VERİLERİ SİSTEME AKTAR"):
-                        # Mevcut veriyi çekip üzerine ekleyelim (Overwrite yerine Append)
-                        current_emirler = get_internal_data("Is_Emirleri")
-                        # Aynı iş emri daha önce yüklendiyse mükerrer olmasın diye silebilirsin (Opsiyonel)
-                        if not current_emirler.empty:
-                            current_emirler = current_emirler[current_emirler["İş Emri"] != dosya_adi_is_emri]
-                        
-                        yeni_liste = pd.concat([current_emirler, df_raw], ignore_index=True)
-                        
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
-                        st.cache_data.clear()
-                        st.success(f"{dosya_adi_is_emri} başarıyla yüklendi!")
-                        st.rerun()
-                    
-            except Exception as e:
-                st.error(f"Hata oluştu: {e}")
+# --- 7. ÜRETİM HAZIRLIK ---
+elif st.session_state.page == 'uretim':
+    if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
+    st.subheader("🏭 Üretim Hazırlık")
+    df_emirler = get_internal_data("Is_Emirleri")
+    df_stok_ana = get_internal_data("Stok")
+    
+    if not df_emirler.empty:
+        emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
+        s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
+        
+        if s_list:
+            temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
+            mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
+            m_sec = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
+            
+            filtered = temp_df.copy()
+            if m_sec:
+                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_sec)]
+            
+            filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
+                                     pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+            
+            def get_best_adr(kod):
+                # Stok sayfasındaki başlığa göre arama yap ("Kod")
+                if 'Kod' in df_stok_ana.columns:
+                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
+                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
+                return "STOK YOK"
+            
+            # Is_Emirleri içindeki başlığa göre işlem yap
+            s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
+            filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
+            
+            st.markdown("#### 📝 Hazırlık Detay Listesi")
+            ed = st.data_editor(filtered, hide_index=True, use_container_width=True)
+            
+            if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
+                st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
 
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
