@@ -29,7 +29,6 @@ def goster():
                 df_final_save = df_raw[cols_target]
                 
                 st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
-                # Yükleme önizlemesinden de Mamül adını çıkardım ki tam tutarlı olsun
                 st.dataframe(df_final_save[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
