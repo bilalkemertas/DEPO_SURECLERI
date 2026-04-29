@@ -105,3 +105,41 @@ def goster():
             
             def color_diff(val): return f'color: {"red" if val < 0 else "green" if val > 0 else "black"}; font-weight: bold'
             st.dataframe(rapor.style.map(color_diff, subset=['FARK']), use_container_width=True, hide_index=True)
+
+            # --- KISMİ SAYIM GÜNCELLEMESİ BURADA ---
+            st.markdown("---")
+            st.markdown("### ⚠️ Sistemi Sayımla Eşitle")
+            st.info("Bu işlem, sadece sayımı yapılan kalemlerin eski stok kayıtlarını siler ve yeni sayım sonuçlarını adres bazlı olarak stoklara ekler. Sayılmayan ürünlere DOKUNULMAZ.")
+            
+            onay = st.checkbox("Verilerin doğruluğunu onaylıyorum ve stokları güncellemek istiyorum.")
+            
+            if st.button("🚀 STOK VERİTABANINI GÜNCELLE", disabled=not onay, use_container_width=True, type="primary"):
+                try:
+                    # 1. Hangi ürünler sayıldı? (Kod listesini alıyoruz)
+                    sayilan_kodlar = rapor['Kod'].unique().tolist()
+                    
+                    # 2. Ana stok listesinden SADECE sayılan ürünlerin eski kayıtlarını siliyoruz
+                    if not df_stok.empty:
+                        kalan_stok_df = df_stok[~df_stok['Kod'].isin(sayilan_kodlar)].copy()
+                    else:
+                        kalan_stok_df = pd.DataFrame()
+                    
+                    # 3. Sayılan ürünlerin yeni verilerini Stok sekmesine uygun formata getiriyoruz
+                    yeni_sayim_df = rapor[['Kod', 'İsim', 'Miktar_Sayilan', 'Adres', 'Durum']].copy()
+                    yeni_sayim_df.rename(columns={'Miktar_Sayilan': 'Miktar'}, inplace=True)
+                    
+                    # (Sıfır çıkanları stoka eklemeye gerek yok, kalabalıktan kurtulalım)
+                    yeni_sayim_df = yeni_sayim_df[yeni_sayim_df['Miktar'] > 0]
+                    
+                    # 4. Sayılmayan eski stoklar ile yeni sayılan stokları birleştiriyoruz
+                    guncel_tam_stok = pd.concat([kalan_stok_df, yeni_sayim_df], ignore_index=True)
+                    
+                    # 5. Veritabanındaki 'Stok' sekmesini bu harmanlanmış güncel veriyle eziyoruz
+                    veritabani.update_data("Stok", guncel_tam_stok)
+                    
+                    st.success("✅ Kısmi Sayım Güncellemesi Başarılı! Sadece sayılan ürünlerin stokları ve adresleri yenilendi.")
+                    st.balloons()
+                    st.cache_data.clear() # Verileri tazelemek için önbelleği temizle
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Güncelleme sırasında bir hata oluştu: {e}")
