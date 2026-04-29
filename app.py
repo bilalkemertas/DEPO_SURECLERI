@@ -156,7 +156,7 @@ elif st.session_state.page == 'uretim':
                 
                 df_save = df_uploaded_raw[cols_target]
                 
-                st.info(f"📂 'hazırlık' sekmesi okundu. İş Emri: {is_emri_adi_f}")
+                st.info(f"📂 İş Emri Listelendi: {is_emri_adi_f}")
                 st.dataframe(df_save, use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
@@ -166,7 +166,7 @@ elif st.session_state.page == 'uretim':
                     st.success(f"✅ {is_emri_adi_f} veritabanına başarıyla eklendi!")
                     st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Hata: 'hazırlık' sekmesi veya 'total' sütunu bulunamadı. -> {e}")
+                st.error(f"Hata: İş Emri Okunamadı. -> {e}")
 
     st.markdown("---")
     
