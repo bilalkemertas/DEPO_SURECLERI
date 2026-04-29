@@ -163,86 +163,63 @@ elif st.session_state.page == 'stok':
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success("Kayıt Başarılı!")
 
-# --- 7. ÜRETİM HAZIRLIK ---
+# --- 7. ÜRETİM HAZIRLIK (ÇİFT FİLTRE: İŞ EMRİ + MAMÜL KODU) ---
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
-
-    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
-        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
-        if uploaded_file:
-            try:
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
-                df_raw.columns = [str(c).strip() for c in df_raw.columns]
-                
-                if "total" in df_raw.columns:
-                    df_raw["İhtiyaç Miktarı"] = df_raw["total"]
-                
-                if "Mamül Kodu" in df_raw.columns:
-                    df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
-
-                if "Stok Kodu" in df_raw.columns:
-                    df_raw["Stok Kodu"] = df_raw["Stok Kodu"]
-                
-                is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
-                df_raw['İş Emri'] = is_emri_adi
-                
-                cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
-                for c in cols_target:
-                    if c not in df_raw.columns:
-                        df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
-                
-                df_final_save = df_raw[cols_target]
-                
-                st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
-                st.dataframe(df_final_save[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
-                
-                if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
-                    existing = get_internal_data("Is_Emirleri")
-                    updated = pd.concat([existing, df_final_save], ignore_index=True)
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=updated)
-                    st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
-                    st.cache_data.clear(); st.rerun()
-            except Exception as e:
-                st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
-
-    st.markdown("---")
-
     df_emirler = get_internal_data("Is_Emirleri")
     df_stok_ana = get_internal_data("Stok")
     
     if not df_emirler.empty:
+        # FİLTRE 1: İş Emri Seçimi
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
         
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
+            
+            # FİLTRE 2: Mamül Kodu Seçimi (Sadece seçilen iş emrindeki mamüller)
             mamul_list = sorted(temp_df["Mamül Kodu"].astype(str).unique().tolist())
-            m_sec = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
+            m_secim = st.multiselect("🏗️ Mamül Kodu Filtrele:", mamul_list)
             
+            # Filtreleme Uygula
             filtered = temp_df.copy()
-            if m_sec:
-                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_sec)]
+            if m_secim:
+                filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_secim)]
             
-            filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
-                                     pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+            # Tamamlanma ve Adres Hesaplamaları
+            filtered['İhtiyaç Miktarı'] = pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            filtered['Hazırlanan Adet'] = pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0)
+            filtered['Doluluk %'] = (filtered['Hazırlanan Adet'] / filtered['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
             
             def get_best_adr(kod):
-                # Stok sayfasındaki başlığa göre arama yap ("Kod")
-                if 'Kod' in df_stok_ana.columns:
-                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
-                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
-                return "STOK YOK"
+                res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
+                return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
             
-            # Is_Emirleri içindeki başlığa göre işlem yap
-            s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
-            filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
+            filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
             
-            st.markdown("#### 📝 Hazırlık Detay Listesi")
-            ed = st.data_editor(filtered, hide_index=True, use_container_width=True)
+            st.markdown(f"#### 📝 Filtreli Hazırlık Listesi")
+            ed = st.data_editor(filtered, disabled=["İş Emri", "Mamül Kodu", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim", "Doluluk %", "Alınacak Adres"], hide_index=True, use_container_width=True)
             
             if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
+                fresh_stok = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
+                fresh_emirler = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
+                
+                for idx, row in ed.iterrows():
+                    h_adet = float(row["Hazırlanan Adet"])
+                    if h_adet > 0:
+                        mask = (fresh_stok['Kod'].astype(str) == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
+                        if mask.any():
+                            fresh_stok.loc[mask, 'Miktar'] = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0) - h_adet
+                        
+                        log_movement(f"{row['İş Emri']} - {row['Mamül Kodu']} ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
+                        
+                        mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
+                        fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = h_adet
+
+                conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
+                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
+                st.success("İşlemler Kaydedildi!"); st.rerun()
 
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
