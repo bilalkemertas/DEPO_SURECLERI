@@ -136,28 +136,33 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # PATRON TALİMATI: "hazırlık" sekmesini oku
+                # PATRON TALİMATI: "HAZIRLIK" sekmesini oku
                 df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
                 
-                # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
-                total_col = [c for c in df_uploaded_raw.columns if c.lower() == 'total']
-                if total_col:
-                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw[total_col[0]]
+                # Kolon isimlerini küçük harfe çevirerek "total" sütununu bul
+                cols_lower = [c.lower() for c in df_uploaded_raw.columns]
                 
+                # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
+                if "total" in cols_lower:
+                    idx = cols_lower.index("total")
+                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw.iloc[:, idx]
+
+                # Dosya adından İş Emri ismini al
                 is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
                 df_uploaded_raw['İş Emri'] = is_emri_adi_f
                 
-                # Standart 9 Kolon Yapısı (Mamül Adı, Stok Kodu ve Stok Adı Excel'den geliyor)
+                # Standart 9 Kolon Yapısı (Veritabanı için)
                 cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
                 
+                # Eksik kolonları tamamla
                 for c in cols_target:
                     if c not in df_uploaded_raw.columns:
-                        df_uploaded_raw[c] = 0 if "Adet" in c or "Miktar" in c else ""
+                        df_uploaded_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
                 
                 df_save = df_uploaded_raw[cols_target]
                 
-                st.info(f"📂 'hazırlık' sekmesi okundu. İş Emri: {is_emri_adi_f}")
+                st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi_f}")
                 st.dataframe(df_save, use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
@@ -167,12 +172,13 @@ elif st.session_state.page == 'uretim':
                     st.success(f"✅ {is_emri_adi_f} veritabanına başarıyla eklendi!")
                     st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
+                st.error(f"Hata: 'HAZIRLIK' sekmesi bulunamadı veya veri yapısı hatalı. -> {e}")
 
     st.markdown("---")
     
     df_is_emirleri = get_internal_data("Is_Emirleri")
     if not df_is_emirleri.empty:
+        # İş Emri listesini getir
         liste_is_emri = sorted(df_is_emirleri['İş Emri'].unique().tolist(), reverse=True)
         secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste_is_emri)
         
@@ -199,10 +205,12 @@ elif st.session_state.page == 'uretim':
                 )
                 
                 if st.button("MİKTARLARI VERİTABANINA İŞLE", use_container_width=True, type="primary"):
+                    # Ana veriden bu iş emrini çıkarıp yenisini ekleyerek güncelleme yapıyoruz
                     df_all = get_internal_data("Is_Emirleri")
                     df_others = df_all[df_all['İş Emri'].astype(str) != str(secilen)]
                     is_emri_verisi["Hazırlanan Adet"] = edited_df["Hazırlanan Adet"].values
                     final_df = pd.concat([df_others, is_emri_verisi], ignore_index=True)
+                    
                     conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=final_df)
                     st.success("✅ Veritabanı güncellendi!")
                     st.cache_data.clear(); st.rerun()
