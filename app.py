@@ -229,7 +229,7 @@ elif st.session_state.page == 'sayim':
             df_isimliler = get_internal_data("Urun_Listesi")
             if not df_isimliler.empty:
                 df_fark = pd.merge(df_fark, df_isimliler[['kod', 'isim']], left_on='Kod', right_on='kod', how='left')
-                df_fark = df_fark[['Kod', 'isim', 'Adres', 'Sistem', 'Sayılan', 'Fark']]
+                df_fark = df_fark[['Adres', 'Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
             
             st.dataframe(df_fark, use_container_width=True, hide_index=True)
         else: st.warning("Henüz sayım verisi yok.")
