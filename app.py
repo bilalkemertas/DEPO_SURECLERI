@@ -213,27 +213,48 @@ elif st.session_state.page == 'sayim':
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres:").upper()
             katalog = get_katalog() 
-            sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL"] + katalog)
-            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL" else "").upper()
+            sec = st.selectbox("🔍 Ürün Seç:", ["+ BARKOD / MANUEL GİRİŞ"] + katalog)
             
-            # İsim parçasını katalogdan çeker
-            s_isim = sec.split(" | ")[1] if sec != "+ MANUEL" and len(sec.split(" | ")) > 1 else ""
+            c_kod, c_isim = st.columns(2)
+            with c_kod:
+                s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ BARKOD / MANUEL GİRİŞ" else "").upper()
+            with c_isim:
+                default_isim = sec.split(" | ")[1] if sec != "+ BARKOD / MANUEL GİRİŞ" and len(sec.split(" | ")) > 1 else ""
+                s_isim = st.text_input("📝 Malzeme Adı (İsim):", value=default_isim).upper()
             
             s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
             s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
+            
             if st.button("➕ Listeye Ekle", use_container_width=True):
-                # Excel'deki "sayim" sekme başlıklarına birebir uygun formatlandı
-                st.session_state['gecici_sayim_listesi'].append({
-                    "Tarih": get_local_time(), 
-                    "Adres": s_adr, 
-                    "Kod": s_kod, 
-                    "Miktar": s_mik,
-                    "Birim": "-", 
-                    "Personel": st.session_state.user, 
-                    "isim": s_isim, 
-                    "Durum": s_durum
-                })
-                st.toast("Eklendi")
+                # 1. GÜVENLİK DUVARI: Sistemdeki geçerli kodların listesini oluştur
+                valid_codes = [k.split(" | ")[0].upper() for k in katalog]
+                
+                if not s_kod:
+                    st.warning("⚠️ Lütfen bir malzeme kodu giriniz!")
+                # 2. EĞER GİRİLEN KOD SİSTEMDE YOKSA RET VER!
+                elif s_kod not in valid_codes:
+                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! Blok firesi, kapak veya sisteme açılmamış ürünlerin sayımı yapılamaz.")
+                else:
+                    # Barkod okutulup isim boş bırakılırsa diye güvenlik yedeği (Katalogdan doğru ismi bulur)
+                    dogru_isim = s_isim
+                    if sec == "+ BARKOD / MANUEL GİRİŞ":
+                        for k in katalog:
+                            if k.split(" | ")[0].upper() == s_kod:
+                                dogru_isim = k.split(" | ")[1]
+                                break
+                    
+                    # Excel'deki "sayim" sekme başlıklarına birebir uygun formatlandı
+                    st.session_state['gecici_sayim_listesi'].append({
+                        "Tarih": get_local_time(), 
+                        "Adres": s_adr, 
+                        "Kod": s_kod, 
+                        "Miktar": s_mik,
+                        "Birim": "-", 
+                        "Personel": st.session_state.user, 
+                        "isim": dogru_isim, 
+                        "Durum": s_durum
+                    })
+                    st.toast("✅ Başarıyla Eklendi")
         
         if st.session_state['gecici_sayim_listesi']:
             for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
@@ -251,7 +272,21 @@ elif st.session_state.page == 'sayim':
             
             if st.button("📤 VERİTABANINA GÖNDER", type="primary", use_container_width=True):
                 eski = get_internal_data("sayim")
-                conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=pd.concat([eski, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
+                yeni_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
+                
+                # --- SÜTUN KAYMASI VE İSİM KARIŞMASI KESİN ÇÖZÜMÜ ---
+                sutunlar = ["Tarih", "Adres", "Kod", "Miktar", "Birim", "Personel", "isim", "Durum"]
+                
+                if not eski.empty:
+                    for col in sutunlar:
+                        if col not in eski.columns:
+                            eski[col] = "-"
+                    eski = eski[sutunlar] 
+                    guncel_df = pd.concat([eski, yeni_df], ignore_index=True)
+                else:
+                    guncel_df = yeni_df[sutunlar]
+                
+                conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=guncel_df)
                 st.session_state['gecici_sayim_listesi'] = []; st.rerun()
 
     with t2:
