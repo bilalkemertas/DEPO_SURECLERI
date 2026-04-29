@@ -171,69 +171,51 @@ elif st.session_state.page == 'uretim':
     df_stok_ana = get_internal_data("Stok")
     
     with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
-        uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
+        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # 1. Dosya adından İş Emri ismini al (Örn: DT57 NECTAR)
-                dosya_adi = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
-                
-                # 2. Excel'i oku (Başlık satırını bulmak için ham veri olarak başlar)
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
-                
-                # 3. AKILLI BAŞLIK BULUCU
-                header_row = 0
-                for i, row in df_raw.iterrows():
-                    row_values = [str(val).strip() for val in row.values]
-                    if "Stok Kodu" in row_values or "Ürün Kodu" in row_values:
-                        header_row = i
-                        break
-                
-                # Belirlenen satırı başlık yaparak tabloyu yeniden oku
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=header_row)
+                # CUMA GÜNKÜ KRİTİK AYAR: Başlıklar 5. satırdan başlıyor (skiprows=5)
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=5)
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # 4. SÜTUN EŞLEŞTİRME (MAPPING)
+                # Dosya adından İş Emri bilgisini alıyoruz
+                is_emri_no = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
+                
+                # Sütunları senin verdiğin Drive sırasına göre eşleştiriyoruz
+                # Senin Excel -> Drive Tablosu
                 mapping = {
                     "Ürün Kodu": "Mamül Kodu",
-                    "Total": "İhtiyaç Miktarı",
                     "Mamül Adı": "Mamül Adı",
                     "Stok Kodu": "Stok Kodu",
-                    "Stok Adı": "Stok Adı"
+                    "Stok Adı": "Stok Adı",
+                    "Total": "İhtiyaç Miktarı"
                 }
                 df_raw = df_raw.rename(columns=mapping)
                 
-                # 5. Eksik sütunları sisteme hazırla
-                df_raw["İş Emri"] = dosya_adi
+                # Eksik kolonları elle dolduruyoruz
+                df_raw["İş Emri"] = is_emri_no
                 if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
                 if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
                 
-                # 6. Kritik Sütun Kontrolü
-                check_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
-                missing = [c for c in check_cols if c not in df_raw.columns]
+                # Sadece lazım olan sütunları, Drive'daki sırayla seçiyoruz
+                final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
+                df_final = df_raw[final_cols].dropna(subset=["Stok Kodu"])
                 
-                if missing:
-                    st.error(f"Eşleşme Hatası! Eksik: {missing}")
-                    st.write("Okunan Başlıklar:", df_raw.columns.tolist())
-                else:
-                    df_raw = df_raw.dropna(subset=["Stok Kodu"])
-                    st.info(f"✅ Başlıklar bulundu! İş Emri: {dosya_adi}")
+                st.info(f"İş Emri: {is_emri_no} tespiti yapıldı.")
+                if st.button("📥 VERİLERİ SİSTEME AKTAR"):
+                    existing = get_internal_data("Is_Emirleri")
+                    if not existing.empty:
+                        # Mükerrer kaydı önlemek için aynı iş emrini temizle
+                        existing = existing[existing["İş Emri"].astype(str) != is_emri_no]
                     
-                    if st.button("📥 VERİLERİ SİSTEME AKTAR"):
-                        current_db = get_internal_data("Is_Emirleri")
-                        if not current_db.empty:
-                            current_db = current_db[current_db["İş Emri"].astype(str) != dosya_adi]
-                        
-                        final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
-                        df_final = df_raw[final_cols]
-                        
-                        yeni_liste = pd.concat([current_db, df_final], ignore_index=True)
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
-                        st.cache_data.clear()
-                        st.success(f"Başarıyla yüklendi!"); st.rerun()
+                    yeni_liste = pd.concat([existing, df_final], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
+                    st.cache_data.clear()
+                    st.success("Aktarım Tamamlandı!"); st.rerun()
             except Exception as e:
-                st.error(f"Hata: {e}")
+                st.error(f"Cuma günü tanımlanan yapıya uymayan dosya: {e}")
 
-    # --- LİSTELEME VE ONAY ---
+    # --- LİSTELEME ---
     if not df_emirler.empty:
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
@@ -247,6 +229,7 @@ elif st.session_state.page == 'uretim':
             if m_secim:
                 filtered = filtered[filtered["Mamül Kodu"].astype(str).isin(m_secim)]
             
+            # Sayısal veri dönüşümü
             filtered['İhtiyaç Miktarı'] = pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             filtered['Hazırlanan Adet'] = pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0)
             
@@ -283,7 +266,7 @@ elif st.session_state.page == 'uretim':
                 conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
                 conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
                 st.cache_data.clear()
-                st.success("İşlem Başarılı!"); st.rerun()
+                st.success("İşlem Tamamlandı!"); st.rerun()
     else:
         st.info("İş emri bulunamadı.")
         
