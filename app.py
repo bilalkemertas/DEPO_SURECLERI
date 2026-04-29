@@ -28,6 +28,9 @@ if 'gecici_sayim_listesi' not in st.session_state:
     st.session_state['gecici_sayim_listesi'] = []
 if 'delete_confirm' not in st.session_state: 
     st.session_state.delete_confirm = None
+# VERİ HAFIZASI (Drive yükünü azaltan kısım)
+if 'katalog_hafiza' not in st.session_state:
+    st.session_state['katalog_hafiza'] = None
 
 if not st.session_state.logged_in:
     st.markdown("<h3 style='text-align:center;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
@@ -49,9 +52,12 @@ if not st.session_state.logged_in:
 if 'page' not in st.session_state: st.session_state.page = 'home'
 def go_home(): st.session_state.page = 'home'
 def go_stok(): st.session_state.page = 'stok'
+
 def go_sayim(): 
     st.cache_data.clear() 
+    st.session_state['katalog_hafiza'] = None # Sayıma girerken hafızayı sil ki Drive'dan günceli çeksin
     st.session_state.page = 'sayim'
+
 def go_uretim(): st.session_state.page = 'uretim'
 def go_rapor(): st.session_state.page = 'rapor'
 
@@ -64,33 +70,40 @@ def get_internal_data(worksheet_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
         df.columns = df.columns.str.strip()
-        if 'Kod' in df.columns:
-            df['Kod'] = df['Kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
-        if 'kod' in df.columns:
-            df['kod'] = df['kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
+        for col in ['Kod', 'kod']:
+            if col in df.columns:
+                df[col] = df[col].astype(str).str.strip().replace(r'\.0$', '', regex=True)
         return df
     except:
         return pd.DataFrame()
 
+def load_katalog_to_session():
+    """Drive'a gider, veriyi çeker ve session_state içine hapseder."""
+    with st.spinner("📦 Güncel ürün listesi Drive'dan getiriliyor..."):
+        df = get_internal_data("Urun_Listesi")
+        if df.empty: df = get_internal_data("ürün listesi")
+        if df.empty: df = get_internal_data("Ürün Listesi")
+        
+        final_list = []
+        if not df.empty and 'kod' in df.columns and 'isim' in df.columns:
+            temp_df = df.dropna(subset=['kod']).copy()
+            temp_df['Arama'] = temp_df['kod'].astype(str) + " | " + temp_df['isim'].astype(str)
+            final_list = sorted([str(x) for x in temp_df['Arama'].unique() if "nan" not in str(x).lower()])
+        else:
+            # Fallback: Stok sekmesi
+            df_stok = get_internal_data("Stok")
+            if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
+                temp_stok = df_stok.dropna(subset=['Kod']).copy()
+                temp_stok['Arama'] = temp_stok['Kod'].astype(str) + " | " + temp_stok['İsim'].astype(str)
+                final_list = sorted([str(x) for x in temp_stok['Arama'].unique() if "nan" not in str(x).lower()])
+        
+        st.session_state['katalog_hafiza'] = final_list
+
 def get_katalog():
-    df = get_internal_data("Urun_Listesi")
-    if df.empty: df = get_internal_data("ürün listesi")
-    if df.empty: df = get_internal_data("Ürün Listesi")
-    
-    if not df.empty and 'kod' in df.columns and 'isim' in df.columns:
-        temp_df = df.dropna(subset=['kod']).copy()
-        temp_df['Arama'] = temp_df['kod'].astype(str) + " | " + temp_df['isim'].astype(str)
-        # Karışık veri tiplerinden (NaN/Float) dolayı sorted çökmesin diye string koruması
-        liste = [str(x) for x in temp_df['Arama'].unique() if "nan" not in str(x).lower()]
-        return sorted(liste)
-    
-    df_stok = get_internal_data("Stok")
-    if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
-        temp_stok = df_stok.dropna(subset=['Kod']).copy()
-        temp_stok['Arama'] = temp_stok['Kod'].astype(str) + " | " + temp_stok['İsim'].astype(str)
-        liste = [str(x) for x in temp_stok['Arama'].unique() if "nan" not in str(x).lower()]
-        return sorted(liste)
-    return []
+    """Hafızada varsa oradan verir, yoksa Drive'dan yükletir."""
+    if st.session_state['katalog_hafiza'] is None:
+        load_katalog_to_session()
+    return st.session_state['katalog_hafiza']
 
 def get_local_time():
     return (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
@@ -120,9 +133,9 @@ if st.session_state.page == 'home':
 elif st.session_state.page == 'stok':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("📊 Stok Hareketleri")
+    katalog = get_katalog() # Hafızadan gelir
     with st.container(border=True):
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
-        katalog = get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         val_s_kod = sec.split(" | ", 1)[0].strip() if sec != "+ MANUEL GİRİŞ" else ""
         c1, c2 = st.columns(2)
@@ -145,7 +158,7 @@ elif st.session_state.page == 'sayim':
     with t1:
         with st.container(border=True):
             s_adr = st.text_input("📍 Adres:").upper()
-            katalog = get_katalog() 
+            katalog = get_katalog() # Hafızadan gelir (Sayıma girişte silindiği için Drive'dan 1 kez çekildi)
             sec = st.selectbox("🔍 Ürün Seç:", ["+ BARKOD / MANUEL GİRİŞ"] + katalog)
             
             if sec != "+ BARKOD / MANUEL GİRİŞ":
@@ -206,9 +219,6 @@ elif st.session_state.page == 'sayim':
                 conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=guncel_df)
                 st.session_state['gecici_sayim_listesi'] = []
                 st.rerun()
-
-    with t2:
-        st.info("Rapor verileri veritabanından çekiliyor...")
 
 # --- 9. RAPORLAR VE ARŞİV ---
 elif st.session_state.page == 'rapor':
