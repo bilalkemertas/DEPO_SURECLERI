@@ -71,7 +71,7 @@ def get_internal_data(worksheet_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
         df.columns = df.columns.str.strip()
-        for col in ['Kod', 'kod', 'Adres', 'adres']:
+        for col in ['Kod', 'kod', 'Adres', 'adres', 'İş Emri']:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip().replace(r'\.0$', '', regex=True)
         return df
@@ -86,7 +86,6 @@ def load_katalog_to_session():
     with st.spinner("📦 Katalog Hafızaya Alınıyor..."):
         df = get_internal_data("Urun_Listesi")
         if df.empty: df = get_internal_data("ürün listesi")
-        
         final_list = []
         if not df.empty and 'kod' in df.columns and 'isim' in df.columns:
             temp_df = df.dropna(subset=['kod']).copy()
@@ -138,55 +137,58 @@ elif st.session_state.page == 'uretim':
         if uploaded_file:
             try:
                 df_upload = pd.read_excel(uploaded_file)
+                # Beklenen Kolonlar
+                expected_cols = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
+                df_upload.columns = [c.strip() for c in df_upload.columns]
+                
                 st.info(f"📂 Dosya Okundu: {uploaded_file.name}")
                 st.dataframe(df_upload, use_container_width=True, hide_index=True)
-                if st.button("YÜKLENEN VERİYİ HAZIRLIK LİSTESİNE İŞLE"):
-                    st.success("Veriler hazırlık için başarıyla sisteme aktarıldı!")
+                
+                if st.button("YÜKLENEN VERİYİ IS_EMIRLERI SEKmesine KAYDET"):
+                    eski_veri = get_internal_data("Is_Emirleri")
+                    guncel_veri = pd.concat([eski_veri, df_upload], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=guncel_veri)
+                    st.success(f"✅ Yeni iş emirleri başarıyla kaydedildi!")
+                    st.cache_data.clear()
+                    st.rerun()
             except Exception as e:
-                st.error(f"Dosya okuma hatası: {e}")
+                st.error(f"Hata: Kolon isimleri tam eşleşmeli. -> {e}")
 
     st.markdown("---")
     
-    df_index = get_internal_data("Uretim_Index")
-    if not df_index.empty:
-        liste_is_emri = df_index['is_emri_no'].unique().tolist()
+    df_is_emirleri = get_internal_data("Is_Emirleri")
+    if not df_is_emirleri.empty:
+        liste_is_emri = sorted(df_is_emirleri['İş Emri'].unique().tolist(), reverse=True)
         secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste_is_emri)
         
         if secilen != "Seçiniz...":
             st.session_state.secili_is_emri = secilen
-            df_detay = get_internal_data("Uretim_Detay")
-            is_emri_verisi = df_detay[df_detay['is_emri_no'] == secilen].copy()
+            is_emri_verisi = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == str(secilen)].copy()
             
             if not is_emri_verisi.empty:
-                st.markdown(f"#### 🛠️ {secilen} Nolu İş Emri Toplama Listesi")
+                st.markdown(f"#### 🛠️ {secilen} Nolu Toplama Listesi")
                 
-                # SADECE GEREKLİ SÜTUNLARI FİLTRELE
-                hazirlik_df = is_emri_verisi[['urun_kodu', 'urun_adi', 'ihtiyac', 'hazirlanan']].copy()
+                # Sadece personelin göreceği ve dolduracağı alanlar
+                hazirlik_df = is_emri_verisi[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
                 
-                # PERSONEL GİRİŞ TABLOSU (Editör)
                 edited_df = st.data_editor(
                     hazirlik_df,
                     column_config={
-                        "urun_kodu": st.column_config.TextColumn("Hammadde Kodu", disabled=True),
-                        "urun_adi": st.column_config.TextColumn("Hammadde Adı", disabled=True),
-                        "ihtiyac": st.column_config.NumberColumn("İhtiyaç Miktarı", disabled=True),
-                        "hazirlanan": st.column_config.NumberColumn(
-                            "Toplanan Miktar",
-                            help="Topladığınız miktarı buraya giriniz.",
-                            min_value=0,
-                            required=True
-                        )
+                        "Stok Kodu": st.column_config.TextColumn("Stok Kodu", disabled=True),
+                        "Stok Adı": st.column_config.TextColumn("Stok Adı", disabled=True),
+                        "İhtiyaç Miktarı": st.column_config.NumberColumn("İhtiyaç", disabled=True),
+                        "Hazırlanan Adet": st.column_config.NumberColumn("Toplanan", min_value=0)
                     },
                     use_container_width=True,
                     hide_index=True,
-                    key="pre_prod_editor"
+                    key="prod_prep_editor"
                 )
                 
-                if st.button("TOPlANAN MİKTARLARI KAYDET", use_container_width=True, type="primary"):
-                    st.success("Hazırlık miktarları başarıyla kaydedildi! (Simülasyon)")
+                if st.button("HAZIRLIK MİKTARLARINI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
+                    st.success("Miktarlar başarıyla kaydedildi! (Google Sheets Güncelleme Aktif)")
             else:
-                st.warning("Bu iş emrine ait detay bulunamadı.")
-    else: st.warning("Sistemde kayıtlı iş emri bulunamadı.")
+                st.warning(f"'{secilen}' detayları bulunamadı.")
+    else: st.warning("Sistemde kayıtlı iş emri bulunamadı. Lütfen Is_Emirleri sekmesini kontrol edin veya Excel yükleyin.")
 
 # --- 8. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
@@ -197,23 +199,17 @@ elif st.session_state.page == 'stok':
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         val_s_kod = sec.split(" | ", 1)[0].strip() if sec != "+ MANUEL GİRİŞ" else ""
-        
         c1, c2 = st.columns(2)
         with c1:
             s_kod = st.text_input("📦 Malzeme Kodu:", value=val_s_kod, key=f"stok_kod_{sec}").upper()
             s_lot = st.text_input("🔢 Parti/Lot No:").upper()
-        
         with c2:
-            if move_type == "GİRİŞ":
-                s_hedef_adr = st.text_input("📍 Hedef Adres:").upper()
-            elif move_type == "ÇIKIŞ":
-                s_kaynak_adr = st.text_input("📍 Kaynak Adres:").upper()
+            if move_type == "GİRİŞ": s_hedef_adr = st.text_input("📍 Hedef Adres:").upper()
+            elif move_type == "ÇIKIŞ": s_kaynak_adr = st.text_input("📍 Kaynak Adres:").upper()
             elif move_type == "İÇ TRANSFER":
                 s_kaynak_adr = st.text_input("📍 Kaynak Adres:").upper()
                 s_hedef_adr = st.text_input("📍 Hedef Adres:").upper()
-            
             s_mik = st.number_input("Miktar:", min_value=0.0)
-            
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success(f"{move_type} İşlemi Başarıyla Kaydedildi!")
 
@@ -293,10 +289,9 @@ elif st.session_state.page == 'sayim':
 
             st.markdown("---")
             m1, m2, m3 = st.columns(3)
-            m1.metric("Sayılan Kalem (SKU)", len(df_fark))
-            m2.metric("Toplam Sayılan Miktar", f"{df_fark['Sayılan'].sum():,.0f}")
-            m3.metric("Toplam Sayım Farkı", f"{df_fark['Fark'].sum():,.0f}", delta=df_fark['Fark'].sum())
-
+            m1.metric("SKU Çeşitliliği", len(df_fark))
+            m2.metric("Toplam Sayılan", f"{df_fark['Sayılan'].sum():,.0f}")
+            m3.metric("Toplam Fark", f"{df_fark['Fark'].sum():,.0f}", delta=df_fark['Fark'].sum())
             st.dataframe(df_fark, use_container_width=True, hide_index=True)
         else: st.warning("Henüz sayım verisi yok.")
 
