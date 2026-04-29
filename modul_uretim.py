@@ -74,8 +74,6 @@ def goster():
             
             st.markdown("#### 📝 Hazırlık Detay Listesi")
             
-            # --- MAMÜL ADI EKRANDAN GİZLENDİ ---
-            # Sadece aşağıdaki listelediğimiz sütunlar personelin ekranında görünecek
             gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
             gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
 
