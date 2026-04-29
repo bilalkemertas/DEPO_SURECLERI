@@ -5,18 +5,26 @@ def go_home(): st.session_state.page = 'home'
 
 def goster():
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
-    st.subheader("📊 Stok Hareketleri")
-    with st.container(border=True):
-        move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
-        katalog = veritabani.get_katalog()
-        sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
-        c1, c2 = st.columns(2)
-        with c1:
-            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "").upper()
-            s_lot = st.text_input("🔢 Parti/Lot No:").upper()
-        with c2:
-            s_adr = st.text_input("📍 Adres:").upper()
-            s_mik = st.number_input("Miktar:", min_value=0.0)
-        s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"])
-        if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
-            st.success("Kayıt Başarılı!")
+    st.subheader("📈 Raporlar ve Arşiv")
+    rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazırlık Raporu", "📜 Hareket Arşivi"])
+    
+    with rt1: st.dataframe(veritabani.get_internal_data("Stok"), use_container_width=True, hide_index=True)
+    with rt2:
+        df_h = veritabani.get_internal_data("Is_Emirleri").copy()
+        if not df_h.empty:
+            r_emir_list = sorted(df_h["İş Emri"].astype(str).unique().tolist())
+            r_emir = st.multiselect("📋 İş Emri Filtrele:", r_emir_list, key="r_emir")
+            r_df = df_h.copy()
+            if r_emir: r_df = r_df[r_df["İş Emri"].astype(str).isin(r_emir)]
+            st.dataframe(r_df, use_container_width=True, hide_index=True)
+            
+    with rt3:
+        hareketler = veritabani.get_internal_data("Sayfa1")
+        if not hareketler.empty:
+            f1, f2, f3 = st.columns(3)
+            f_tar, f_kod, f_isi = f1.text_input("📅 Tarih:"), f2.text_input("📦 Kod:"), f3.text_input("📝 İsim:")
+            df_f = hareketler.copy()
+            if f_tar: df_f = df_f[df_f['Tarih'].astype(str).str.contains(f_tar)]
+            if f_kod: df_f = df_f[df_f['Malzeme Kodu'].astype(str).str.contains(f_kod, case=False)]
+            if f_isi: df_f = df_f[df_f['Malzeme Adı'].astype(str).str.contains(f_isi, case=False)]
+            st.dataframe(df_f.iloc[::-1], use_container_width=True, hide_index=True)
