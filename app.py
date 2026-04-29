@@ -152,9 +152,16 @@ elif st.session_state.page == 'stok':
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
         katalog = get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
+        
+        # DİNAMİK KİLİT MEKANİZMASI
+        if sec != "+ MANUEL GİRİŞ":
+            val_s_kod = sec.split(" | ")[0]
+        else:
+            val_s_kod = ""
+            
         c1, c2 = st.columns(2)
         with c1:
-            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "").upper()
+            s_kod = st.text_input("📦 Malzeme Kodu:", value=val_s_kod, key=f"stok_kod_{sec}").upper()
             s_lot = st.text_input("🔢 Parti/Lot No:").upper()
         with c2:
             s_adr = st.text_input("📍 Adres:").upper()
@@ -215,12 +222,18 @@ elif st.session_state.page == 'sayim':
             katalog = get_katalog() 
             sec = st.selectbox("🔍 Ürün Seç:", ["+ BARKOD / MANUEL GİRİŞ"] + katalog)
             
+            # DİNAMİK KİLİT MEKANİZMASI
+            if sec != "+ BARKOD / MANUEL GİRİŞ":
+                val_kod = sec.split(" | ")[0]
+                val_isim = sec.split(" | ")[1] if len(sec.split(" | ")) > 1 else ""
+            else:
+                val_kod, val_isim = "", ""
+                
             c_kod, c_isim = st.columns(2)
             with c_kod:
-                s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ BARKOD / MANUEL GİRİŞ" else "").upper()
+                s_kod = st.text_input("📦 Malzeme Kodu:", value=val_kod, key=f"sayim_kod_{sec}").upper()
             with c_isim:
-                default_isim = sec.split(" | ")[1] if sec != "+ BARKOD / MANUEL GİRİŞ" and len(sec.split(" | ")) > 1 else ""
-                s_isim = st.text_input("📝 Malzeme Adı (İsim):", value=default_isim).upper()
+                s_isim = st.text_input("📝 Malzeme Adı (İsim):", value=val_isim, key=f"sayim_isim_{sec}").upper()
             
             s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
             s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
@@ -233,7 +246,7 @@ elif st.session_state.page == 'sayim':
                     st.warning("⚠️ Lütfen bir malzeme kodu giriniz!")
                 # 2. EĞER GİRİLEN KOD SİSTEMDE YOKSA RET VER!
                 elif s_kod not in valid_codes:
-                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! sistemde tanımı olmayan ürünlerin sayımı yapılamaz.")
+                    st.error(f"🛑 İŞLEM REDDEDİLDİ: '{s_kod}' kodlu ürün sistemde tanımlı değil! Blok firesi, kapak veya sisteme açılmamış ürünlerin sayımı yapılamaz.")
                 else:
                     # Barkod okutulup isim boş bırakılırsa diye güvenlik yedeği (Katalogdan doğru ismi bulur)
                     dogru_isim = s_isim
