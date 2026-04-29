@@ -136,18 +136,18 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # PATRON TALİMATI: "hazırlık" sekmesini oku
-                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                # "hazırlık" sekmesini oku
+                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="hazırlık")
                 df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
                 
-                # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
+                # "total" sütununu "İhtiyaç Miktarı" yap
                 if "total" in df_uploaded_raw.columns:
-                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw["Total"]
+                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw["total"]
                 
                 is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
                 df_uploaded_raw['İş Emri'] = is_emri_adi_f
                 
-                # Standart 9 Kolon Yapısı
+                # Standart 9 Kolon Yapısı (Mamül Adı, Stok Kodu ve Stok Adı Excel'den geliyor)
                 cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
                 
                 for c in cols_target:
@@ -156,7 +156,7 @@ elif st.session_state.page == 'uretim':
                 
                 df_save = df_uploaded_raw[cols_target]
                 
-                st.info(f"📂 İş Emri Listelendi: {is_emri_adi_f}")
+                st.info(f"📂 'hazırlık' sekmesi okundu. İş Emri: {is_emri_adi_f}")
                 st.dataframe(df_save, use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
@@ -166,7 +166,7 @@ elif st.session_state.page == 'uretim':
                     st.success(f"✅ {is_emri_adi_f} veritabanına başarıyla eklendi!")
                     st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Hata: İş Emri Okunamadı. -> {e}")
+                st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
 
     st.markdown("---")
     
@@ -181,11 +181,14 @@ elif st.session_state.page == 'uretim':
             
             if not is_emri_verisi.empty:
                 st.markdown(f"#### 🛠️ {secilen} Nolu Toplama Listesi")
-                hazirlik_df = is_emri_verisi[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
+                
+                # PATRON TALİMATI: Ürün Kodu kaldırıldı, Mamül Adı, Stok Kodu ve Stok Adı eklendi
+                hazirlik_df = is_emri_verisi[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
                 
                 edited_df = st.data_editor(
                     hazirlik_df,
                     column_config={
+                        "Mamül Adı": st.column_config.TextColumn("Mamül Adı", disabled=True),
                         "Stok Kodu": st.column_config.TextColumn("Stok Kodu", disabled=True),
                         "Stok Adı": st.column_config.TextColumn("Stok Adı", disabled=True),
                         "İhtiyaç Miktarı": st.column_config.NumberColumn("İhtiyaç", disabled=True),
