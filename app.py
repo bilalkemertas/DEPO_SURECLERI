@@ -33,7 +33,6 @@ if 'katalog_hafiza' not in st.session_state:
 if 'page' not in st.session_state: 
     st.session_state.page = 'home'
 
-# Üretim Hazırlık için Seçili Dosya Hafızası
 if 'secili_is_emri' not in st.session_state:
     st.session_state.secili_is_emri = None
 
@@ -72,7 +71,7 @@ def get_internal_data(worksheet_name):
     try:
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
         df.columns = df.columns.str.strip()
-        for col in ['Kod', 'kod']:
+        for col in ['Kod', 'kod', 'Adres', 'adres']:
             if col in df.columns:
                 df[col] = df[col].astype(str).str.strip().replace(r'\.0$', '', regex=True)
         return df
@@ -87,7 +86,6 @@ def load_katalog_to_session():
     with st.spinner("📦 Katalog Hafızaya Alınıyor..."):
         df = get_internal_data("Urun_Listesi")
         if df.empty: df = get_internal_data("ürün listesi")
-        if df.empty: df = get_internal_data("Ürün Listesi")
         
         final_list = []
         if not df.empty and 'kod' in df.columns and 'isim' in df.columns:
@@ -112,11 +110,10 @@ if st.session_state.page == 'home':
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
     df_ana = get_internal_data("Stok")
     m1, m2 = st.columns(2)
-    sku_count = 0
-    total_stok = 0
+    sku_count, total_stok = 0, 0
     if not df_ana.empty:
-        if 'Kod' in df_ana.columns: sku_count = len(df_ana['Kod'].unique())
-        if 'Miktar' in df_ana.columns: total_stok = pd.to_numeric(df_ana['Miktar'], errors='coerce').sum()
+        sku_count = len(df_ana['Kod'].unique())
+        total_stok = pd.to_numeric(df_ana['Miktar'], errors='coerce').sum()
     m1.metric("SKU Çeşitliliği", sku_count)
     m2.metric("Toplam Stok", f"{total_stok:,.0f}")
     st.markdown("---")
@@ -128,42 +125,22 @@ if st.session_state.page == 'home':
         st.button("📝 SAYIM SİSTEMİ", use_container_width=True, type="primary", on_click=go_sayim)
         st.button("📈 RAPOR VE ARŞİV", use_container_width=True, type="primary", on_click=go_rapor)
 
-# --- 7. ÜRETİM HAZIRLIK EKRANI (FULL VERSİYON) ---
+# --- 7. ÜRETİM HAZIRLIK ---
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): 
         st.session_state.secili_is_emri = None
-        go_home()
-        st.rerun()
-    
+        go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık Ekranı")
-    
-    # 1. Aşama: İş Emri Seçimi (Index)
-    df_index = get_internal_data("Uretim_Index") # ERP'den gelen iş emri listesi
+    df_index = get_internal_data("Uretim_Index")
     if not df_index.empty:
         liste_is_emri = df_index['is_emri_no'].unique().tolist()
-        secilen = st.selectbox("📋 Hazırlanacak İş Emrini Seçin:", ["Seçiniz..."] + liste_is_emri)
-        
+        secilen = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + liste_is_emri)
         if secilen != "Seçiniz...":
             st.session_state.secili_is_emri = secilen
-            st.markdown(f"**Seçili İş Emri:** `{secilen}`")
-            
-            # 2. Aşama: Detay Listesi (Filtrelenmiş)
             df_detay = get_internal_data("Uretim_Detay")
             is_emri_verisi = df_detay[df_detay['is_emri_no'] == secilen]
-            
-            if not is_emri_verisi.empty:
-                st.dataframe(is_emri_verisi[['urun_kodu', 'urun_adi', 'ihtiyac', 'hazirlanan']], 
-                             use_container_width=True, hide_index=True)
-                
-                with st.expander("✅ Malzeme Hazırla"):
-                    haz_kod = st.selectbox("Malzeme Seç:", is_emri_verisi['urun_kodu'].tolist())
-                    haz_mik = st.number_input("Hazırlanan Adet:", min_value=1.0)
-                    if st.button("HAZIRLIĞI ONAYLA"):
-                        st.success("Hazırlık kaydedildi (Simülasyon)")
-            else:
-                st.warning("Bu iş emrine ait detay bulunamadı.")
-    else:
-        st.error("Üretim index listesi boş veya erişilemiyor.")
+            st.dataframe(is_emri_verisi, use_container_width=True, hide_index=True)
+    else: st.error("Veri bulunamadı.")
 
 # --- 8. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
@@ -181,7 +158,6 @@ elif st.session_state.page == 'stok':
         with c2:
             s_adr = st.text_input("📍 Adres:").upper()
             s_mik = st.number_input("Miktar:", min_value=0.0)
-        s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"])
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success("Kayıt Başarılı!")
 
@@ -196,95 +172,67 @@ elif st.session_state.page == 'sayim':
             s_adr = st.text_input("📍 Adres:").upper()
             katalog = get_katalog() 
             sec = st.selectbox("🔍 Ürün Seç:", ["+ BARKOD / MANUEL GİRİŞ"] + katalog)
-            
             if sec != "+ BARKOD / MANUEL GİRİŞ":
                 parcalar = sec.split(" | ", 1)
-                val_kod = parcalar[0].strip()
-                val_isim = parcalar[1].strip() if len(parcalar) > 1 else ""
+                val_kod, val_isim = parcalar[0].strip(), parcalar[1].strip()
             else: val_kod, val_isim = "", ""
-                
             c_kod, c_isim = st.columns(2)
-            with c_kod:
-                s_kod = st.text_input("📦 Malzeme Kodu:", value=val_kod, key=f"sayim_kod_{sec}").upper()
-            with c_isim:
-                s_isim = st.text_input("📝 Malzeme Adı:", value=val_isim, key=f"sayim_isim_{sec}").upper()
-            
+            with c_kod: s_kod = st.text_input("📦 Malzeme Kodu:", value=val_kod, key=f"sayim_kod_{sec}").upper()
+            with c_isim: s_isim = st.text_input("📝 Malzeme Adı:", value=val_isim, key=f"sayim_isim_{sec}").upper()
             s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
-            s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
-            
+            s_durum = st.selectbox("🛠️ Stok Durumu:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
             if st.button("➕ Listeye Ekle", use_container_width=True):
-                valid_codes = [k.split(" | ", 1)[0].upper().strip() for k in katalog]
-                if not s_kod:
-                    st.warning("⚠️ Lütfen kod giriniz!")
-                elif s_kod not in valid_codes:
-                    st.error(f"🛑 Hata: '{s_kod}' sistemde tanımlı değil!")
-                else:
-                    st.session_state['gecici_sayim_listesi'].append({
-                        "Tarih": get_local_time(), "Adres": s_adr, "Kod": s_kod, 
-                        "Miktar": s_mik, "Personel": st.session_state.user, 
-                        "isim": s_isim, "Durum": s_durum
-                    })
-                    st.toast("✅ Eklendi")
+                st.session_state['gecici_sayim_listesi'].append({
+                    "Tarih": get_local_time(), "Adres": s_adr, "Kod": s_kod, 
+                    "Miktar": s_mik, "Personel": st.session_state.user, "isim": s_isim, "Durum": s_durum
+                })
+                st.toast("✅ Eklendi")
         
-        # --- ONAYLI SİLME MEKANİZMASI ---
+        # ONAYLI SİLME
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("---")
             for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                 cols = st.columns([3, 1])
-                cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']} ({item['Durum']})")
-                
+                cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']}")
                 if st.session_state.delete_confirm == idx:
-                    c_del, c_esc = cols[1].columns(2)
-                    if c_del.button("✅", key=f"conf_{idx}"):
+                    if cols[1].button("✅", key=f"conf_{idx}"):
                         st.session_state['gecici_sayim_listesi'].pop(idx)
-                        st.session_state.delete_confirm = None
-                        st.rerun()
-                    if c_esc.button("❌", key=f"esc_{idx}"):
-                        st.session_state.delete_confirm = None
-                        st.rerun()
+                        st.session_state.delete_confirm = None; st.rerun()
                 else:
                     if cols[1].button("🗑️", key=f"del_{idx}"):
-                        st.session_state.delete_confirm = idx
-                        st.rerun()
+                        st.session_state.delete_confirm = idx; st.rerun()
             
             if st.button("📤 VERİTABANINA GÖNDER", type="primary", use_container_width=True):
                 eski = get_internal_data("sayim")
                 yeni_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
                 guncel_df = pd.concat([eski, yeni_df], ignore_index=True) if not eski.empty else yeni_df
                 conn.update(spreadsheet=SHEET_URL, worksheet="sayim", data=guncel_df)
-                st.session_state['gecici_sayim_listesi'] = []
-                st.rerun()
+                st.session_state['gecici_sayim_listesi'] = []; st.rerun()
 
     with t2:
-        st.markdown("#### 📊 Sadece Sayılan Ürünlerin Fark Raporu")
+        st.markdown("#### 📊 Adres Bazlı Sayım Fark Raporu")
         df_stok = get_internal_data("Stok")
         df_sayim_db = get_internal_data("sayim")
         
-        if df_sayim_db.empty:
-            st.warning("Kayıtlı sayım bulunamadı.")
-        else:
-            # SADECE SAYILANLARI BAZ ALAN REFERANS
-            pivot_sayim = df_sayim_db.groupby('Kod')['Miktar'].sum().reset_index()
-            pivot_sayim.columns = ['Kod', 'Sayılan']
+        if not df_sayim_db.empty:
+            # ADRES BAZLI GRUPLAMA (Kritik Düzeltme)
+            pivot_sayim = df_sayim_db.groupby(['Kod', 'Adres'])['Miktar'].sum().reset_index()
+            pivot_sayim.columns = ['Kod', 'Adres', 'Sayılan']
             
-            pivot_stok = df_stok.groupby('Kod')['Miktar'].sum().reset_index()
-            pivot_stok.columns = ['Kod', 'Sistem']
+            pivot_stok = df_stok.groupby(['Kod', 'Adres'])['Miktar'].sum().reset_index()
+            pivot_stok.columns = ['Kod', 'Adres', 'Sistem']
             
-            # Left Join (Sadece sayılanlar)
-            df_fark = pd.merge(pivot_sayim, pivot_stok, on='Kod', how='left').fillna(0)
+            # Sadece sayılanları ve ilgili adreslerini getir
+            df_fark = pd.merge(pivot_sayim, pivot_stok, on=['Kod', 'Adres'], how='left').fillna(0)
             df_fark['Fark'] = df_fark['Sayılan'] - df_fark['Sistem']
             
             df_isimliler = get_internal_data("Urun_Listesi")
             if not df_isimliler.empty:
                 df_fark = pd.merge(df_fark, df_isimliler[['kod', 'isim']], left_on='Kod', right_on='kod', how='left')
-                df_fark = df_fark[['Adres', 'Kod', 'isim', 'Sistem', 'Sayılan', 'Fark']]
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Sayılan SKU", len(df_fark))
-            c2.metric("Toplam Sayılan", f"{df_fark['Sayılan'].sum():,.0f}")
-            c3.metric("Toplam Fark", f"{df_fark['Fark'].sum():,.0f}")
+                df_fark = df_fark[['Kod', 'isim', 'Adres', 'Sistem', 'Sayılan', 'Fark']]
             
             st.dataframe(df_fark, use_container_width=True, hide_index=True)
+        else: st.warning("Henüz sayım verisi yok.")
 
 # --- 10. GENEL ARŞİV ---
 elif st.session_state.page == 'rapor':
