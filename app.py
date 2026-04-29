@@ -167,6 +167,44 @@ elif st.session_state.page == 'stok':
 elif st.session_state.page == 'uretim':
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
+
+    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
+        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
+        if uploaded_file:
+            try:
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                
+                if "total" in df_raw.columns:
+                    df_raw["İhtiyaç Miktarı"] = df_raw["total"]
+                
+                if "Mamül Kodu" in df_raw.columns:
+                    df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
+                
+                is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
+                df_raw['İş Emri'] = is_emri_adi
+                
+                cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
+                for c in cols_target:
+                    if c not in df_raw.columns:
+                        df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
+                
+                df_final_save = df_raw[cols_target]
+                
+                st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
+                st.dataframe(df_final_save[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
+                
+                if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
+                    existing = get_internal_data("Is_Emirleri")
+                    updated = pd.concat([existing, df_final_save], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=updated)
+                    st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
+                    st.cache_data.clear(); st.rerun()
+            except Exception as e:
+                st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
+
+    st.markdown("---")
+
     df_emirler = get_internal_data("Is_Emirleri")
     df_stok_ana = get_internal_data("Stok")
     
