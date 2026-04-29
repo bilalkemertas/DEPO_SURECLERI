@@ -132,29 +132,31 @@ elif st.session_state.page == 'uretim':
     
     st.subheader("🏭 Üretim Hazırlık Ekranı")
 
-    with st.expander("📤 Yeni İş Emri Excel'i Yükle", expanded=False):
+    with st.expander("📤 Yeni İş Emri Excel'i Yükle (hazırlık sekmesi)", expanded=False):
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # Excel'i oku ve kolonları temizle
-                df_uploaded_raw = pd.read_excel(uploaded_file)
+                # PATRON TALİMATI: "hazırlık" sekmesini oku
+                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="hazırlık")
                 df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
                 
-                # İş Emri adını dosya isminden al (uzantıyı at)
-                is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
+                # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
+                if "total" in df_uploaded_raw.columns:
+                    df_uploaded_raw["İhtiyaç Miktarı"] = df_uploaded_raw["total"]
                 
-                # Hedef 9 Kolon Yapısını Zorla
+                is_emri_adi_f = uploaded_file.name.rsplit('.', 1)[0]
+                df_uploaded_raw['İş Emri'] = is_emri_adi_f
+                
+                # Standart 9 Kolon Yapısı
                 cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
                 
-                # Eksik kolonları ekle (İş Emri kolonuna dosya adını bas)
                 for c in cols_target:
                     if c not in df_uploaded_raw.columns:
                         df_uploaded_raw[c] = 0 if "Adet" in c or "Miktar" in c else ""
                 
-                df_uploaded_raw["İş Emri"] = is_emri_adi_f
                 df_save = df_uploaded_raw[cols_target]
                 
-                st.info(f"📂 Dosya Okundu: {uploaded_file.name} -> Tanımlanan İş Emri: {is_emri_adi_f}")
+                st.info(f"📂 'hazırlık' sekmesi okundu. İş Emri: {is_emri_adi_f}")
                 st.dataframe(df_save, use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
@@ -164,7 +166,7 @@ elif st.session_state.page == 'uretim':
                     st.success(f"✅ {is_emri_adi_f} veritabanına başarıyla eklendi!")
                     st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Dosya işleme hatası: {e}")
+                st.error(f"Hata: 'hazırlık' sekmesi veya 'total' sütunu bulunamadı. -> {e}")
 
     st.markdown("---")
     
@@ -179,8 +181,6 @@ elif st.session_state.page == 'uretim':
             
             if not is_emri_verisi.empty:
                 st.markdown(f"#### 🛠️ {secilen} Nolu Toplama Listesi")
-                
-                # Düzenlenebilir tablo (Sadece Hazırlanan Adet açık)
                 hazirlik_df = is_emri_verisi[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet"]].copy()
                 
                 edited_df = st.data_editor(
@@ -195,20 +195,16 @@ elif st.session_state.page == 'uretim':
                 )
                 
                 if st.button("MİKTARLARI VERİTABANINA İŞLE", use_container_width=True, type="primary"):
-                    # Veritabanını güncelle
                     df_all = get_internal_data("Is_Emirleri")
-                    # Seçili iş emri dışındakiler
                     df_others = df_all[df_all['İş Emri'].astype(str) != str(secilen)]
-                    # Güncel veriyi hazırla
                     is_emri_verisi["Hazırlanan Adet"] = edited_df["Hazırlanan Adet"].values
-                    # Birleştir ve GSheets'e bas
                     final_df = pd.concat([df_others, is_emri_verisi], ignore_index=True)
                     conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=final_df)
                     st.success("✅ Veritabanı güncellendi!")
                     st.cache_data.clear(); st.rerun()
             else:
                 st.warning(f"'{secilen}' detayları bulunamadı.")
-    else: st.warning("Sistemde kayıtlı iş emri bulunamadı. Lütfen yukarıdan Excel yükleyin.")
+    else: st.warning("Sistemde kayıtlı iş emri bulunamadı. Lütfen Excel yükleyin.")
 
 # --- 8. STOK HAREKETLERİ ---
 elif st.session_state.page == 'stok':
