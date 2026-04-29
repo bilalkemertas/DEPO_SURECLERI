@@ -151,15 +151,26 @@ elif st.session_state.page == 'stok':
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         val_s_kod = sec.split(" | ", 1)[0].strip() if sec != "+ MANUEL GİRİŞ" else ""
+        
         c1, c2 = st.columns(2)
         with c1:
             s_kod = st.text_input("📦 Malzeme Kodu:", value=val_s_kod, key=f"stok_kod_{sec}").upper()
             s_lot = st.text_input("🔢 Parti/Lot No:").upper()
+        
         with c2:
-            s_adr = st.text_input("📍 Adres:").upper()
+            # İşlem tipine göre dinamik adres alanları
+            if move_type == "GİRİŞ":
+                s_hedef_adr = st.text_input("📍 Hedef Adres:").upper()
+            elif move_type == "ÇIKIŞ":
+                s_kaynak_adr = st.text_input("📍 Kaynak Adres:").upper()
+            elif move_type == "İÇ TRANSFER":
+                s_kaynak_adr = st.text_input("📍 Kaynak Adres:").upper()
+                s_hedef_adr = st.text_input("📍 Hedef Adres:").upper()
+            
             s_mik = st.number_input("Miktar:", min_value=0.0)
+            
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
-            st.success("Kayıt Başarılı!")
+            st.success(f"{move_type} İşlemi Başarıyla Kaydedildi!")
 
 # --- 9. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
