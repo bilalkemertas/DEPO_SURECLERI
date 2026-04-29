@@ -29,7 +29,8 @@ def goster():
                 df_final_save = df_raw[cols_target]
                 
                 st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
-                st.dataframe(df_final_save[["Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
+                # Yükleme önizlemesinden de Mamül adını çıkardım ki tam tutarlı olsun
+                st.dataframe(df_final_save[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
                     existing = veritabani.get_internal_data("Is_Emirleri")
@@ -52,14 +53,12 @@ def goster():
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
             
-            # --- DEĞİŞEN KISIM BURASI: Mamül Kodu yerine Mamül Adı çekiliyor ---
             mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
             m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
             
             filtered = temp_df.copy()
             if m_sec:
                 filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
-            # -------------------------------------------------------------------
             
             filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                      pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
@@ -74,7 +73,18 @@ def goster():
             filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
             
             st.markdown("#### 📝 Hazırlık Detay Listesi")
-            ed = st.data_editor(filtered, hide_index=True, use_container_width=True)
+            
+            # --- MAMÜL ADI EKRANDAN GİZLENDİ ---
+            # Sadece aşağıdaki listelediğimiz sütunlar personelin ekranında görünecek
+            gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
+            gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
+
+            ed = st.data_editor(
+                filtered, 
+                column_order=gosterilecek_kolonlar, # Tabloyu bu düzene zorluyoruz
+                hide_index=True, 
+                use_container_width=True
+            )
             
             if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
                 st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
