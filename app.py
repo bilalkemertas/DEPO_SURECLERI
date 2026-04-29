@@ -174,13 +174,13 @@ elif st.session_state.page == 'uretim':
         uploaded_file = st.file_uploader("Excel dosyasını seçin (HAZIRLIK sayfası olmalı):", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # 1. Dosya adından İş Emri ismini al
+                # 1. Dosya adından İş Emri ismini al (Örn: DT57 NECTAR)
                 dosya_adi = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
                 
-                # 2. Excel'i oku (Header'ı henüz belirlemiyoruz)
+                # 2. Excel'i oku (Başlık satırını bulmak için ham veri olarak başlar)
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
                 
-                # 3. AKILLI BAŞLIK BULUCU: "Stok Kodu" veya "Ürün Kodu" geçen satırı bul
+                # 3. AKILLI BAŞLIK BULUCU
                 header_row = 0
                 for i, row in df_raw.iterrows():
                     row_values = [str(val).strip() for val in row.values]
@@ -188,11 +188,11 @@ elif st.session_state.page == 'uretim':
                         header_row = i
                         break
                 
-                # Başlık satırını bulduk, tabloyu oradan itibaren tekrar oku
+                # Belirlenen satırı başlık yaparak tabloyu yeniden oku
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=header_row)
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # 4. SÜTUN EŞLEŞTİRME
+                # 4. SÜTUN EŞLEŞTİRME (MAPPING)
                 mapping = {
                     "Ürün Kodu": "Mamül Kodu",
                     "Total": "İhtiyaç Miktarı",
@@ -202,21 +202,21 @@ elif st.session_state.page == 'uretim':
                 }
                 df_raw = df_raw.rename(columns=mapping)
                 
-                # 5. Eksik verileri tamamla
+                # 5. Eksik sütunları sisteme hazırla
                 df_raw["İş Emri"] = dosya_adi
                 if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
                 if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
                 
-                # 6. Kontrol
+                # 6. Kritik Sütun Kontrolü
                 check_cols = ["Stok Kodu", "Mamül Kodu", "İhtiyaç Miktarı"]
                 missing = [c for c in check_cols if c not in df_raw.columns]
                 
                 if missing:
-                    st.error(f"Başlıklar Bulunamadı! Eksik: {missing}")
+                    st.error(f"Eşleşme Hatası! Eksik: {missing}")
                     st.write("Okunan Başlıklar:", df_raw.columns.tolist())
                 else:
                     df_raw = df_raw.dropna(subset=["Stok Kodu"])
-                    st.info(f"✅ Başlıklar 5. satırda bulundu! İş Emri: {dosya_adi}")
+                    st.info(f"✅ Başlıklar bulundu! İş Emri: {dosya_adi}")
                     
                     if st.button("📥 VERİLERİ SİSTEME AKTAR"):
                         current_db = get_internal_data("Is_Emirleri")
@@ -233,7 +233,7 @@ elif st.session_state.page == 'uretim':
             except Exception as e:
                 st.error(f"Hata: {e}")
 
-    # --- LİSTELEME ---
+    # --- LİSTELEME VE ONAY ---
     if not df_emirler.empty:
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
         s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
