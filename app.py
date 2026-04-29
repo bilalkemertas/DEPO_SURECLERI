@@ -137,7 +137,7 @@ elif st.session_state.page == 'uretim':
         if uploaded_file:
             try:
                 # PATRON TALİMATI: "hazırlık" sekmesini oku
-                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="hazırlık")
+                df_uploaded_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_uploaded_raw.columns = [c.strip() for c in df_uploaded_raw.columns]
                 
                 # PATRON TALİMATI: "total" sütununu "İhtiyaç Miktarı" yap
