@@ -163,92 +163,101 @@ elif st.session_state.page == 'stok':
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             st.success("Kayıt Başarılı!")
 
-# --- 7. ÜRETİM HAZIRLIK (DETAYLI LİSTE VE YÜZDE) ---
+# --- 7. ÜRETİM HAZIRLIK ---
 elif st.session_state.page == 'uretim':
-    if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
+    if st.button("⬅️ ANA MENÜ", key="nav_u"): go_home(); st.rerun()
     st.subheader("🏭 Üretim Hazırlık")
-    df_emirler = get_internal_data("Is_Emirleri")
-    df_stok_ana = get_internal_data("Stok")
-    
-    # --- YENİ EXCEL YÜKLEME BÖLÜMÜ (BOZMADAN EKLENDİ) ---
-    with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
-        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
-        if uploaded_file:
+    with st.expander("📥 İş Emri Yükle"):
+        f = st.file_uploader("Excel Seç:", type=["xlsx"], key="u_f")
+        if f:
             try:
-                # Cuma günkü ayar: 5 satır atla
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", skiprows=5)
-                df_raw.columns = [str(c).strip() for c in df_raw.columns]
-                is_emri_no = uploaded_file.name.rsplit('.', 1)[0].strip().upper()
-                
-                mapping = {
-                    "Ürün Kodu": "Mamül Kodu",
-                    "Mamül Adı": "Mamül Adı",
-                    "Stok Kodu": "Stok Kodu",
-                    "Stok Adı": "Stok Adı",
-                    "Total": "İhtiyaç Miktarı"
-                }
-                df_raw = df_raw.rename(columns=mapping)
-                df_raw["İş Emri"] = is_emri_no
-                if "Birim" not in df_raw.columns: df_raw["Birim"] = "ADET"
-                if "Hazırlanan Adet" not in df_raw.columns: df_raw["Hazırlanan Adet"] = 0
-                
-                final_cols = ["İş Emri", "Mamül Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
-                df_final = df_raw[final_cols].dropna(subset=["Stok Kodu"])
-                
-                st.info(f"İş Emri: {is_emri_no} yüklenebilir.")
-                if st.button("📥 VERİLERİ SİSTEME AKTAR"):
-                    existing = get_internal_data("Is_Emirleri")
-                    if not existing.empty:
-                        existing = existing[existing["İş Emri"].astype(str) != is_emri_no]
-                    yeni_liste = pd.concat([existing, df_final], ignore_index=True)
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=yeni_liste)
-                    st.cache_data.clear()
-                    st.success("Excel sisteme kaydedildi!"); st.rerun()
-            except Exception as e:
-                st.error(f"Excel hatası: {e}")
-    # ------------------------------------------------
+                eno = f.name.split('.')[0]
+                df_r = pd.read_excel(f, sheet_name="HAZIRLIK", skiprows=3)
 
-    if not df_emirler.empty:
-        emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
-        s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
-        
-        if s_list:
-            filtered = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
-            df_prep = filtered.copy()
-            
-            # Tamamlanma Yüzdesi hesaplama (Kalem bazlı)
-            df_prep['İhtiyaç Miktarı'] = pd.to_numeric(df_prep['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            df_prep['Hazırlanan Adet'] = pd.to_numeric(df_prep['Hazırlanan Adet'], errors='coerce').fillna(0)
-            df_prep['Doluluk %'] = (df_prep['Hazırlanan Adet'] / df_prep['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
-            
-            def get_best_adr(kod):
-                res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
-                return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
-            
-            df_prep["Alınacak Adres"] = df_prep["Stok Kodu"].apply(get_best_adr)
-            
-            st.markdown("#### 📝 Detaylı Hazırlık Listesi")
-            ed = st.data_editor(df_prep, disabled=["İş Emri", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim", "Doluluk %", "Alınacak Adres"], hide_index=True, use_container_width=True)
-            
-            if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                fresh_stok = conn.read(spreadsheet=SHEET_URL, worksheet="Stok", ttl=0)
-                fresh_emirler = conn.read(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", ttl=0)
-                
+                kc = next((c for c in df_r.columns if "STOK KOD" in str(c).upper()), None)
+                ac = next((c for c in df_r.columns if "STOK AD" in str(c).upper()), None)
+                mc = next((c for c in df_r.columns if "TOTAL" in str(c).upper() or "MİKTAR" in str(c).upper()), None)
+                bc = next((c for c in df_r.columns if "BİRİM" in str(c).upper()), None)
+                uac = next((c for c in df_r.columns if "MAMÜL AD" in str(c).upper() or "ÜRÜN AD" in str(c).upper()), None)
+                ukc = next((c for c in df_r.columns if "MAMÜL KOD" in str(c).upper() or "ÜRÜN KOD" in str(c).upper()), None)
+
+                # Excel Kırılganlık Koruması
+                if not kc or not ac or not mc:
+                    st.error("Excel formatı uyumsuz! 'STOK KOD', 'STOK AD' ve 'MİKTAR/TOTAL' sütunları bulunamadı.")
+                    st.stop()
+
+                if uac: df_r[uac] = df_r[uac].ffill()
+                if ukc: df_r[ukc] = df_r[ukc].ffill()
+                df_r = df_r.dropna(subset=[kc])
+                df_r = df_r[~df_r[kc].astype(str).str.upper().str.contains("TOTAL|TOPLAM")]
+                df_r[mc] = pd.to_numeric(df_r[mc], errors='coerce').fillna(0)
+                df_r = df_r[df_r[mc] > 0]
+
+                df_f = df_r[[kc, ac, mc]].copy()
+                df_f.columns = ["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]
+                df_f["Birim"] = df_r[bc].astype(str).str.upper() if bc else "ADET"
+                df_f.insert(0, "Mamül Adı", df_r[uac] if uac else "-")
+                df_f.insert(1, "Mamül Kodu", df_r[ukc] if ukc else "-")
+                df_f.insert(0, "İş Emri", eno); df_f["Hazırlanan Adet"] = 0
+
+                if st.button(f"'{eno}' Kaydet", key="u_s_b"):
+                    old = get_internal_data("Is_Emirleri")
+                    if not old.empty and "İş Emri" in old.columns:
+                        old = old[old["İş Emri"] != eno]
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=pd.concat([old, df_f], ignore_index=True))
+                    get_internal_data.clear()
+                    st.success("İş emri listesi güncellendi!"); st.rerun()
+            except Exception as e: st.error(f"Hata: {e}")
+
+    df_emirler_master = get_internal_data("Is_Emirleri")
+    if not df_emirler_master.empty:
+        s = st.selectbox("İş Emri Seç:", ["Seçiniz..."] + sorted(df_emirler_master["İş Emri"].unique().tolist()), key="u_sel")
+        if s != "Seçiniz...":
+            df_is_emri = df_emirler_master[df_emirler_master["İş Emri"] == s].copy()
+            df_prep = df_is_emri.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
+
+            stok_verisi = get_internal_data("Stok")
+            stok_verisi['Miktar'] = pd.to_numeric(stok_verisi['Miktar'], errors='coerce').fillna(0)
+            stok_verisi['Kod'] = stok_verisi['Kod'].astype(str).str.strip().str.upper()
+
+            def get_best_address(kod):
+                kod_str = str(kod).strip().upper()
+                urun_raflari = stok_verisi[(stok_verisi['Kod'] == kod_str) & (stok_verisi['Miktar'] > 0)]
+                if urun_raflari.empty: return "STOK YOK"
+                return urun_raflari.loc[urun_raflari['Miktar'].idxmin(), 'Adres']
+
+            df_prep["Alınan Adres"] = df_prep["Stok Kodu"].apply(get_best_address)
+
+            bt = df_prep.groupby('Birim')['İhtiyaç Miktarı'].sum()
+            ozet = " | ".join([f"{m:.2f} {b}" for b, m in bt.items()])
+            st.info(f"💡 Toplam {len(df_prep)} Kalem | {ozet}")
+
+            ed = st.data_editor(df_prep, disabled=["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Birim"], hide_index=True, use_container_width=True, key="u_ed")
+
+            if st.button("HAZIRLIĞI ONAYLA", key="u_ok"):
                 for idx, row in ed.iterrows():
-                    h_adet = float(row["Hazırlanan Adet"])
-                    if h_adet > 0:
-                        mask = (fresh_stok['Kod'].astype(str) == str(row["Stok Kodu"])) & (fresh_stok['Adres'].astype(str) == str(row["Alınacak Adres"]))
-                        if mask.any():
-                            fresh_stok.loc[mask, 'Miktar'] = pd.to_numeric(fresh_stok.loc[mask, 'Miktar'], errors='coerce').fillna(0) - h_adet
-                        
-                        log_movement(f"{row['İş Emri']} ÇIKIŞ", row["Alınacak Adres"], row["Stok Kodu"], row["Stok Adı"], h_adet)
-                        
-                        mask_e = (fresh_emirler["İş Emri"].astype(str) == str(row['İş Emri'])) & (fresh_emirler["Stok Kodu"].astype(str) == str(row["Stok Kodu"]))
-                        fresh_emirler.loc[mask_e, "Hazırlanan Adet"] = h_adet
+                    fark = float(row["Hazırlanan Adet"]) - float(df_prep.loc[idx, "Hazırlanan Adet"])
+                    if fark > 0:
+                        ok, mevcut = check_address_stock(row["Stok Kodu"], row["Alınan Adres"], fark)
 
-                conn.update(spreadsheet=SHEET_URL, worksheet="Stok", data=fresh_stok[fresh_stok['Miktar'] > 0])
-                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=fresh_emirler)
-                st.success("İşlemler Kaydedildi!"); st.rerun()
+                        if not ok:
+                            eksik = fark - mevcut
+                            hedef_adr = update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], eksik, is_increase=True)
+                            log_movement("OTOMATİK SİSTEM GİRİŞİ (HAZIRLIK)", hedef_adr, row["Stok Kodu"], row["Stok Adı"], eksik)
+
+                        adr_son = update_stock_record(row["Stok Kodu"], row["Stok Adı"], row["Alınan Adres"], fark, is_increase=False)
+                        log_movement(f"{s} ÜRETİM ÇIKIŞ", adr_son, row["Stok Kodu"], row["Stok Adı"], fark)
+
+                        kalan = float(row["Hazırlanan Adet"])
+                        mask = (df_emirler_master["İş Emri"] == s) & (df_emirler_master["Stok Kodu"].astype(str).str.strip().str.upper() == str(row["Stok Kodu"]).strip().upper())
+                        for i in df_emirler_master[mask].index:
+                            iht = float(df_emirler_master.at[i, "İhtiyaç Miktarı"])
+                            val = iht if kalan >= iht else kalan
+                            df_emirler_master.at[i, "Hazırlanan Adet"] = val
+                            kalan -= val
+                conn.update(spreadsheet=SHEET_URL, worksheet="Is_Emirleri", data=df_emirler_master)
+                get_internal_data.clear()
+                st.success("Sanal tamamlama yapıldı ve hazırlık onaylandı!"); st.rerun()
         
 # --- 8. SAYIM SİSTEMİ ---
 elif st.session_state.page == 'sayim':
