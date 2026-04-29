@@ -176,7 +176,11 @@ elif st.session_state.page == 'uretim':
             try:
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK")
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                # Buraya yükleme mantığı eklenebilir
+            except Exception as e:
+                st.error(f"Dosya okuma hatası: {e}")
 
+    # Hatanın çözüldüğü yer: Try bloğunun dışı
     if not df_emirler.empty:
         # FİLTRE 1: İş Emri Seçimi
         emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
