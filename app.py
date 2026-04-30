@@ -3,7 +3,7 @@ import ana_sayfa
 import modul_sayim
 import modul_stok
 import modul_uretim
-import modul_raporlar
+import modul_rapor
 
 # --- GLOBAL SAYFA AYARLARI ---
 st.set_page_config(
