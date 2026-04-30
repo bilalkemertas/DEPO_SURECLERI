@@ -10,38 +10,33 @@ def goster():
     if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
     st.subheader("⚖️ Sayım Kontrolü")
 
+    # Geçici listeyi güvenceye alalım
+    if 'gecici_sayim_listesi' not in st.session_state:
+        st.session_state['gecici_sayim_listesi'] = []
+
     # --- OTURUM YÖNETİMİ ---
     if 'aktif_sayim_adi' not in st.session_state:
         st.session_state.aktif_sayim_adi = None
 
-    # Eğer aktif bir sayım yoksa, başlatma ekranını göster
     if st.session_state.aktif_sayim_adi is None:
         st.info("ℹ️ Şu an açık bir sayım oturumu bulunmuyor. İşlem yapmak için yeni bir sayım başlatmalısınız.")
         with st.container(border=True):
-            sayim_etiketi = st.text_input("Sayım Oturumu İsmi (Örn: A_Blok, Yil_Sonu_2023):", placeholder="Oturum adı girin...")
+            sayim_etiketi = st.text_input("Sayım Oturumu İsmi (Örn: A_Blok, Yil_Sonu):", placeholder="Oturum adı girin...")
             if st.button("🚀 YENİ SAYIM BAŞLAT", use_container_width=True, type="primary"):
                 if sayim_etiketi:
-                    # Tarih damgalı benzersiz sayfa ismi oluştur
                     zaman = datetime.now().strftime("%d%m_%H%M")
-                    yeni_sayfa_adi = f"Sayim_{sayim_etiketi}_{zaman}"
-                    
-                    # Veritabanında (Excel'de) boş bir sayfa oluşturmak için ilk satırı gönderiyoruz
-                    bos_df = pd.DataFrame(columns=["Tarih", "Adres", "Kod", "İsim", "Miktar", "Birim", "Personel", "Durum"])
-                    try:
-                        veritabani.update_data(yeni_sayfa_adi, bos_df)
-                        st.session_state.aktif_sayim_adi = yeni_sayim_adi
-                        st.success(f"✅ '{yeni_sayfa_adi}' oturumu başlatıldı. Veriler bu sekmeye yazılacak.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Sayfa oluşturulurken hata: {e}")
+                    # İsmi oluştur ama yeni sekme açma, bunu etiket olarak kullanacağız
+                    st.session_state.aktif_sayim_adi = f"{sayim_etiketi}_{zaman}"
+                    st.success(f"✅ '{st.session_state.aktif_sayim_adi}' oturumu başlatıldı! Veriler ana sayım listesine bu etiketle yazılacak.")
+                    st.rerun()
                 else:
                     st.warning("Lütfen bir oturum ismi girin!")
-        return # Aktif sayım yoksa aşağıyı gösterme
+        return
 
-    # Aktif sayım varsa devam et
     st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
     if st.button("🛑 OTURUMU KAPAT (Yeni Sayım İçin)"):
         st.session_state.aktif_sayim_adi = None
+        st.session_state['gecici_sayim_listesi'] = []
         st.rerun()
 
     t1, t2 = st.tabs(["📝 Sayım Girişi", "📊 Fark Raporu"])
@@ -58,6 +53,7 @@ def goster():
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
                 st.session_state['gecici_sayim_listesi'].append({
+                    "Oturum_Adi": st.session_state.aktif_sayim_adi, # YENİ: Oturum etiketi veritabanına gidiyor!
                     "Tarih": veritabani.get_local_time(), 
                     "Adres": s_adr, 
                     "Kod": s_kod, 
@@ -79,18 +75,41 @@ def goster():
                     st.rerun()
             
             if st.button("📤 VERİLERİ EXCEL'E GÖNDER", type="primary", use_container_width=True):
-                # Verileri aktif oturumun sayfasına ekle
-                mevcut_sayim_verisi = veritabani.get_internal_data(st.session_state.aktif_sayim_adi)
+                # Her şeyi mevcut 'sayim' sekmesine gönderiyoruz
+                mevcut_sayim_verisi = veritabani.get_internal_data("sayim")
                 yeni_eklenenler = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
-                veritabani.update_data(st.session_state.aktif_sayim_adi, pd.concat([mevcut_sayim_verisi, yeni_eklenenler], ignore_index=True))
+                veritabani.update_data("sayim", pd.concat([mevcut_sayim_verisi, yeni_eklenenler], ignore_index=True))
                 st.session_state['gecici_sayim_listesi'] = []
-                st.success("Veriler kaydedildi!")
+                st.success("Veriler ana sayım veritabanına kaydedildi!")
                 st.rerun()
 
-    with t2:
-        # Sadece bu oturuma ait verileri çek
-        df_sayim = veritabani.get_internal_data(st.session_state.aktif_sayim_adi)
+   with t2:
+        df_sayim_ana = veritabani.get_internal_data("sayim")
         df_stok = veritabani.get_internal_data("Stok")
+
+        if not df_sayim_ana.empty:
+            # Geçmiş uyumluluğu korumak için, eski verilerde Oturum_Adi yoksa "ESKI_SAYIMLAR" yap
+            if 'Oturum_Adi' not in df_sayim_ana.columns:
+                df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
+            
+            # --- YENİ: GEÇMİŞ OTURUMLARI GÖRÜNTÜLEME MENÜSÜ ---
+            st.markdown("#### 🗂️ Sayım Oturumu Seçimi")
+            mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
+            
+            # Eğer aktif bir sayım varsa, açılır menüde otomatik olarak onu seçili getir
+            varsayilan_index = 0
+            if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi in mevcut_oturumlar:
+                varsayilan_index = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi)
+            
+            # Kullanıcı hangi raporu görmek istiyorsa seçsin
+            if mevcut_oturumlar:
+                secilen_oturum = st.selectbox("Görüntülemek istediğiniz sayım oturumunu (arşivi) seçin:", mevcut_oturumlar, index=varsayilan_index)
+                # Tabloyu sadece seçilen oturuma göre filtrele
+                df_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == secilen_oturum].copy()
+            else:
+                df_sayim = pd.DataFrame()
+        else:
+            df_sayim = pd.DataFrame()
 
         if not df_sayim.empty:
             df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
@@ -107,20 +126,55 @@ def goster():
             rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
             rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
             
+            # İsimleri doldurma mekanizması
+            isim_sozlugu = {}
+            if not df_stok.empty and 'İsim' in df_stok.columns:
+                isim_sozlugu.update(df_stok.drop_duplicates(subset=['Kod']).set_index('Kod')['İsim'].to_dict())
+            if 'İsim' in df_sayim.columns:
+                isim_sozlugu.update(df_sayim.drop_duplicates(subset=['Kod']).set_index('Kod')['İsim'].to_dict())
+            
+            rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
+            rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
+            
             # Tablo gösterimi
-            st.dataframe(rapor, use_container_width=True, hide_index=True)
+            def color_diff(val): return f'color: {"red" if val < 0 else "green" if val > 0 else "black"}; font-weight: bold'
+            st.dataframe(rapor.style.map(color_diff, subset=['FARK']), use_container_width=True, hide_index=True)
 
             # --- Excel İndirme ---
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 rapor.to_excel(writer, index=False, sheet_name='Fark_Raporu')
-            st.download_button("📥 FARK RAPORUNU İNDİR", data=buffer.getvalue(), file_name=f"Fark_{st.session_state.aktif_sayim_adi}.xlsx", use_container_width=True)
+            st.download_button("📥 FARK RAPORUNU İNDİR", data=buffer.getvalue(), file_name=f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
 
             # --- Stok Güncelleme ---
             st.markdown("---")
-            st.warning("⚠️ Bu butona basıldığında gerçek stoklarınız bu sayım verileriyle GÜNCELLENİR.")
-            if st.button("🚀 STOK VERİTABANINI BU SAYIMLA EŞİTLE", type="primary", use_container_width=True):
-                # (Daha önce yazdığımız kısmi güncelleme mantığı buraya gelir)
-                # Buradaki işlem bittikten sonra oturumu kapatabiliriz:
-                # st.session_state.aktif_sayim_adi = None
-                st.success("Stoklar güncellendi!")
+            # GÜVENLİK KONTROLÜ: Sadece AKTİF oturum görüntülendiğinde güncellemeye izin ver
+            if st.session_state.aktif_sayim_adi == secilen_oturum:
+                st.warning("⚠️ Bu butona basıldığında gerçek stoklarınız bu sayım verileriyle GÜNCELLENİR.")
+                onay = st.checkbox("Verilerin doğruluğunu onaylıyorum.")
+                
+                if st.button("🚀 STOK VERİTABANINI BU SAYIMLA EŞİTLE", disabled=not onay, type="primary", use_container_width=True):
+                    try:
+                        sayilan_kodlar = rapor['Kod'].unique().tolist()
+                        if not df_stok.empty:
+                            kalan_stok_df = df_stok[~df_stok['Kod'].isin(sayilan_kodlar)].copy()
+                        else:
+                            kalan_stok_df = pd.DataFrame()
+                        
+                        yeni_sayim_df = rapor[['Kod', 'İsim', 'Miktar_Sayilan', 'Adres', 'Durum']].copy()
+                        yeni_sayim_df.rename(columns={'Miktar_Sayilan': 'Miktar'}, inplace=True)
+                        yeni_sayim_df = yeni_sayim_df[yeni_sayim_df['Miktar'] > 0]
+                        
+                        guncel_tam_stok = pd.concat([kalan_stok_df, yeni_sayim_df], ignore_index=True)
+                        veritabani.update_data("Stok", guncel_tam_stok)
+                        
+                        st.success("✅ Stoklar güncellendi! İşleminiz tamamlandı.")
+                        st.balloons()
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Güncelleme hatası: {e}")
+            else:
+                st.info("🔒 Şu an geçmiş bir sayım oturumunu (arşiv) görüntülüyorsunuz. Geçmiş sayımlarla stok güncellenemez. İşlem yapmak için bu oturumu aktif etmelisiniz.")
+        else:
+            st.info("Bu oturuma ait bir sayım verisi bulunmuyor.")
