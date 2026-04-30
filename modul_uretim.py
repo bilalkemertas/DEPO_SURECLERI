@@ -2,12 +2,20 @@ import streamlit as st
 import pandas as pd
 import veritabani
 
-def go_home(): st.session_state.page = 'home'
-
 def goster():
-    if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
+    # Güvenlik kontrolü: Kullanıcı girişi yapılmamışsa ana sayfaya atar
+    if 'user' not in st.session_state or st.session_state.user is None:
+        st.session_state.page = 'login'
+        st.rerun()
+
+    # Üst Menü ve Başlık
+    if st.button("⬅️ ANA MENÜ"): 
+        st.session_state.page = 'home'
+        st.rerun()
+    
     st.subheader("🏭 Üretim Hazırlık")
 
+    # --- 1. YENİ İŞ EMRİ YÜKLEME ---
     with st.expander("📤 Yeni İş Emri Yükle", expanded=False):
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
@@ -32,6 +40,7 @@ def goster():
                 st.dataframe(df_final_save[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET"):
+                    # Veritabanı modülü üzerinden okuma ve yazma yapıldı
                     existing = veritabani.get_internal_data("Is_Emirleri")
                     updated = pd.concat([existing, df_final_save], ignore_index=True)
                     veritabani.update_data("Is_Emirleri", updated)
@@ -42,6 +51,7 @@ def goster():
 
     st.markdown("---")
 
+    # --- 2. İŞ EMRİ TAKİBİ VE HAZIRLIK LİSTESİ ---
     df_emirler = veritabani.get_internal_data("Is_Emirleri")
     df_stok_ana = veritabani.get_internal_data("Stok")
     
@@ -52,6 +62,7 @@ def goster():
         if s_list:
             temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
             
+            # Mamül Kodu yerine Mamül Adı ile filtreleme
             mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
             m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
             
@@ -73,12 +84,13 @@ def goster():
             
             st.markdown("#### 📝 Hazırlık Detay Listesi")
             
+            # Tabloda gösterilecek kolonlar (Mamül adı gizlendi)
             gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
             gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
 
             ed = st.data_editor(
                 filtered, 
-                column_order=gosterilecek_kolonlar, # Tabloyu bu düzene zorluyoruz
+                column_order=gosterilecek_kolonlar, 
                 hide_index=True, 
                 use_container_width=True
             )
