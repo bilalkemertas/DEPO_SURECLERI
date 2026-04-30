@@ -46,11 +46,12 @@ def main():
         st.markdown("<div style='padding-top: 20px;'></div>", unsafe_allow_html=True)
         st.subheader("🔐 BRN Depo Girişi")
         
-        # Secrets'tan veriyi güvenli çekme
+        # Secrets'tan veriyi çekme
         try:
+            # Streamlit Secrets alanındaki [passwords] başlığını okur
             creds = st.secrets["passwords"]
-        except:
-            st.error("Secrets dosyasında [passwords] alanı bulunamadı!")
+        except Exception:
+            st.error("Secrets ayarlarında [passwords] başlığı bulunamadı!")
             return
 
         with st.form("login_form"):
@@ -59,7 +60,7 @@ def main():
             submit = st.form_submit_button("GİRİŞ YAP", use_container_width=True)
             
             if submit:
-                # Secrets içindeki kullanıcıları kontrol et
+                # Secrets içindeki kullanıcıları ve şifreleri kontrol et
                 if kullanici_input in creds and str(sifre_input) == str(creds[kullanici_input]):
                     st.session_state.user = kullanici_input
                     st.session_state.page = 'home'
@@ -67,7 +68,7 @@ def main():
                 else:
                     st.error("Hatalı kullanıcı adı veya şifre!")
     
-    # 2. Giriş Yapılmışsa Sayfa Yönlendirmeleri (Hiçbir modül silinmedi)
+    # 2. Giriş Yapılmışsa Sayfa Yönlendirmeleri
     else:
         if st.session_state.page == 'home':
             ana_sayfa.goster()
@@ -82,7 +83,8 @@ def main():
             modul_uretim.goster()
             
         elif st.session_state.page == 'rapor':
-            modul_raporlar.goster()
+            # import adına göre düzeltildi (modul_rapor)
+            modul_rapor.goster()
             
         # Kullanıcı varsa ama sayfa login'de kalmışsa ana sayfaya döndür
         elif st.session_state.page == 'login':
