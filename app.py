@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import ana_sayfa  # Görselde ana_sayfa.py görünüyor
+import ana_sayfa
 import modul_sayim
 import modul_uretim
 import modul_stok
