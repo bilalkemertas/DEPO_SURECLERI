@@ -53,7 +53,7 @@ def goster():
             
             if st.button("➕ Listeye Ekle", use_container_width=True):
                 st.session_state['gecici_sayim_listesi'].append({
-                    "Oturum_Adi": st.session_state.aktif_sayim_adi, # YENİ: Oturum etiketi veritabanına gidiyor!
+                    "Oturum_Adi": st.session_state.aktif_sayim_adi,
                     "Tarih": veritabani.get_local_time(), 
                     "Adres": s_adr, 
                     "Kod": s_kod, 
@@ -75,7 +75,6 @@ def goster():
                     st.rerun()
             
             if st.button("📤 VERİLERİ EXCEL'E GÖNDER", type="primary", use_container_width=True):
-                # Her şeyi mevcut 'sayim' sekmesine gönderiyoruz
                 mevcut_sayim_verisi = veritabani.get_internal_data("sayim")
                 yeni_eklenenler = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
                 veritabani.update_data("sayim", pd.concat([mevcut_sayim_verisi, yeni_eklenenler], ignore_index=True))
@@ -83,28 +82,23 @@ def goster():
                 st.success("Veriler ana sayım veritabanına kaydedildi!")
                 st.rerun()
 
-   with t2:
+    with t2:
         df_sayim_ana = veritabani.get_internal_data("sayim")
         df_stok = veritabani.get_internal_data("Stok")
 
         if not df_sayim_ana.empty:
-            # Geçmiş uyumluluğu korumak için, eski verilerde Oturum_Adi yoksa "ESKI_SAYIMLAR" yap
             if 'Oturum_Adi' not in df_sayim_ana.columns:
                 df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            # --- YENİ: GEÇMİŞ OTURUMLARI GÖRÜNTÜLEME MENÜSÜ ---
             st.markdown("#### 🗂️ Sayım Oturumu Seçimi")
             mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             
-            # Eğer aktif bir sayım varsa, açılır menüde otomatik olarak onu seçili getir
             varsayilan_index = 0
             if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi in mevcut_oturumlar:
                 varsayilan_index = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi)
             
-            # Kullanıcı hangi raporu görmek istiyorsa seçsin
             if mevcut_oturumlar:
-                secilen_oturum = st.selectbox("Görüntülemek istediğiniz sayım oturumunu (arşivi) seçin:", mevcut_oturumlar, index=varsayilan_index)
-                # Tabloyu sadece seçilen oturuma göre filtrele
+                secilen_oturum = st.selectbox("Görüntülemek istediğiniz sayım oturumunu seçin:", mevcut_oturumlar, index=varsayilan_index)
                 df_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == secilen_oturum].copy()
             else:
                 df_sayim = pd.DataFrame()
@@ -126,7 +120,6 @@ def goster():
             rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
             rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
             
-            # İsimleri doldurma mekanizması
             isim_sozlugu = {}
             if not df_stok.empty and 'İsim' in df_stok.columns:
                 isim_sozlugu.update(df_stok.drop_duplicates(subset=['Kod']).set_index('Kod')['İsim'].to_dict())
@@ -136,19 +129,15 @@ def goster():
             rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
             rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
             
-            # Tablo gösterimi
             def color_diff(val): return f'color: {"red" if val < 0 else "green" if val > 0 else "black"}; font-weight: bold'
             st.dataframe(rapor.style.map(color_diff, subset=['FARK']), use_container_width=True, hide_index=True)
 
-            # --- Excel İndirme ---
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 rapor.to_excel(writer, index=False, sheet_name='Fark_Raporu')
             st.download_button("📥 FARK RAPORUNU İNDİR", data=buffer.getvalue(), file_name=f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
 
-            # --- Stok Güncelleme ---
             st.markdown("---")
-            # GÜVENLİK KONTROLÜ: Sadece AKTİF oturum görüntülendiğinde güncellemeye izin ver
             if st.session_state.aktif_sayim_adi == secilen_oturum:
                 st.warning("⚠️ Bu butona basıldığında gerçek stoklarınız bu sayım verileriyle GÜNCELLENİR.")
                 onay = st.checkbox("Verilerin doğruluğunu onaylıyorum.")
