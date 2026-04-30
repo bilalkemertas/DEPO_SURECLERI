@@ -146,16 +146,42 @@ def goster():
                 )
                 
                 if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                    all_data = veritabani.get_internal_data("Is_Emirleri")
+                    all_is_emirleri = veritabani.get_internal_data("Is_Emirleri")
+                    df_stok_guncel = veritabani.get_internal_data("Stok")
+                    
+                    # Sayısal sütunların güvenliğini sağla
+                    all_is_emirleri['Hazırlanan Adet'] = pd.to_numeric(all_is_emirleri['Hazırlanan Adet'], errors='coerce').fillna(0)
+                    df_stok_guncel['Miktar'] = pd.to_numeric(df_stok_guncel['Miktar'], errors='coerce').fillna(0)
+                    
                     for i, row in edited_df.iterrows():
-                        mask = (all_data["İş Emri"].astype(str) == str(row["İş Emri"])) & \
-                               (all_data["Stok Kodu"].astype(str) == str(row["Stok Kodu"])) & \
-                               (all_data["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
+                        mask = (all_is_emirleri["İş Emri"].astype(str) == str(row["İş Emri"])) & \
+                               (all_is_emirleri["Stok Kodu"].astype(str) == str(row["Stok Kodu"])) & \
+                               (all_is_emirleri["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
+                        
                         if mask.any():
-                            all_data.loc[mask, "Hazırlanan Adet"] = row["Hazırlanan Adet"]
+                            # Eski ve Yeni değer farkını (Delta) hesapla
+                            old_val = all_is_emirleri.loc[mask, "Hazırlanan Adet"].values[0]
+                            new_val = pd.to_numeric(row["Hazırlanan Adet"], errors='coerce')
+                            delta = new_val - old_val
+                            
+                            # Eğer alınan miktar arttıysa stoktan düş
+                            if delta > 0:
+                                stok_mask = (df_stok_guncel["Kod"].astype(str) == str(row["Stok Kodu"])) & \
+                                            (df_stok_guncel["Adres"].astype(str) == str(row["Alınacak Adres"]))
+                                
+                                if stok_mask.any():
+                                    mevcut_stok = df_stok_guncel.loc[stok_mask, "Miktar"].values[0]
+                                    # NEGATİF BAKİYE KORUMASI: Stok asla 0'ın altına düşmez
+                                    df_stok_guncel.loc[stok_mask, "Miktar"] = max(0, mevcut_stok - delta)
+                            
+                            # İş emri tablosunu güncelle
+                            all_is_emirleri.loc[mask, "Hazırlanan Adet"] = new_val
 
-                    veritabani.update_data("Is_Emirleri", all_data)
-                    st.success("Veriler başarıyla eşitlendi!")
+                    # Veritabanına her iki tabloyu da yaz
+                    veritabani.update_data("Is_Emirleri", all_is_emirleri)
+                    veritabani.update_data("Stok", df_stok_guncel)
+                    
+                    st.success("Veriler eşitlendi ve stoklar ilgili adreslerden düşüldü!")
                     st.cache_data.clear()
                     st.rerun()
 
@@ -171,7 +197,6 @@ def goster():
                                 pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
             st.dataframe(res, use_container_width=True, hide_index=True)
             
-            # --- EXCEL İNDİRME BUTONU ---
             st.markdown("---")
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
