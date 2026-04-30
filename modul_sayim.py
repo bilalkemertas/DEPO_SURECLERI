@@ -25,7 +25,7 @@ def goster():
         st.session_state.delete_confirm = None
 
     # ==========================================
-    # 0. SAYIM ANA MENÜSÜ
+    # 1. SAYIM ANA MENÜSÜ
     # ==========================================
     if st.session_state.sayim_page == 'menu':
         c_nav, c_title = st.columns([1, 4])
@@ -47,7 +47,7 @@ def goster():
             st.info("ℹ️ Açık oturum yok. İşlem için oturum başlatın.")
 
     # ==========================================
-    # 1. OTURUM YÖNETİMİ
+    # 2. OTURUM YÖNETİMİ
     # ==========================================
     elif st.session_state.sayim_page == 'oturum':
         c_nav, c_title = st.columns([1, 4])
@@ -73,7 +73,7 @@ def goster():
                 st.rerun()
 
     # ==========================================
-    # 2. SAYIM GİRİŞİ
+    # 3. SAYIM GİRİŞİ
     # ==========================================
     elif st.session_state.sayim_page == 'giris':
         c_nav, c_title = st.columns([1, 4])
@@ -121,7 +121,7 @@ def goster():
                     st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
 
     # ==========================================
-    # 3. FARK RAPORU
+    # 4. FARK RAPORU
     # ==========================================
     elif st.session_state.sayim_page == 'rapor':
         c_nav, c_title = st.columns([1, 4])
