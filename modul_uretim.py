@@ -78,11 +78,33 @@ def goster():
         
         if not df_emirler.empty:
             emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
-            s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
+            s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
             
             if s_list:
-                filtered = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
+                # DASHBOARD ALANI
+                st.markdown("### 📊 İş Emri Özet Paneli")
+                dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
+                dashboard_df['Hazırlanan Adet'] = pd.to_numeric(dashboard_df['Hazırlanan Adet'], errors='coerce').fillna(0)
+                dashboard_df['İhtiyaç Miktarı'] = pd.to_numeric(dashboard_df['İhtiyaç Miktarı'], errors='coerce').fillna(0)
                 
+                # Dosya bazlı gruplama
+                ozet = dashboard_df.groupby('İş Emri').agg({
+                    'İhtiyaç Miktarı': 'sum',
+                    'Hazırlanan Adet': 'sum'
+                }).reset_index()
+                ozet['Genel Doluluk %'] = (ozet['Hazırlanan Adet'] / ozet['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
+                
+                # Dashboard Metrikleri (Yan Yana Dosyalar)
+                cols = st.columns(len(ozet) if len(ozet) <= 4 else 4)
+                for idx, row in ozet.iterrows():
+                    with cols[idx % 4]:
+                        st.metric(label=f"📁 {row['İş Emri']}", value=f"% {row['Genel Doluluk %']}")
+                        st.progress(min(row['Genel Doluluk %'] / 100, 1.0))
+                
+                st.markdown("---")
+                
+                # DETAY LİSTE VE FİLTRELEME
+                filtered = dashboard_df.copy()
                 mamul_list = sorted(filtered["Mamül Adı"].astype(str).unique().tolist())
                 m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
                 if m_sec:
@@ -93,13 +115,11 @@ def goster():
                         res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
                         return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
                     return "STOK YOK"
-                filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
                 
-                filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
-                                         pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+                filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
+                filtered['Doluluk %'] = (filtered['Hazırlanan Adet'] / filtered['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
 
                 st.markdown("#### 📝 Hazırlık Detay Listesi")
-                
                 edited_df = st.data_editor(
                     filtered,
                     column_order=["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"],
@@ -111,12 +131,10 @@ def goster():
                 
                 if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
                     all_data = veritabani.get_internal_data("Is_Emirleri")
-                    
                     for i, row in edited_df.iterrows():
                         mask = (all_data["İş Emri"].astype(str) == str(row["İş Emri"])) & \
                                (all_data["Stok Kodu"].astype(str) == str(row["Stok Kodu"])) & \
                                (all_data["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
-                        
                         if mask.any():
                             all_data.loc[mask, "Hazırlanan Adet"] = row["Hazırlanan Adet"]
 
