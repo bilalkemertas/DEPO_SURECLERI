@@ -1,14 +1,20 @@
 import streamlit as st
 import veritabani
 
-def go_home(): st.session_state.page = 'home'
+def go_home(): 
+    st.session_state.page = 'home'
 
 def goster():
-    if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
+    if st.button("⬅️ ANA MENÜ"): 
+        go_home()
+        st.rerun()
+        
     st.subheader("📊 Stok Hareketleri")
     
     with st.container(border=True):
+        # İşlem tipine göre dinamik alanlar yöneteceğiz
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
+        
         katalog = veritabani.get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         
@@ -22,11 +28,12 @@ def goster():
 
         st.markdown("---")
         
-        # --- DİNAMİK ADRES ALANLARI ---
-        a1, a2 = st.columns(2)
+        # --- DİNAMİK ADRES ALANLARI ZIRHI ---
+        # İşlem tipine göre adres değişkenlerini tanımlıyoruz
+        src_adr = "-"
+        dst_adr = "-"
         
-        src_adr = ""
-        dst_adr = ""
+        a1, a2 = st.columns(2)
 
         if move_type == "GİRİŞ":
             with a1:
@@ -43,5 +50,9 @@ def goster():
                 dst_adr = st.text_input("📍 Hedef Adres (Nereye):").upper()
 
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
-            # Buraya veritabani.py üzerinden kayıt fonksiyonu eklenebilir
-            st.success(f"{move_type} işlemi başarıyla kaydedildi!")
+            # Veritabanı loglama için merkezi saati kullanıyoruz
+            islem_zamani = veritabani.get_now_str()
+            
+            # Kayıt simülasyonu (Buraya veritabani.update_data entegrasyonu gelecek)
+            st.success(f"✅ {move_type} işlemi başarıyla kaydedildi!")
+            st.info(f"Zaman: {islem_zamani} | Ürün: {s_kod} | Kaynak: {src_adr} | Hedef: {dst_adr}")
