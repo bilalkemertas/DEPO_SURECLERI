@@ -56,7 +56,8 @@ def goster():
                 df_final_save = df_raw[cols_target]
                 
                 st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
-                st.dataframe(df_final_save[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
+                
+                # İstenen tablo ön izleme satırı buradan kaldırıldı.
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET", type="primary"):
                     existing = veritabani.get_internal_data("Is_Emirleri")
