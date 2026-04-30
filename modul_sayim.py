@@ -53,7 +53,7 @@ def goster():
     # 1. OTURUM YÖNETİMİ EKRANI
     # ==========================================
     elif st.session_state.sayim_page == 'oturum':
-        if st.button("⬅️ SAYIM MENÜSÜNE DÖN"): 
+        if st.button("⬅️ GERİ"): 
             go_sayim_menu()
             st.rerun()
             
@@ -85,7 +85,7 @@ def goster():
     # 2. SAYIM GİRİŞİ EKRANI
     # ==========================================
     elif st.session_state.sayim_page == 'giris':
-        if st.button("⬅️ SAYIM MENÜSÜNE DÖN"): 
+        if st.button("⬅️ GERİ"): 
             go_sayim_menu()
             st.rerun()
             
@@ -151,7 +151,7 @@ def goster():
     # 3. FARK RAPORU EKRANI
     # ==========================================
     elif st.session_state.sayim_page == 'rapor':
-        if st.button("⬅️ SAYIM MENÜSÜNE DÖN"): 
+        if st.button("⬅️ GERİ"): 
             go_sayim_menu()
             st.rerun()
             
@@ -165,8 +165,7 @@ def goster():
             if 'Oturum_Adi' not in df_sayim_ana.columns:
                 df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            st.markdown("#### 🗂️ Sayım Oturumu Seçimi")
-            mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
+           mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             
             varsayilan_index = 0
             if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi in mevcut_oturumlar:
