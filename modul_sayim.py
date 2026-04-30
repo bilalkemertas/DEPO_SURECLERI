@@ -21,6 +21,8 @@ def goster():
         st.session_state.aktif_sayim_adi = None
     if 'sayim_page' not in st.session_state:
         st.session_state.sayim_page = 'menu'
+    if 'delete_confirm' not in st.session_state:
+        st.session_state.delete_confirm = None
 
     # ==========================================
     # 0. SAYIM ANA MENÜSÜ (Giriş Ekranı)
@@ -122,9 +124,20 @@ def goster():
                 for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                     cols = st.columns([3, 1])
                     cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']}")
-                    if cols[1].button("🗑️", key=f"del_{idx}"):
-                        st.session_state['gecici_sayim_listesi'].pop(idx)
-                        st.rerun()
+                    
+                    if st.session_state.delete_confirm == idx:
+                        c_del, c_esc = cols[1].columns(2)
+                        if c_del.button("✅", key=f"conf_{idx}"):
+                            st.session_state['gecici_sayim_listesi'].pop(idx)
+                            st.session_state.delete_confirm = None
+                            st.rerun()
+                        if c_esc.button("❌", key=f"esc_{idx}"):
+                            st.session_state.delete_confirm = None
+                            st.rerun()
+                    else:
+                        if cols[1].button("🗑️", key=f"del_{idx}"):
+                            st.session_state.delete_confirm = idx
+                            st.rerun()
                 
                 if st.button("📤 VERİLERİ EXCEL'E GÖNDER", type="primary", use_container_width=True):
                     mevcut_sayim_verisi = veritabani.get_internal_data("sayim")
@@ -190,6 +203,30 @@ def goster():
             
             rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
             rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
+            
+            # --- YENİ EKLENEN FİLTRELER ---
+            st.markdown("#### 🔍 Rapor Filtreleri")
+            katalog = veritabani.get_katalog()
+            f_sec = st.selectbox("🔍 Ürün Seç (Katalogdan Filtrele):", ["+ MANUEL (TÜMÜ)"] + katalog)
+            
+            rf1, rf2, rf3 = st.columns(3)
+            f_adr = rf1.text_input("📍 Adres Filtre:").upper()
+            
+            oto_kod = f_sec.split(" | ")[0] if f_sec != "+ MANUEL (TÜMÜ)" else ""
+            oto_isim = f_sec.split(" | ")[1] if f_sec != "+ MANUEL (TÜMÜ)" and len(f_sec.split(" | ")) > 1 else ""
+            
+            f_kod = rf2.text_input("📦 Kod Filtre:", value=oto_kod).upper()
+            f_isim = rf3.text_input("📝 İsim Filtre:", value=oto_isim).upper()
+            
+            if f_adr: rapor = rapor[rapor['Adres'].astype(str).str.contains(f_adr, case=False, na=False)]
+            if f_kod: rapor = rapor[rapor['Kod'].astype(str).str.contains(f_kod, case=False, na=False)]
+            if f_isim: rapor = rapor[rapor['İsim'].astype(str).str.contains(f_isim, case=False, na=False)]
+            
+            st.markdown("---")
+            m1, m2 = st.columns(2)
+            m1.metric("Toplam Sayılan", f"{rapor['Miktar_Sayilan'].sum():,.0f}")
+            m2.metric("Toplam Fark", f"{rapor['FARK'].sum():,.0f}")
+            # ------------------------------
             
             def color_diff(val): return f'color: {"red" if val < 0 else "green" if val > 0 else "black"}; font-weight: bold'
             st.dataframe(rapor.style.map(color_diff, subset=['FARK']), use_container_width=True, hide_index=True)
