@@ -87,7 +87,7 @@ def goster():
             with st.container(border=True):
                 st.subheader("Oturum İşlemleri")
                 
-                # Buton 1: Sadece Kapat
+                # Buton 1: Sadece Kapat (Dosyaya yazar gibi session'dan çıkarır)
                 if st.button("🛑 OTURUMU SADECE KAPAT (STOK GÜNCELLEME YAPMA)", use_container_width=True):
                     st.session_state.aktif_sayim_adi = None
                     st.session_state['gecici_sayim_listesi'] = []
@@ -116,14 +116,14 @@ def goster():
                         if not df_urun.empty: isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
                         if not df_stok.empty: isim_sozlugu.update(df_stok.drop_duplicates('Kod').set_index('Kod')['İsim'].to_dict())
                         
-                        # ZIRHLI KISMİ EZME: Sayılan kodları eski stoktan çıkar, yenileri ekle
+                        # ZIRHLI KISMİ EZME
                         sayilan_kodlar = s_ozet['Kod'].unique().tolist()
                         stok_kalan = df_stok[~df_stok['Kod'].isin(sayilan_kodlar)]
                         
                         yeni_stok_verisi = s_ozet[['Kod', 'Miktar', 'Adres', 'Durum']].copy()
                         yeni_stok_verisi['İsim'] = yeni_stok_verisi['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
                         
-                        # Stok Güncelleme (Miktarı 0 olan sayımları eklemiyoruz)
+                        # Stok Güncelleme
                         veritabani.update_data("Stok", pd.concat([stok_kalan, yeni_stok_verisi[yeni_stok_verisi['Miktar']>0]], ignore_index=True))
                         
                         # Tamamlananlara Ekle
@@ -191,17 +191,14 @@ def goster():
         st.markdown("---")
         
         df_sayim_ana = veritabani.get_internal_data("sayim")
-        df_tamamlanan = veritabani.get_internal_data("sayim_tamamlanan")
         df_stok = veritabani.get_internal_data("Stok")
         df_urun = veritabani.get_internal_data("Urun_Listesi")
 
         if not df_sayim_ana.empty:
-            tamamlanan_liste = []
-            if not df_tamamlanan.empty and 'Oturum_Adi' in df_tamamlanan.columns:
-                tamamlanan_liste = df_tamamlanan['Oturum_Adi'].dropna().unique().tolist()
+            if 'Oturum_Adi' not in df_sayim_ana.columns: df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            # Sadece aktarılmamışları raporla (İsteğe bağlı olarak hepsi de gösterilebilir)
-            mevcut_oturumlar = [o for o in df_sayim_ana['Oturum_Adi'].dropna().unique().tolist() if o not in tamamlanan_liste]
+            # Tüm sayım oturumlarının listesini alıyoruz (Kısıtlama kaldırıldı)
+            mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             
             if mevcut_oturumlar:
                 v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
@@ -235,4 +232,4 @@ def goster():
                     with pd.ExcelWriter(buf, engine='xlsxwriter') as wr: rapor.to_excel(wr, index=False)
                     st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
             else:
-                st.info("İşlem bekleyen sayım oturumu bulunamadı.")
+                st.info("Sistemde kayıtlı sayım oturumu bulunamadı.")
