@@ -3,6 +3,24 @@ import pandas as pd
 from datetime import datetime, timedelta
 from streamlit_gsheets import GSheetsConnection
 
+# ==========================================
+# MERKEZİ ZAMAN YÖNETİMİ (UTC+3 TÜRKİYE)
+# ==========================================
+def get_now():
+    """Tüm sistem için merkezi Türkiye Saati (UTC+3) üretir."""
+    return datetime.now() + timedelta(hours=3)
+
+def get_now_str():
+    """Loglama için formatlanmış zaman metni döner (Örn: 30.04.2026 14:00)."""
+    return get_now().strftime("%d.%m.%Y %H:%M")
+
+def get_local_time():
+    """Eski fonksiyonlarla uyumluluk için (Y-m-d formatı)."""
+    return get_now().strftime("%Y-%m-%d %H:%M")
+
+# ==========================================
+# VERİ BAĞLANTI MOTORLARI
+# ==========================================
 def get_conn():
     return st.connection("gsheets", type=GSheetsConnection)
 
@@ -15,11 +33,13 @@ def get_internal_data(worksheet_name):
         conn = get_conn()
         df = conn.read(spreadsheet=get_sheet_url(), worksheet=worksheet_name, ttl=0)
         df.columns = df.columns.str.strip()
+        
         # Kodları string yapıp sonlarındaki .0'ları silerek eşleşme sorunlarını çözüyoruz
         if 'Kod' in df.columns:
             df['Kod'] = df['Kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
         if 'kod' in df.columns:
             df['kod'] = df['kod'].astype(str).str.strip().replace(r'\.0$', '', regex=True)
+            
         return df.fillna("-")
     except:
         return pd.DataFrame()
@@ -43,6 +63,3 @@ def get_katalog():
         return sorted(df_stok['Arama'].unique().tolist())
             
     return []
-
-def get_local_time():
-    return (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
