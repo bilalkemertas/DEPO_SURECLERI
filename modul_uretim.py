@@ -38,8 +38,12 @@ def goster():
                 # 4. Sütun isimlerindeki gereksiz boşlukları temizle
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # Senin standart referans veri dönüştürme mantığın (Bozulmadı)
-                if "total" in df_raw.columns: df_raw["İhtiyaç Miktarı"] = df_raw["Total"]
+                # Senin standart referans veri dönüştürme mantığın (Büyük/küçük harf duyarsız yapıldı)
+                for col in df_raw.columns:
+                    if str(col).lower() == "total":
+                        df_raw["İhtiyaç Miktarı"] = df_raw[col]
+                        break
+                        
                 if "Mamül Kodu" in df_raw.columns: df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
                 
                 is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
