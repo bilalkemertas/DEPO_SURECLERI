@@ -68,7 +68,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (ÖZET TABLO EKLENDİ) ---
+    # --- 2. OPERASYON ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -84,27 +84,39 @@ def goster():
             s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
             
             if s_list:
-                # --- İSTEDİĞİN ÖZET TABLO BURASI ---
-                st.markdown("### 📊 İş Emri Genel Durum Özeti")
-                dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
-                
-                # İş Emri Bazlı Gruplama
-                ozet_tablo = dashboard_df.groupby('İş Emri').agg({
-                    'İhtiyaç Miktarı': 'sum',
-                    'Hazırlanan Adet': 'sum'
-                }).reset_index()
-                
-                ozet_tablo['Tamamlanma %'] = (ozet_tablo['Hazırlanan Adet'] / ozet_tablo['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
-                
-                # Özet Tabloyu Göster
-                st.dataframe(
-                    ozet_tablo.rename(columns={
-                        'İhtiyaç Miktarı': 'Toplam İhtiyaç',
-                        'Hazırlanan Adet': 'Toplam Hazırlanan'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
+                # --- ÖZET PANELİ (GİZLENEBİLİR VE SABİT YÜKSEKLİKLİ) ---
+                with st.expander("📊 İş Emri Genel Durum Özeti (Görüntülemek için tıklayın)", expanded=False):
+                    # Sabit yükseklik ve scrollbar için CSS zırhı
+                    st.markdown("""
+                        <style>
+                        .scroll-container {
+                            max-height: 250px;
+                            overflow-y: auto;
+                            border: 1px solid #ddd;
+                            padding: 10px;
+                            border-radius: 5px;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+                    
+                    dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
+                    ozet_tablo = dashboard_df.groupby('İş Emri').agg({
+                        'İhtiyaç Miktarı': 'sum',
+                        'Hazırlanan Adet': 'sum'
+                    }).reset_index()
+                    ozet_tablo['Tamamlanma %'] = (ozet_tablo['Hazırlanan Adet'] / ozet_tablo['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
+                    
+                    # Tabloyu bir div içine alarak scroll ekliyoruz
+                    st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+                    st.dataframe(
+                        ozet_tablo.rename(columns={
+                            'İhtiyaç Miktarı': 'Toplam İhtiyaç',
+                            'Hazırlanan Adet': 'Toplam Hazırlanan'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                 st.markdown("---")
                 
