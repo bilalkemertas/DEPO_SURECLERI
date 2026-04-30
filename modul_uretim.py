@@ -68,7 +68,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON ---
+    # --- 2. OPERASYON (ÖZET TABLO EKLENDİ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -77,33 +77,38 @@ def goster():
         df_stok_ana = veritabani.get_internal_data("Stok")
         
         if not df_emirler.empty:
+            df_emirler['Hazırlanan Adet'] = pd.to_numeric(df_emirler['Hazırlanan Adet'], errors='coerce').fillna(0)
+            df_emirler['İhtiyaç Miktarı'] = pd.to_numeric(df_emirler['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            
             emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
             s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
             
             if s_list:
-                # DASHBOARD ALANI
-                st.markdown("### 📊 İş Emri Özet Paneli")
+                # --- İSTEDİĞİN ÖZET TABLO BURASI ---
+                st.markdown("### 📊 İş Emri Genel Durum Özeti")
                 dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
-                dashboard_df['Hazırlanan Adet'] = pd.to_numeric(dashboard_df['Hazırlanan Adet'], errors='coerce').fillna(0)
-                dashboard_df['İhtiyaç Miktarı'] = pd.to_numeric(dashboard_df['İhtiyaç Miktarı'], errors='coerce').fillna(0)
                 
-                # Dosya bazlı gruplama
-                ozet = dashboard_df.groupby('İş Emri').agg({
+                # İş Emri Bazlı Gruplama
+                ozet_tablo = dashboard_df.groupby('İş Emri').agg({
                     'İhtiyaç Miktarı': 'sum',
                     'Hazırlanan Adet': 'sum'
                 }).reset_index()
-                ozet['Genel Doluluk %'] = (ozet['Hazırlanan Adet'] / ozet['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
                 
-                # Dashboard Metrikleri (Yan Yana Dosyalar)
-                cols = st.columns(len(ozet) if len(ozet) <= 4 else 4)
-                for idx, row in ozet.iterrows():
-                    with cols[idx % 4]:
-                        st.metric(label=f"📁 {row['İş Emri']}", value=f"% {row['Genel Doluluk %']}")
-                        st.progress(min(row['Genel Doluluk %'] / 100, 1.0))
+                ozet_tablo['Tamamlanma %'] = (ozet_tablo['Hazırlanan Adet'] / ozet_tablo['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
+                
+                # Özet Tabloyu Göster
+                st.dataframe(
+                    ozet_tablo.rename(columns={
+                        'İhtiyaç Miktarı': 'Toplam İhtiyaç',
+                        'Hazırlanan Adet': 'Toplam Hazırlanan'
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
                 
                 st.markdown("---")
                 
-                # DETAY LİSTE VE FİLTRELEME
+                # --- DETAY LİSTE ---
                 filtered = dashboard_df.copy()
                 mamul_list = sorted(filtered["Mamül Adı"].astype(str).unique().tolist())
                 m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
