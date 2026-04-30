@@ -39,7 +39,7 @@ def goster():
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
                 # Senin standart referans veri dönüştürme mantığın (Bozulmadı)
-                if "total" in df_raw.columns: df_raw["İhtiyaç Miktarı"] = df_raw["total"]
+                if "total" in df_raw.columns: df_raw["İhtiyaç Miktarı"] = df_raw["Total"]
                 if "Mamül Kodu" in df_raw.columns: df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
                 
                 is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
