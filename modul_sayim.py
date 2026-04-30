@@ -4,32 +4,59 @@ import veritabani
 import io
 from datetime import datetime
 
-def go_home(): st.session_state.page = 'home'
+def go_home(): 
+    st.session_state.page = 'home'
+    st.session_state.sayim_page = 'menu'
+
+def go_sayim_menu(): st.session_state.sayim_page = 'menu'
+def go_oturum(): st.session_state.sayim_page = 'oturum'
+def go_giris(): st.session_state.sayim_page = 'giris'
+def go_rapor(): st.session_state.sayim_page = 'rapor'
 
 def goster():
-    if st.button("⬅️ ANA MENÜ"): go_home(); st.rerun()
-    st.subheader("⚖️ Sayım Kontrolü")
-
-    # Geçici listeyi güvenceye alalım
+    # Session state tanımlamaları
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
-
     if 'aktif_sayim_adi' not in st.session_state:
         st.session_state.aktif_sayim_adi = None
+    if 'sayim_page' not in st.session_state:
+        st.session_state.sayim_page = 'menu'
 
-    # --- ALT MENÜ OLUŞTURMA ---
-    alt_menu = st.radio(
-        "Lütfen yapmak istediğiniz işlemi seçin:",
-        ["📁 Oturum Yönetimi", "📝 Sayım Girişi", "📊 Fark Raporu"],
-        horizontal=True
-    )
-    st.markdown("---")
+    # ==========================================
+    # 0. SAYIM ANA MENÜSÜ (Giriş Ekranı)
+    # ==========================================
+    if st.session_state.sayim_page == 'menu':
+        if st.button("⬅️ ANA MENÜ"): 
+            go_home()
+            st.rerun()
+        
+        st.subheader("⚖️ Sayım Kontrol Merkezi")
+        st.markdown("---")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.button("📁 OTURUM YÖNETİMİ", use_container_width=True, type="primary", on_click=go_oturum)
+        with c2:
+            st.button("📝 SAYIM GİRİŞİ", use_container_width=True, type="primary", on_click=go_giris)
+        with c3:
+            st.button("📊 FARK RAPORU", use_container_width=True, type="primary", on_click=go_rapor)
+            
+        st.markdown("---")
+        if st.session_state.aktif_sayim_adi:
+            st.success(f"📡 Şu an aktif olan oturum: **{st.session_state.aktif_sayim_adi}**")
+        else:
+            st.info("ℹ️ Şu an açık bir sayım oturumu bulunmuyor. 'Oturum Yönetimi'nden yeni sayım başlatabilirsiniz.")
 
     # ==========================================
     # 1. OTURUM YÖNETİMİ EKRANI
     # ==========================================
-    if alt_menu == "📁 Oturum Yönetimi":
-        st.markdown("#### 📁 Sayım Oturumu İşlemleri")
+    elif st.session_state.sayim_page == 'oturum':
+        if st.button("⬅️ SAYIM MENÜSÜNE DÖN"): 
+            go_sayim_menu()
+            st.rerun()
+            
+        st.subheader("📁 Sayım Oturumu İşlemleri")
+        st.markdown("---")
         
         if st.session_state.aktif_sayim_adi is None:
             st.info("ℹ️ Şu an açık bir sayım oturumu bulunmuyor. Yeni bir sayım başlatabilirsiniz.")
@@ -39,7 +66,7 @@ def goster():
                     if sayim_etiketi:
                         zaman = datetime.now().strftime("%d%m_%H%M")
                         st.session_state.aktif_sayim_adi = f"{sayim_etiketi}_{zaman}"
-                        st.success(f"✅ '{st.session_state.aktif_sayim_adi}' oturumu başlatıldı! Artık 'Sayım Girişi' sekmesinden veri girebilirsiniz.")
+                        st.success(f"✅ '{st.session_state.aktif_sayim_adi}' oturumu başlatıldı! Artık 'Sayım Girişi' ekranından veri girebilirsiniz.")
                         st.rerun()
                     else:
                         st.warning("Lütfen bir oturum ismi girin!")
@@ -55,9 +82,16 @@ def goster():
     # ==========================================
     # 2. SAYIM GİRİŞİ EKRANI
     # ==========================================
-    elif alt_menu == "📝 Sayım Girişi":
+    elif st.session_state.sayim_page == 'giris':
+        if st.button("⬅️ SAYIM MENÜSÜNE DÖN"): 
+            go_sayim_menu()
+            st.rerun()
+            
+        st.subheader("📝 Sayım Girişi")
+        st.markdown("---")
+        
         if st.session_state.aktif_sayim_adi is None:
-            st.warning("⚠️ Lütfen önce '📁 Oturum Yönetimi' menüsünden yeni bir sayım başlatın!")
+            st.warning("⚠️ Lütfen önce 'Oturum Yönetimi' menüsünden yeni bir sayım başlatın!")
         else:
             st.success(f"Kayıt Yapılan Oturum: {st.session_state.aktif_sayim_adi}")
             with st.container(border=True):
@@ -103,7 +137,14 @@ def goster():
     # ==========================================
     # 3. FARK RAPORU EKRANI
     # ==========================================
-    elif alt_menu == "📊 Fark Raporu":
+    elif st.session_state.sayim_page == 'rapor':
+        if st.button("⬅️ SAYIM MENÜSÜNE DÖN"): 
+            go_sayim_menu()
+            st.rerun()
+            
+        st.subheader("📊 Fark Raporu")
+        st.markdown("---")
+        
         df_sayim_ana = veritabani.get_internal_data("sayim")
         df_stok = veritabani.get_internal_data("Stok")
 
