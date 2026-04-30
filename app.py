@@ -49,7 +49,7 @@ def main():
         # Secrets'tan veriyi çekme
         try:
             # Streamlit Secrets alanındaki [passwords] başlığını okur
-            creds = st.secrets["passwords"]
+            creds = st.secrets["users"]
         except Exception:
             st.error("Secrets ayarlarında [passwords] başlığı bulunamadı!")
             return
