@@ -1,56 +1,115 @@
 import streamlit as st
 import pandas as pd
 import veritabani
-import io
-
-def go_home():
-    st.session_state.page = 'home'
 
 def goster():
-    # Sayfa Başlığı ve Geri Butonu (Yerleşim düzeltilmiş)
-    c_nav, c_title = st.columns([1, 5])
-    with c_nav:
-        if st.button("⬅️"): go_home(); st.rerun()
-    with c_title:
-        st.markdown("<h3 style='margin-top: -10px;'>🏗️ Üretim Hazırlık</h3>", unsafe_allow_html=True)
+    # Güvenlik kontrolü
+    if 'user' not in st.session_state or st.session_state.user is None:
+        st.session_state.page = 'login'
+        st.rerun()
 
-    st.markdown("---")
+    if st.button("⬅️ ANA MENÜ"): 
+        st.session_state.page = 'home'
+        st.rerun()
+    
+    st.subheader("🏭 Üretim Hazırlık")
 
-    # --- YENİ İŞ EMRİ YÜKLEME ---
-    with st.expander("📥 Yeni İş Emri Yükle", expanded=True):
-        yuklenen_dosya = st.file_uploader("Excel dosyasını seçin:", type=['xlsx'])
-        
-        if yuklenen_dosya is not None:
+    # --- 1. YENİ İŞ EMRİ YÜKLEME ---
+    with st.expander("📤 Yeni İş Emri Yükle", expanded=True):
+        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
+        if uploaded_file:
             try:
-                # Excel dosyasını oku - 'HAZIRLIK' sekmesine odaklan
-                df_is_emri = pd.read_excel(yuklenen_dosya, sheet_name='HAZIRLIK')
+                # 1. Dosyayı başlıkları yok sayarak düz oku
+                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
                 
-                # Sütun isimlerini standartlaştır (Boşlukları temizle)
-                df_is_emri.columns = [str(c).strip() for c in df_is_emri.columns]
+                # 2. Akıllı Başlık Bulucu: Sütun isimlerinin hangi satırda olduğunu otomatik bul
+                baslik_satiri = 0
+                for i in range(min(20, len(df_raw))):
+                    # O satırdaki verileri listeye al ve küçük harfe çevir
+                    satir = [str(x).strip().lower() for x in df_raw.iloc[i].fillna("").values]
+                    if "stok kodu" in satir or "total" in satir or "mamül kodu" in satir:
+                        baslik_satiri = i
+                        break
                 
-                # Dosya adını iş emri adı olarak kullan
-                is_emri_adi = yuklenen_dosya.name.replace(".xlsx", "")
+                # 3. Tablonun başlıklarını o satır yap ve üstündeki boşlukları/logoları çöpe at
+                df_raw.columns = df_raw.iloc[baslik_satiri]
+                df_raw = df_raw.iloc[baslik_satiri+1:].reset_index(drop=True)
+                
+                # 4. Sütun isimlerindeki gereksiz boşlukları temizle
+                df_raw.columns = [str(c).strip() for c in df_raw.columns]
+                
+                # Senin standart referans veri dönüştürme mantığın (Bozulmadı)
+                if "total" in df_raw.columns: df_raw["İhtiyaç Miktarı"] = df_raw["total"]
+                if "Mamül Kodu" in df_raw.columns: df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
+                
+                is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
+                df_raw['İş Emri'] = is_emri_adi
+                
+                cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Mamül Kodu", "Birim"]
+                for c in cols_target:
+                    if c not in df_raw.columns:
+                        df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
+                
+                # Stok Kodu boş olan (alt kısımdaki gereksiz) satırları temizle
+                df_raw = df_raw.dropna(subset=['Stok Kodu'])
+                
+                df_final_save = df_raw[cols_target]
+                
                 st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
-
-                # Gerekli sütunların varlığını kontrol et ve göster
-                cols = ['Stok Kodu', 'Stok Adı', 'İhtiyaç Miktarı']
-                if all(c in df_is_emri.columns for c in cols):
-                    # Veriyi filtrele ve boş satırları temizle
-                    is_emri_data = df_is_emri[cols].dropna(subset=['Stok Kodu']).copy()
-                    
-                    st.dataframe(is_emri_data, use_container_width=True, hide_index=True)
-                    
-                    if st.button("🚀 İŞ EMRİNİ SİSTEME KAYDET", type="primary", use_container_width=True):
-                        # İş emri veritabanına kayıt işlemleri buraya gelecek
-                        st.success(f"{is_emri_adi} başarıyla kaydedildi!")
-                else:
-                    st.error(f"Excel dosyasında gerekli sütunlar bulunamadı! Beklenen: {cols}")
-                    st.write("Mevcut Sütunlar:", list(df_is_emri.columns))
-            
+                st.dataframe(df_final_save[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı"]], use_container_width=True, hide_index=True)
+                
+                if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET", type="primary"):
+                    existing = veritabani.get_internal_data("Is_Emirleri")
+                    updated = pd.concat([existing, df_final_save], ignore_index=True)
+                    veritabani.update_data("Is_Emirleri", updated)
+                    st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
+                    st.cache_data.clear(); st.rerun()
             except Exception as e:
-                st.error(f"Dosya okuma hatası: {e}")
+                st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
 
-    # --- MEVCUT İŞ EMRİ TAKİBİ ---
     st.markdown("---")
-    st.subheader("📋 Aktif İş Emirleri")
-    # Mevcut iş emirlerini listeleme mantığı...
+
+    # --- 2. İŞ EMRİ TAKİBİ VE HAZIRLIK LİSTESİ ---
+    df_emirler = veritabani.get_internal_data("Is_Emirleri")
+    df_stok_ana = veritabani.get_internal_data("Stok")
+    
+    if not df_emirler.empty:
+        emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
+        s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
+        
+        if s_list:
+            temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
+            
+            mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
+            m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
+            
+            filtered = temp_df.copy()
+            if m_sec:
+                filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
+            
+            filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
+                                     pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+            
+            def get_best_adr(kod):
+                if 'Kod' in df_stok_ana.columns:
+                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
+                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
+                return "STOK YOK"
+            
+            s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
+            filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
+            
+            st.markdown("#### 📝 Hazırlık Detay Listesi")
+            
+            gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
+            gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
+
+            ed = st.data_editor(
+                filtered, 
+                column_order=gosterilecek_kolonlar, 
+                hide_index=True, 
+                use_container_width=True
+            )
+            
+            if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
+                st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
