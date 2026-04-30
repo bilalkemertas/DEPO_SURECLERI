@@ -25,7 +25,7 @@ def goster():
         st.session_state.delete_confirm = None
 
     # ==========================================
-    # 1. SAYIM ANA MENÜSÜ
+    # 0. SAYIM ANA MENÜSÜ
     # ==========================================
     if st.session_state.sayim_page == 'menu':
         c_nav, c_title = st.columns([1, 4])
@@ -47,7 +47,7 @@ def goster():
             st.info("ℹ️ Açık oturum yok. İşlem için oturum başlatın.")
 
     # ==========================================
-    # 2. OTURUM YÖNETİMİ
+    # 1. OTURUM YÖNETİMİ
     # ==========================================
     elif st.session_state.sayim_page == 'oturum':
         c_nav, c_title = st.columns([1, 4])
@@ -73,7 +73,7 @@ def goster():
                 st.rerun()
 
     # ==========================================
-    # 3. SAYIM GİRİŞİ
+    # 2. SAYIM GİRİŞİ
     # ==========================================
     elif st.session_state.sayim_page == 'giris':
         c_nav, c_title = st.columns([1, 4])
@@ -121,7 +121,7 @@ def goster():
                     st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
 
     # ==========================================
-    # 4. FARK RAPORU
+    # 3. FARK RAPORU
     # ==========================================
     elif st.session_state.sayim_page == 'rapor':
         c_nav, c_title = st.columns([1, 4])
@@ -137,7 +137,6 @@ def goster():
         if not df_sayim_ana.empty:
             if 'Oturum_Adi' not in df_sayim_ana.columns: df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            # Başlık kaldırıldı, direkt selectbox
             mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
             
@@ -156,12 +155,10 @@ def goster():
                 rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
                 rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
                 
-                # İsim eşleme
                 isimler = df_stok.drop_duplicates('Kod').set_index('Kod')['İsim'].to_dict()
                 rapor['İsim'] = rapor['Kod'].map(isimler).fillna("TANIMSIZ")
                 rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
                 
-                # Filtre başlığı kaldırıldı, direkt girişler
                 katalog = veritabani.get_katalog()
                 f_sec = st.selectbox("Ürün Seç:", ["+ TÜMÜ"] + katalog, label_visibility="collapsed")
                 
@@ -181,9 +178,9 @@ def goster():
                 m1.metric("Toplam Sayılan", f"{rapor['Miktar_Sayilan'].sum():,.0f}")
                 m2.metric("Toplam Fark", f"{rapor['FARK'].sum():,.0f}")
                 
-                st.dataframe(rapor.style.applymap(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']), use_container_width=True, hide_index=True)
+                # HATALI OLAN applymap -> map OLARAK GÜNCELLENDİ
+                st.dataframe(rapor.style.map(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']), use_container_width=True, hide_index=True)
 
-                # Excel Butonu
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as wr: rapor.to_excel(wr, index=False)
                 st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
@@ -192,7 +189,6 @@ def goster():
                     st.markdown("---")
                     st.warning("⚠️ STOK GÜNCELLEME")
                     if st.checkbox("Onaylıyorum") and st.button("🚀 GÜNCELLE", type="primary", use_container_width=True):
-                        # Güncelleme mantığı (kısmi sayım)
                         sayilanlar = rapor['Kod'].unique().tolist()
                         kalan = df_stok[~df_stok['Kod'].isin(sayilanlar)]
                         yeni = rapor[['Kod', 'İsim', 'Miktar_Sayilan', 'Adres', 'Durum']].rename(columns={'Miktar_Sayilan':'Miktar'})
