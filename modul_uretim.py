@@ -2,20 +2,51 @@ import streamlit as st
 import pandas as pd
 import veritabani
 
+def go_home():
+    st.session_state.page = 'home'
+    st.session_state.uretim_page = 'menu'
+
+def go_uretim_menu(): st.session_state.uretim_page = 'menu'
+def go_is_emri(): st.session_state.uretim_page = 'is_emri'
+def go_hazirlik(): st.session_state.uretim_page = 'hazirlik'
+def go_rapor(): st.session_state.uretim_page = 'rapor'
+
 def goster():
     # Güvenlik kontrolü
     if 'user' not in st.session_state or st.session_state.user is None:
         st.session_state.page = 'login'
         st.rerun()
 
-    if st.button("⬅️ ANA MENÜ"): 
-        st.session_state.page = 'home'
-        st.rerun()
-    
-    st.subheader("🏭 Üretim Hazırlık")
+    # Alt menü durumu başlatma
+    if 'uretim_page' not in st.session_state:
+        st.session_state.uretim_page = 'menu'
 
-    # --- 1. YENİ İŞ EMRİ YÜKLEME ---
-    with st.expander("📤 Yeni İş Emri Yükle", expanded=True):
+    # ==========================================
+    # 0. ÜRETİM HAZIRLIK ANA MENÜSÜ
+    # ==========================================
+    if st.session_state.uretim_page == 'menu':
+        if st.button("⬅️ ANA MENÜ"): 
+            go_home()
+            st.rerun()
+        
+        st.subheader("🏭 Üretim Hazırlık Merkezi")
+        st.markdown("---")
+        
+        st.button("📥 İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=go_is_emri)
+        st.button("🏗️ ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_hazirlik)
+        st.button("📊 HAZIRLIK RAPORU", use_container_width=True, type="primary", on_click=go_rapor)
+
+    # ==========================================
+    # 1. YENİ İŞ EMRİ YÜKLEME EKRANI
+    # ==========================================
+    elif st.session_state.uretim_page == 'is_emri':
+        if st.button("⬅️ GERİ DÖN"): 
+            go_uretim_menu()
+            st.rerun()
+            
+        st.subheader("📤 Yeni İş Emri Yükle")
+        st.markdown("---")
+        
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
@@ -23,7 +54,6 @@ def goster():
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
                 
                 # 2. SADECE "Stok Kodu" geçen satırı asıl başlık satırı olarak kabul et!
-                # (Excel'in tepesindeki gereksiz yazılara aldanmaması için)
                 baslik_satiri = 0
                 for i in range(min(20, len(df_raw))):
                     satir = [str(x).strip().lower() for x in df_raw.iloc[i].fillna("").values]
@@ -41,7 +71,6 @@ def goster():
                 # 5. TOTAL Sütununu bul ve garanti olarak İhtiyaç Miktarı'na eşitle
                 for col in df_raw.columns:
                     if "total" in str(col).lower():
-                        # Değerleri sayıya çevir (metin/boşluk varsa sıfır yapar, hata vermez)
                         df_raw["İhtiyaç Miktarı"] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
                         break
                         
@@ -71,49 +100,69 @@ def goster():
             except Exception as e:
                 st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
 
-    st.markdown("---")
-
-    # --- 2. İŞ EMRİ TAKİBİ VE HAZIRLIK LİSTESİ ---
-    df_emirler = veritabani.get_internal_data("Is_Emirleri")
-    df_stok_ana = veritabani.get_internal_data("Stok")
-    
-    if not df_emirler.empty:
-        emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
-        s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
+    # ==========================================
+    # 2. İŞ EMRİ TAKİBİ VE HAZIRLIK LİSTESİ EKRANI
+    # ==========================================
+    elif st.session_state.uretim_page == 'hazirlik':
+        if st.button("⬅️ GERİ DÖN"): 
+            go_uretim_menu()
+            st.rerun()
+            
+        st.subheader("🏗️ Üretim Hazırlık ve İş Emri Takibi")
+        st.markdown("---")
         
-        if s_list:
-            temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
+        df_emirler = veritabani.get_internal_data("Is_Emirleri")
+        df_stok_ana = veritabani.get_internal_data("Stok")
+        
+        if not df_emirler.empty:
+            emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
+            s_list = st.multiselect("📋 İş Emirlerini Seçin:", emir_list)
             
-            mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
-            m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
-            
-            filtered = temp_df.copy()
-            if m_sec:
-                filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
-            
-            filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
-                                     pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
-            
-            def get_best_adr(kod):
-                if 'Kod' in df_stok_ana.columns:
-                    res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
-                    return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
-                return "STOK YOK"
-            
-            s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
-            filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
-            
-            st.markdown("#### 📝 Hazırlık Detay Listesi")
-            
-            gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
-            gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
+            if s_list:
+                temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
+                
+                mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
+                m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
+                
+                filtered = temp_df.copy()
+                if m_sec:
+                    filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
+                
+                filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
+                                         pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+                
+                def get_best_adr(kod):
+                    if 'Kod' in df_stok_ana.columns:
+                        res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
+                        return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
+                    return "STOK YOK"
+                
+                s_kod_col = 'Stok Kodu' if 'Stok Kodu' in filtered.columns else 'Kod'
+                filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
+                
+                st.markdown("#### 📝 Hazırlık Detay Listesi")
+                
+                gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
+                gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
 
-            ed = st.data_editor(
-                filtered, 
-                column_order=gosterilecek_kolonlar, 
-                hide_index=True, 
-                use_container_width=True
-            )
+                ed = st.data_editor(
+                    filtered, 
+                    column_order=gosterilecek_kolonlar, 
+                    hide_index=True, 
+                    use_container_width=True
+                )
+                
+                if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
+                    st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
+
+    # ==========================================
+    # 3. HAZIRLIK RAPORU EKRANI
+    # ==========================================
+    elif st.session_state.uretim_page == 'rapor':
+        if st.button("⬅️ GERİ DÖN"): 
+            go_uretim_menu()
+            st.rerun()
             
-            if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
+        st.subheader("📊 Hazırlık Raporu")
+        st.markdown("---")
+        st.info("ℹ️ Bu ekran geliştirme aşamasındadır. Rapor verileri buraya eklenecektir.")
