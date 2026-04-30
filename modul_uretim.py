@@ -169,7 +169,6 @@ def goster():
             res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
             res['Doluluk %'] = (pd.to_numeric(res['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                 pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
-            
             st.dataframe(res, use_container_width=True, hide_index=True)
             
             # --- EXCEL İNDİRME BUTONU ---
