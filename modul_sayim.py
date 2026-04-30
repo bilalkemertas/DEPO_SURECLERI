@@ -113,7 +113,7 @@ def goster():
                 rapor.to_excel(writer, index=False, sheet_name='Sayim_Fark_Raporu')
             
             st.download_button(
-                label="📥 FARK RAPORUNU EXCEL OLARAK İNDİR",
+                label="📥 SAYIM SONUÇLARINI İNDİR",
                 data=buffer.getvalue(),
                 file_name=f"Sayim_Fark_Raporu_{veritabani.get_local_time().split(' ')[0]}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -127,7 +127,7 @@ def goster():
             
             onay = st.checkbox("Verilerin doğruluğunu onaylıyorum ve stokları güncellemek istiyorum.")
             
-            if st.button("🚀 STOK VERİTABANINI GÜNCELLE", disabled=not onay, use_container_width=True, type="primary"):
+            if st.button("🚀 SAYIMI SİSTEME AKTAR", disabled=not onay, use_container_width=True, type="primary"):
                 try:
                     sayilan_kodlar = rapor['Kod'].unique().tolist()
                     if not df_stok.empty:
