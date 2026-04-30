@@ -165,14 +165,4 @@ def goster():
             
         st.subheader("📊 Hazırlık Raporu")
         st.markdown("---")
-        
-        df_h = veritabani.get_internal_data("Is_Emirleri")
-        if not df_h.empty:
-            r_emir_list = sorted(df_h["İş Emri"].astype(str).unique().tolist())
-            r_emir = st.multiselect("📋 İş Emri Filtrele:", r_emir_list, key="r_emir")
-            r_df = df_h.copy()
-            if r_emir:
-                r_df = r_df[r_df["İş Emri"].astype(str).isin(r_emir)]
-            st.dataframe(r_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("ℹ️ Gösterilecek iş emri verisi bulunamadı.")
+        st.info("ℹ️ Bu ekran geliştirme aşamasındadır. Rapor verileri buraya eklenecektir.")
