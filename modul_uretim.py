@@ -22,26 +22,27 @@ def goster():
                 # 1. Dosyayı başlıkları yok sayarak düz oku
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
                 
-                # 2. Akıllı Başlık Bulucu: Sütun isimlerinin hangi satırda olduğunu otomatik bul
+                # 2. SADECE "Stok Kodu" geçen satırı asıl başlık satırı olarak kabul et!
+                # (Excel'in tepesindeki gereksiz yazılara aldanmaması için)
                 baslik_satiri = 0
                 for i in range(min(20, len(df_raw))):
-                    # O satırdaki verileri listeye al ve küçük harfe çevir
                     satir = [str(x).strip().lower() for x in df_raw.iloc[i].fillna("").values]
-                    if "stok kodu" in satir or "total" in satir or "mamül kodu" in satir:
+                    if "stok kodu" in satir:
                         baslik_satiri = i
                         break
                 
-                # 3. Tablonun başlıklarını o satır yap ve üstündeki boşlukları/logoları çöpe at
+                # 3. Tablonun başlıklarını o satır yap
                 df_raw.columns = df_raw.iloc[baslik_satiri]
                 df_raw = df_raw.iloc[baslik_satiri+1:].reset_index(drop=True)
                 
                 # 4. Sütun isimlerindeki gereksiz boşlukları temizle
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # Senin standart referans veri dönüştürme mantığın (Büyük/küçük harf duyarsız yapıldı)
+                # 5. TOTAL Sütununu bul ve garanti olarak İhtiyaç Miktarı'na eşitle
                 for col in df_raw.columns:
-                    if str(col).lower() == "total":
-                        df_raw["İhtiyaç Miktarı"] = df_raw[col]
+                    if "total" in str(col).lower():
+                        # Değerleri sayıya çevir (metin/boşluk varsa sıfır yapar, hata vermez)
+                        df_raw["İhtiyaç Miktarı"] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
                         break
                         
                 if "Mamül Kodu" in df_raw.columns: df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
@@ -60,8 +61,6 @@ def goster():
                 df_final_save = df_raw[cols_target]
                 
                 st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
-                
-                # İstenen tablo ön izleme satırı buradan kaldırıldı.
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET", type="primary"):
                     existing = veritabani.get_internal_data("Is_Emirleri")
