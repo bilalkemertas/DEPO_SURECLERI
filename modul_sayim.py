@@ -165,7 +165,8 @@ def goster():
             if 'Oturum_Adi' not in df_sayim_ana.columns:
                 df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-           mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
+            st.markdown("#### 🗂️ Sayım Oturumu Seçimi")
+            mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             
             varsayilan_index = 0
             if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi in mevcut_oturumlar:
