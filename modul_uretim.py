@@ -50,10 +50,7 @@ def goster():
         uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
         if uploaded_file:
             try:
-                # 1. Dosyayı başlıkları yok sayarak düz oku
                 df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
-                
-                # 2. SADECE "Stok Kodu" geçen satırı asıl başlık satırı olarak kabul et!
                 baslik_satiri = 0
                 for i in range(min(20, len(df_raw))):
                     satir = [str(x).strip().lower() for x in df_raw.iloc[i].fillna("").values]
@@ -61,14 +58,10 @@ def goster():
                         baslik_satiri = i
                         break
                 
-                # 3. Tablonun başlıklarını o satır yap
                 df_raw.columns = df_raw.iloc[baslik_satiri]
                 df_raw = df_raw.iloc[baslik_satiri+1:].reset_index(drop=True)
-                
-                # 4. Sütun isimlerindeki gereksiz boşlukları temizle
                 df_raw.columns = [str(c).strip() for c in df_raw.columns]
                 
-                # 5. TOTAL Sütununu bul ve garanti olarak İhtiyaç Miktarı'na eşitle
                 for col in df_raw.columns:
                     if "total" in str(col).lower():
                         df_raw["İhtiyaç Miktarı"] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
@@ -84,11 +77,8 @@ def goster():
                     if c not in df_raw.columns:
                         df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
                 
-                # Stok Kodu boş olan (alt kısımdaki gereksiz) satırları temizle
                 df_raw = df_raw.dropna(subset=['Stok Kodu'])
-                
                 df_final_save = df_raw[cols_target]
-                
                 st.info(f"📂 'HAZIRLIK' sekmesi okundu. İş Emri: {is_emri_adi}")
                 
                 if st.button("VERİTABANINA (IS_EMIRLERI) ŞİMDİ KAYDET", type="primary"):
@@ -120,7 +110,6 @@ def goster():
             
             if s_list:
                 temp_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)]
-                
                 mamul_list = sorted(temp_df["Mamül Adı"].astype(str).unique().tolist())
                 m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
                 
@@ -128,11 +117,9 @@ def goster():
                 if m_sec:
                     filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
                 
-                # Doluluk Oranı Hesaplama
                 filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                          pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
                 
-                # Adres Getirme Fonksiyonu
                 def get_best_adr(kod):
                     if 'Kod' in df_stok_ana.columns:
                         res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
@@ -143,16 +130,10 @@ def goster():
                 filtered["Alınacak Adres"] = filtered[s_kod_col].apply(get_best_adr)
                 
                 st.markdown("#### 📝 Hazırlık Detay Listesi")
-                
                 gosterilecek_kolonlar = ["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"]
                 gosterilecek_kolonlar = [c for c in gosterilecek_kolonlar if c in filtered.columns]
 
-                ed = st.data_editor(
-                    filtered, 
-                    column_order=gosterilecek_kolonlar, 
-                    hide_index=True, 
-                    use_container_width=True
-                )
+                st.data_editor(filtered, column_order=gosterilecek_kolonlar, hide_index=True, use_container_width=True)
                 
                 if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
                     st.success("Hazırlık verileri güncellendi!"); st.rerun()
@@ -170,13 +151,22 @@ def goster():
         
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         if not df_lh.empty:
-            r_e = st.multiselect("İş Emri Süz:", sorted(df_lh["İş Emri"].unique().tolist()))
+            # 1. İş Emri Filtresi
+            r_e = st.multiselect("📋 İş Emri Süz:", sorted(df_lh["İş Emri"].unique().tolist()))
             res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
             
-            # Rapor ekranında da doluluk oranlarını gösterelim
+            # 2. Mamül Adı Filtresi (İstediğin Özellik)
+            mamul_rapor_list = sorted(res["Mamül Adı"].astype(str).unique().tolist())
+            m_rapor_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_rapor_list)
+            
+            if m_rapor_sec:
+                res = res[res["Mamül Adı"].astype(str).isin(m_rapor_sec)]
+            
+            # 3. Doluluk Oranı Hesaplama (İstediğin Özellik)
             res['Doluluk %'] = (pd.to_numeric(res['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                 pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
             
+            # Tablo Görünümü
             st.dataframe(res, use_container_width=True, hide_index=True)
         else:
             st.warning("Henüz sisteme kayıtlı bir iş emri bulunamadı.")
