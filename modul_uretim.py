@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import veritabani
+import io  # Excel indirme işlemi için gerekli
 
 def go_home():
     st.session_state.page = 'home'
@@ -84,9 +85,8 @@ def goster():
             s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
             
             if s_list:
-                # --- ÖZET PANELİ (GİZLENEBİLİR VE SABİT YÜKSEKLİKLİ) ---
+                # --- ÖZET PANELİ ---
                 with st.expander("📊 İş Emri Genel Durum Özeti (Görüntülemek için tıklayın)", expanded=False):
-                    # Sabit yükseklik ve scrollbar için CSS zırhı
                     st.markdown("""
                         <style>
                         .scroll-container {
@@ -106,7 +106,6 @@ def goster():
                     }).reset_index()
                     ozet_tablo['Tamamlanma %'] = (ozet_tablo['Hazırlanan Adet'] / ozet_tablo['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
                     
-                    # Tabloyu bir div içine alarak scroll ekliyoruz
                     st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
                     st.dataframe(
                         ozet_tablo.rename(columns={
@@ -170,4 +169,19 @@ def goster():
             res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
             res['Doluluk %'] = (pd.to_numeric(res['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                 pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+            
             st.dataframe(res, use_container_width=True, hide_index=True)
+            
+            # --- EXCEL İNDİRME BUTONU ---
+            st.markdown("---")
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                res.to_excel(writer, index=False, sheet_name='Hazirlik_Raporu')
+            
+            st.download_button(
+                label="📥 RAPORU EXCEL OLARAK İNDİR",
+                data=buffer.getvalue(),
+                file_name="Uretim_Hazirlik_Raporu.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
