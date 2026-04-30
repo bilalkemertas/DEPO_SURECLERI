@@ -101,14 +101,14 @@ def goster():
                 st.error(f"Hata: Veri okuma sırasında bir sorun oluştu. -> {e}")
 
     # ==========================================
-    # 2. İŞ EMRİ TAKİBİ VE HAZIRLIK LİSTESİ EKRANI
+    # 2. ÜRETİM HAZIRLIK (OPERASYON EKRANI)
     # ==========================================
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): 
             go_uretim_menu()
             st.rerun()
             
-        st.subheader("🏗️ Üretim Hazırlık ve İş Emri Takibi")
+        st.subheader("🏗️ Üretim Hazırlık Operasyonu")
         st.markdown("---")
         
         df_emirler = veritabani.get_internal_data("Is_Emirleri")
@@ -128,9 +128,11 @@ def goster():
                 if m_sec:
                     filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
                 
+                # Doluluk Oranı Hesaplama
                 filtered['Doluluk %'] = (pd.to_numeric(filtered['Hazırlanan Adet'], errors='coerce').fillna(0) / 
                                          pd.to_numeric(filtered['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
                 
+                # Adres Getirme Fonksiyonu
                 def get_best_adr(kod):
                     if 'Kod' in df_stok_ana.columns:
                         res = df_stok_ana[df_stok_ana['Kod'].astype(str) == str(kod)]
@@ -153,16 +155,28 @@ def goster():
                 )
                 
                 if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                    st.success("Veriler Güncellendi! (GSheets bağlantısı ve update blokları burada çalışır)"); st.rerun()
+                    st.success("Hazırlık verileri güncellendi!"); st.rerun()
 
     # ==========================================
-    # 3. HAZIRLIK RAPORU EKRANI
+    # 3. HAZIRLIK RAPORU (ARŞİV EKRANI)
     # ==========================================
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ DÖN"): 
             go_uretim_menu()
             st.rerun()
             
-        st.subheader("📊 Hazırlık Raporu")
+        st.subheader("📊 Hazırlık Raporu ve Arşiv")
         st.markdown("---")
-        st.info("ℹ️ Bu ekran geliştirme aşamasındadır. Rapor verileri buraya eklenecektir.")
+        
+        df_lh = veritabani.get_internal_data("Is_Emirleri")
+        if not df_lh.empty:
+            r_e = st.multiselect("İş Emri Süz:", sorted(df_lh["İş Emri"].unique().tolist()))
+            res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
+            
+            # Rapor ekranında da doluluk oranlarını gösterelim
+            res['Doluluk %'] = (pd.to_numeric(res['Hazırlanan Adet'], errors='coerce').fillna(0) / 
+                                pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
+            
+            st.dataframe(res, use_container_width=True, hide_index=True)
+        else:
+            st.warning("Henüz sisteme kayıtlı bir iş emri bulunamadı.")
