@@ -113,24 +113,25 @@ def goster():
         
         # VERİLERİ ÇEK
         df_sayim_ana = veritabani.get_internal_data("sayim")
-        df_tamamlanan = veritabani.get_internal_data("sayim_tamamlanan") # Tamamlanmışlar listesi
+        df_tamamlanan = veritabani.get_internal_data("sayim_tamamlanan")
         df_stok = veritabani.get_internal_data("Stok")
         df_urun = veritabani.get_internal_data("Urun_Listesi")
 
         if not df_sayim_ana.empty:
             if 'Oturum_Adi' not in df_sayim_ana.columns: df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            # --- ZIRHLI FİLTRELEME MANTIĞI ---
+            # --- FİLTRELEME ---
             tamamlanan_liste = []
             if not df_tamamlanan.empty and 'Oturum_Adi' in df_tamamlanan.columns:
                 tamamlanan_liste = df_tamamlanan['Oturum_Adi'].dropna().unique().tolist()
             
-            # Sadece tamamlanmamış (aktarılmamış) olan oturumları listele
             mevcut_oturumlar = [o for o in df_sayim_ana['Oturum_Adi'].dropna().unique().tolist() if o not in tamamlanan_liste]
             
             if mevcut_oturumlar:
+                # Başlangıçta aktif oturumu seçmeye çalış, yoksa ilkini seç
                 v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
                 secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx, label_visibility="collapsed")
+                
                 df_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == secilen_oturum].copy()
                 
                 if not df_sayim.empty:
@@ -147,24 +148,21 @@ def goster():
                     rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
                     rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
                     
-                    # --- GÜÇLENDİRİLMİŞ İSİM EŞLEME ---
                     isim_sozlugu = {}
                     if not df_urun.empty: isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
                     if not df_stok.empty: isim_sozlugu.update(df_stok.drop_duplicates('Kod').set_index('Kod')['İsim'].to_dict())
-                    if 'İsim' in df_sayim.columns: isim_sozlugu.update(df_sayim.drop_duplicates('Kod').set_index('Kod')['İsim'].to_dict())
-                    elif 'isim' in df_sayim.columns: isim_sozlugu.update(df_sayim.drop_duplicates('Kod').set_index('Kod')['isim'].to_dict())
                     
                     rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
                     rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
                     
+                    # Filtreler
                     katalog = veritabani.get_katalog()
-                    f_sec = st.selectbox("Ürün Seç:", ["+ TÜMÜ"] + katalog, label_visibility="collapsed")
+                    f_sec = st.selectbox("Ürün Filtrele:", ["+ TÜMÜ"] + katalog)
                     rf1, rf2, rf3 = st.columns(3)
-                    f_adr = rf1.text_input("📍 Adres:", placeholder="📍 Adres")
+                    f_adr = rf1.text_input("📍 Adres Filtre:", placeholder="📍 Adres")
                     o_kod = f_sec.split(" | ")[0] if f_sec != "+ TÜMÜ" else ""
-                    o_isi = f_sec.split(" | ")[1] if f_sec != "+ TÜMÜ" and len(f_sec.split(" | ")) > 1 else ""
-                    f_kod = rf2.text_input("📦 Kod:", value=o_kod, placeholder="📦 Kod")
-                    f_isi = rf3.text_input("📝 İsim:", value=o_isi, placeholder="📝 İsim")
+                    f_kod = rf2.text_input("📦 Kod Filtre:", value=o_kod)
+                    f_isi = rf3.text_input("📝 İsim Filtre:", placeholder="📝 İsim")
                     
                     if f_adr: rapor = rapor[rapor['Adres'].str.contains(f_adr, case=False, na=False)]
                     if f_kod: rapor = rapor[rapor['Kod'].str.contains(f_kod, case=False, na=False)]
@@ -175,34 +173,25 @@ def goster():
                     m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
                     m2.metric("Toplam Fark", f"{int(rapor['FARK'].sum())}")
                     
-                    st.dataframe(rapor.style.map(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']).format({
-                        'Miktar_Sayilan': '{:,.0f}', 'Miktar_Sistem': '{:,.0f}', 'FARK': '{:,.0f}'
-                    }), use_container_width=True, hide_index=True)
+                    st.dataframe(rapor, use_container_width=True, hide_index=True)
 
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf, engine='xlsxwriter') as wr: rapor.to_excel(wr, index=False)
                     st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
 
-                    if st.session_state.aktif_sayim_adi == secilen_oturum:
-                        st.markdown("---")
-                        st.warning("⚠️ STOK GÜNCELLEME")
-                        if st.checkbox("Onaylıyorum") and st.button("🚀 GÜNCELLE", type="primary", use_container_width=True):
-                            # 1. Hangi kodlar sayıldı?
-                            sayilanlar = rapor['Kod'].unique().tolist()
-                            
-                            # 2. Ana stoktan SADECE sayılan kalemleri siliyoruz (Ezme işlemi)
-                            kalan = df_stok[~df_stok['Kod'].isin(sayilanlar)]
-                            
-                            # 3. Yeni sayım verilerini Stok formatına hazırlıyoruz
-                            yeni = rapor[['Kod', 'İsim', 'Miktar_Sayilan', 'Adres', 'Durum']].rename(columns={'Miktar_Sayilan':'Miktar'})
-                            
-                            # 4. Veritabanı Güncelleme
-                            veritabani.update_data("Stok", pd.concat([kalan, yeni[yeni['Miktar']>0]], ignore_index=True))
-                            
-                            # --- AKTARIM LOGU (Mükerrerlik Önleme) ---
-                            log_yeni = pd.DataFrame([{"Oturum_Adi": secilen_oturum}])
-                            veritabani.update_data("sayim_tamamlanan", pd.concat([df_tamamlanan, log_yeni], ignore_index=True))
-                            
-                            st.success("Stok başarıyla güncellendi ve oturum arşivlendi!"); st.cache_data.clear(); st.rerun()
+                    # --- GÜNCELLEME BUTONU (Zırhlı - Artık seçilen her oturum için çalışır) ---
+                    st.markdown("---")
+                    st.warning(f"⚠️ {secilen_oturum} Verisini Stoğa Aktar")
+                    if st.checkbox("Onaylıyorum") and st.button("🚀 GÜNCELLE", type="primary", use_container_width=True):
+                        sayilanlar = rapor['Kod'].unique().tolist()
+                        kalan = df_stok[~df_stok['Kod'].isin(sayilanlar)]
+                        yeni = rapor[['Kod', 'İsim', 'Miktar_Sayilan', 'Adres', 'Durum']].rename(columns={'Miktar_Sayilan':'Miktar'})
+                        
+                        veritabani.update_data("Stok", pd.concat([kalan, yeni[yeni['Miktar']>0]], ignore_index=True))
+                        
+                        log_yeni = pd.DataFrame([{"Oturum_Adi": secilen_oturum}])
+                        veritabani.update_data("sayim_tamamlanan", pd.concat([df_tamamlanan, log_yeni], ignore_index=True))
+                        
+                        st.success("Stok başarıyla güncellendi!"); st.cache_data.clear(); st.rerun()
             else:
                 st.info("İşlem bekleyen (aktarılmamış) sayım oturumu bulunamadı.")
