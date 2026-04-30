@@ -14,75 +14,96 @@ def goster():
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
 
-    # --- OTURUM YÖNETİMİ ---
     if 'aktif_sayim_adi' not in st.session_state:
         st.session_state.aktif_sayim_adi = None
 
-    if st.session_state.aktif_sayim_adi is None:
-        st.info("ℹ️ Şu an açık bir sayım oturumu bulunmuyor. İşlem yapmak için yeni bir sayım başlatmalısınız.")
-        with st.container(border=True):
-            sayim_etiketi = st.text_input("Sayım Oturumu İsmi (Örn: A_Blok, Yil_Sonu):", placeholder="Oturum adı girin...")
-            if st.button("🚀 YENİ SAYIM BAŞLAT", use_container_width=True, type="primary"):
-                if sayim_etiketi:
-                    zaman = datetime.now().strftime("%d%m_%H%M")
-                    # İsmi oluştur ama yeni sekme açma, bunu etiket olarak kullanacağız
-                    st.session_state.aktif_sayim_adi = f"{sayim_etiketi}_{zaman}"
-                    st.success(f"✅ '{st.session_state.aktif_sayim_adi}' oturumu başlatıldı! Veriler ana sayım listesine bu etiketle yazılacak.")
-                    st.rerun()
-                else:
-                    st.warning("Lütfen bir oturum ismi girin!")
-        return
+    # --- ALT MENÜ OLUŞTURMA ---
+    alt_menu = st.radio(
+        "Lütfen yapmak istediğiniz işlemi seçin:",
+        ["📁 Oturum Yönetimi", "📝 Sayım Girişi", "📊 Fark Raporu"],
+        horizontal=True
+    )
+    st.markdown("---")
 
-    st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
-    if st.button("🛑 OTURUMU KAPAT (Yeni Sayım İçin)"):
-        st.session_state.aktif_sayim_adi = None
-        st.session_state['gecici_sayim_listesi'] = []
-        st.rerun()
-
-    t1, t2 = st.tabs(["📝 Sayım Girişi", "📊 Fark Raporu"])
-
-    with t1:
-        with st.container(border=True):
-            s_adr = st.text_input("📍 Adres:").upper()
-            katalog = veritabani.get_katalog() 
-            sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL"] + katalog)
-            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL" else "").upper()
-            s_isim = sec.split(" | ")[1] if sec != "+ MANUEL" and len(sec.split(" | ")) > 1 else ""
-            s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
-            s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
-            
-            if st.button("➕ Listeye Ekle", use_container_width=True):
-                st.session_state['gecici_sayim_listesi'].append({
-                    "Oturum_Adi": st.session_state.aktif_sayim_adi,
-                    "Tarih": veritabani.get_local_time(), 
-                    "Adres": s_adr, 
-                    "Kod": s_kod, 
-                    "İsim": s_isim,
-                    "Miktar": s_mik,
-                    "Birim": "-", 
-                    "Personel": st.session_state.user, 
-                    "Durum": s_durum
-                })
-                st.toast("Listeye eklendi")
+    # ==========================================
+    # 1. OTURUM YÖNETİMİ EKRANI
+    # ==========================================
+    if alt_menu == "📁 Oturum Yönetimi":
+        st.markdown("#### 📁 Sayım Oturumu İşlemleri")
         
-        if st.session_state['gecici_sayim_listesi']:
-            st.write("---")
-            for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
-                cols = st.columns([3, 1])
-                cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']}")
-                if cols[1].button("🗑️", key=f"del_{idx}"):
-                    st.session_state['gecici_sayim_listesi'].pop(idx)
-                    st.rerun()
-            
-            if st.button("📤 VERİLERİ EXCEL'E GÖNDER", type="primary", use_container_width=True):
-                mevcut_sayim_verisi = veritabani.get_internal_data("sayim")
-                yeni_eklenenler = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
-                veritabani.update_data("sayim", pd.concat([mevcut_sayim_verisi, yeni_eklenenler], ignore_index=True))
+        if st.session_state.aktif_sayim_adi is None:
+            st.info("ℹ️ Şu an açık bir sayım oturumu bulunmuyor. Yeni bir sayım başlatabilirsiniz.")
+            with st.container(border=True):
+                sayim_etiketi = st.text_input("Sayım Oturumu İsmi (Örn: A_Blok, Yil_Sonu):", placeholder="Oturum adı girin...")
+                if st.button("🚀 YENİ SAYIM BAŞLAT", use_container_width=True, type="primary"):
+                    if sayim_etiketi:
+                        zaman = datetime.now().strftime("%d%m_%H%M")
+                        st.session_state.aktif_sayim_adi = f"{sayim_etiketi}_{zaman}"
+                        st.success(f"✅ '{st.session_state.aktif_sayim_adi}' oturumu başlatıldı! Artık 'Sayım Girişi' sekmesinden veri girebilirsiniz.")
+                        st.rerun()
+                    else:
+                        st.warning("Lütfen bir oturum ismi girin!")
+        else:
+            st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
+            st.info("Bu oturum açık olduğu sürece girilen tüm sayımlar bu etikete kaydedilecektir.")
+            if st.button("🛑 OTURUMU KAPAT (Sayımı Tamamla)", type="primary"):
+                st.session_state.aktif_sayim_adi = None
                 st.session_state['gecici_sayim_listesi'] = []
-                st.success("Veriler ana sayım veritabanına kaydedildi!")
+                st.success("Oturum başarıyla kapatıldı.")
                 st.rerun()
 
-    with t2:
+    # ==========================================
+    # 2. SAYIM GİRİŞİ EKRANI
+    # ==========================================
+    elif alt_menu == "📝 Sayım Girişi":
+        if st.session_state.aktif_sayim_adi is None:
+            st.warning("⚠️ Lütfen önce '📁 Oturum Yönetimi' menüsünden yeni bir sayım başlatın!")
+        else:
+            st.success(f"Kayıt Yapılan Oturum: {st.session_state.aktif_sayim_adi}")
+            with st.container(border=True):
+                s_adr = st.text_input("📍 Adres:").upper()
+                katalog = veritabani.get_katalog() 
+                sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL"] + katalog)
+                s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL" else "").upper()
+                s_isim = sec.split(" | ")[1] if sec != "+ MANUEL" and len(sec.split(" | ")) > 1 else ""
+                s_mik = st.number_input("Sayılan Miktar:", min_value=0.0, step=1.0)
+                s_durum = st.selectbox("🛠️ Stok Durumu Seç:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
+                
+                if st.button("➕ Listeye Ekle", use_container_width=True):
+                    st.session_state['gecici_sayim_listesi'].append({
+                        "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                        "Tarih": veritabani.get_local_time(), 
+                        "Adres": s_adr, 
+                        "Kod": s_kod, 
+                        "İsim": s_isim,
+                        "Miktar": s_mik,
+                        "Birim": "-", 
+                        "Personel": st.session_state.user, 
+                        "Durum": s_durum
+                    })
+                    st.toast("Listeye eklendi")
+            
+            if st.session_state['gecici_sayim_listesi']:
+                st.write("---")
+                for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
+                    cols = st.columns([3, 1])
+                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {item['Miktar']}")
+                    if cols[1].button("🗑️", key=f"del_{idx}"):
+                        st.session_state['gecici_sayim_listesi'].pop(idx)
+                        st.rerun()
+                
+                if st.button("📤 VERİLERİ EXCEL'E GÖNDER", type="primary", use_container_width=True):
+                    mevcut_sayim_verisi = veritabani.get_internal_data("sayim")
+                    yeni_eklenenler = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
+                    veritabani.update_data("sayim", pd.concat([mevcut_sayim_verisi, yeni_eklenenler], ignore_index=True))
+                    st.session_state['gecici_sayim_listesi'] = []
+                    st.success("Veriler ana sayım veritabanına kaydedildi!")
+                    st.rerun()
+
+    # ==========================================
+    # 3. FARK RAPORU EKRANI
+    # ==========================================
+    elif alt_menu == "📊 Fark Raporu":
         df_sayim_ana = veritabani.get_internal_data("sayim")
         df_stok = veritabani.get_internal_data("Stok")
 
