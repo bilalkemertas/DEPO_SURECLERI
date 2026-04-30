@@ -163,7 +163,6 @@ def goster():
                 m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
                 m2.metric("Toplam Fark", f"{int(rapor['FARK'].sum())}")
                 
-                # Sayıları int yaparak .00000 görüntüsünden kurtuluyoruz
                 st.dataframe(rapor.style.map(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']).format({
                     'Miktar_Sayilan': '{:,.0f}', 'Miktar_Sistem': '{:,.0f}', 'FARK': '{:,.0f}'
                 }), use_container_width=True, hide_index=True)
@@ -176,8 +175,17 @@ def goster():
                     st.markdown("---")
                     st.warning("⚠️ STOK GÜNCELLEME")
                     if st.checkbox("Onaylıyorum") and st.button("🚀 GÜNCELLE", type="primary", use_container_width=True):
+                        # --- ZIRHLI KISMİ EZME MANTIĞI ---
+                        # 1. Hangi kodlar sayıldı? (Sadece bu oturumda işlem gören kodları alıyoruz)
                         sayilanlar = rapor['Kod'].unique().tolist()
+                        
+                        # 2. Ana stoktan SADECE sayılan kalemleri siliyoruz (Ezme işlemi)
                         kalan = df_stok[~df_stok['Kod'].isin(sayilanlar)]
+                        
+                        # 3. Yeni sayım verilerini Stok formatına hazırlıyoruz
                         yeni = rapor[['Kod', 'İsim', 'Miktar_Sayilan', 'Adres', 'Durum']].rename(columns={'Miktar_Sayilan':'Miktar'})
+                        
+                        # 4. Sayılmayan kalemler ile yeni sayılan kalemleri (miktarı 0'dan büyük olanlar) birleştiriyoruz
                         veritabani.update_data("Stok", pd.concat([kalan, yeni[yeni['Miktar']>0]], ignore_index=True))
+                        
                         st.success("Güncellendi!"); st.cache_data.clear(); st.rerun()
