@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
-import modul_giris
-import modul_cikis
-import modul_hareket
+import ana_ayfa  # Görselde ana_sayfa.py görünüyor
 import modul_sayim
+import modul_uretim
+import modul_stok
+import modul_rapor
 import veritabani
 
 # --- SAYFA AYARLARI VE MOBİL CSS ---
@@ -11,16 +12,13 @@ st.set_page_config(page_title="BRN Depo Otomasyonu", layout="centered")
 
 st.markdown("""
     <style>
-        /* Üst boşluğu azalt */
         .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-        /* Buton puntolarını ve boşluklarını düzenle */
         div.stButton > button { width: 100%; border-radius: 5px; height: 3em; font-weight: bold; }
-        /* Metriklerin alt boşluğunu daralt */
         [data-testid="stMetric"] { background-color: #f8f9fa; padding: 10px; border-radius: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- MOBİL UYUMLU BAŞLIK FONKSİYONU (MERKEZİ) ---
+# --- MOBİL UYUMLU BAŞLIK FONKSİYONU ---
 def mobil_baslik(emoji, metin):
     st.markdown(f"""
         <div style='display: flex; align-items: center; margin-bottom: 15px;'>
@@ -33,9 +31,9 @@ def mobil_baslik(emoji, metin):
 if 'page' not in st.session_state:
     st.session_state.page = 'home'
 if 'user' not in st.session_state:
-    st.session_state.user = "Depo_Yöneticisi" # Varsayılan kullanıcı (Patron)
+    st.session_state.user = "Depo_Yöneticisi"
 
-# --- ANA MENÜ FONKSİYONLARI ---
+# --- NAVİGASYON ---
 def set_page(pname):
     st.session_state.page = pname
 
@@ -45,38 +43,36 @@ def set_page(pname):
 if st.session_state.page == 'home':
     mobil_baslik("🏢", "BRN Sleep Products - Depo")
     
-    st.info(f"Hoş geldin Patron! Kullanıcı: {st.session_state.user}")
+    st.info(f"Kullanıcı: {st.session_state.user}")
     st.markdown("---")
     
-    # Menü Butonları (Büyük ve Mobil Uyumlu)
+    # Görseldeki dosya yapısına göre menü
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("📥 ÜRÜN GİRİŞİ"): set_page('giris'); st.rerun()
-        if st.button("📤 ÜRÜN ÇIKIŞI"): set_page('cikis'); st.rerun()
-    with c2:
-        if st.button("🔄 STOK HAREKET"): set_page('hareket'); st.rerun()
         if st.button("⚖️ SAYIM KONTROL"): set_page('sayim'); st.rerun()
+        if st.button("⚙️ ÜRETİM SÜREÇLERİ"): set_page('uretim'); st.rerun()
+    with c2:
+        if st.button("📦 STOK YÖNETİMİ"): set_page('stok'); st.rerun()
+        if st.button("📊 RAPORLAR"): set_page('rapor'); st.rerun()
     
     st.markdown("---")
-    if st.button("📊 GÜNCEL STOK DURUMU"):
-        st.subheader("📦 Mevcut Stok Özeti")
-        df_stok = veritabani.get_internal_data("Stok")
-        if not df_stok.empty:
-            st.dataframe(df_stok, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Stok verisi bulunamadı.")
+    # Logo yükleme (Görselde brn_logo.webp var)
+    try:
+        st.image("brn_logo.webp", width=150)
+    except:
+        pass
 
 # ==========================================
 # MODÜL YÖNLENDİRMELERİ
 # ==========================================
-elif st.session_state.page == 'giris':
-    modul_giris.goster()
-
-elif st.session_state.page == 'cikis':
-    modul_cikis.goster()
-
-elif st.session_state.page == 'hareket':
-    modul_hareket.goster()
-
 elif st.session_state.page == 'sayim':
     modul_sayim.goster()
+
+elif st.session_state.page == 'uretim':
+    modul_uretim.goster()
+
+elif st.session_state.page == 'stok':
+    modul_stok.goster()
+
+elif st.session_state.page == 'rapor':
+    modul_rapor.goster()
