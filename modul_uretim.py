@@ -174,7 +174,7 @@ def goster():
     # --- 3. RAPOR ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
-        st.subheader("📊 Görkemli Hazırlık Raporu")
+        st.subheader("📊 Hazırlık Raporu")
         
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         if not df_lh.empty:
