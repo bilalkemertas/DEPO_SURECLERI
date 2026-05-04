@@ -161,8 +161,13 @@ def goster():
                                (all_data["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
                         
                         if mask.any():
-                            eski_haz = pd.to_numeric(all_data.loc[mask, "Hazırlanan Adet"], errors='coerce').fillna(0).values[0]
-                            yeni_haz = pd.to_numeric(row["Hazırlanan Adet"], errors='coerce').fillna(0)
+                            # HATALI KISIM BURADA DÜZELTİLDİ: .fillna(0) kaldırıldı, manuel kontrol eklendi
+                            eski_haz_val = pd.to_numeric(all_data.loc[mask, "Hazırlanan Adet"], errors='coerce').values[0]
+                            eski_haz = 0 if pd.isna(eski_haz_val) else eski_haz_val
+                            
+                            yeni_haz_val = pd.to_numeric(row["Hazırlanan Adet"], errors='coerce')
+                            yeni_haz = 0 if pd.isna(yeni_haz_val) else yeni_haz_val
+                            
                             fark = yeni_haz - eski_haz
                             
                             if fark != 0:
