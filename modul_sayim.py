@@ -41,7 +41,7 @@ def goster():
         else:
             st.info("ℹ️ Açık oturum yok. İşlem için oturum başlatın veya bekleyen bir oturumu aktifleştirin.")
 
-    # --- 1. OTURUM YÖNETİMİ (ZIRHLI AKTİFLEŞTİRME VE GÜNCELLEME) ---
+    # --- 1. OTURUM YÖNETİMİ ---
     elif st.session_state.sayim_page == 'oturum':
         c_nav, c_title = st.columns([1, 4])
         with c_nav:
@@ -64,7 +64,17 @@ def goster():
                 if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True, type="primary"):
                     if sayim_etiketi:
                         zaman = datetime.now().strftime("%d%m_%H%M")
-                        st.session_state.aktif_sayim_adi = f"{sayim_etiketi}_{zaman}"
+                        yeni_oturum_id = f"{sayim_etiketi}_{zaman}"
+                        
+                        # --- KRİTİK EKLEME: SAYIM BAŞLANGIÇ STOĞUNU (SNAPSHOT) KAYDET ---
+                        df_stok_anlik = veritabani.get_internal_data("Stok")
+                        if not df_stok_anlik.empty:
+                            df_stok_anlik['Oturum_Adi'] = yeni_oturum_id
+                            mevcut_snapshots = veritabani.get_internal_data("sayim_snapshot")
+                            yeni_snapshots = pd.concat([mevcut_snapshots, df_stok_anlik], ignore_index=True)
+                            veritabani.update_data("sayim_snapshot", yeni_snapshots)
+                        
+                        st.session_state.aktif_sayim_adi = yeni_oturum_id
                         st.rerun()
             
             # BEKLEYENLERİ DİRİLTME
@@ -148,7 +158,7 @@ def goster():
                     veritabani.update_data("sayim", pd.concat([eski, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
                     st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
 
-    # --- 3. GÖRKEMLİ FARK RAPORU (TÜM OTURUMLAR + FİLTRELER + METRİKLER) ---
+    # --- 3. GÖRKEMLİ FARK RAPORU ---
     elif st.session_state.sayim_page == 'rapor':
         c_nav, c_title = st.columns([1, 4])
         with c_nav:
@@ -158,13 +168,13 @@ def goster():
         st.markdown("---")
         
         df_sayim_ana = veritabani.get_internal_data("sayim")
-        df_stok = veritabani.get_internal_data("Stok")
         df_urun = veritabani.get_internal_data("Urun_Listesi")
+        # --- KRİTİK DEĞİŞİKLİK: CANLI STOK YERİNE SNAPSHOT KULLANIMI ---
+        df_snapshot_ana = veritabani.get_internal_data("sayim_snapshot")
 
         if not df_sayim_ana.empty:
             if 'Oturum_Adi' not in df_sayim_ana.columns: df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            # TÜM OTURUMLAR LİSTEYE DAHİL
             mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
             secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx)
@@ -172,23 +182,32 @@ def goster():
             df_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == secilen_oturum].copy()
             
             if not df_sayim.empty:
-                # Veri İşleme
+                # Sayım verisi işleme
                 df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
                 s_ozet = df_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
                 s_ozet.rename(columns={'Miktar': 'Miktar_Sayilan'}, inplace=True)
                 
+                # Snapshot verisi işleme (Sorgu anındaki canlı stok değil, oturum başındaki stok)
                 st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
-                if not df_stok.empty:
-                    df_stok['Miktar'] = pd.to_numeric(df_stok['Miktar'], errors='coerce').fillna(0)
-                    st_ozet = df_stok.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
-                    st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
+                if not df_snapshot_ana.empty:
+                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana['Oturum_Adi'] == secilen_oturum].copy()
+                    if not df_snapshot_oturum.empty:
+                        df_snapshot_oturum['Miktar'] = pd.to_numeric(df_snapshot_oturum['Miktar'], errors='coerce').fillna(0)
+                        st_ozet = df_snapshot_oturum.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+                        st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
+                    else:
+                        # Eğer snapshot bulunamazsa (eski oturumlar için) canlı stoğa bak (fail-safe)
+                        df_stok_canli = veritabani.get_internal_data("Stok")
+                        df_stok_canli['Miktar'] = pd.to_numeric(df_stok_canli['Miktar'], errors='coerce').fillna(0)
+                        st_ozet = df_stok_canli.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+                        st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
                 
                 rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
                 rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
                 
                 isim_sozlugu = {}
                 if not df_urun.empty: isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
-                if not df_stok.empty: isim_sozlugu.update(df_stok.drop_duplicates('Kod').set_index('Kod')['İsim'].to_dict())
+                # Isim bilgisini snapshot veya urun listesinden al
                 rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
                 rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
 
@@ -207,10 +226,10 @@ def goster():
                     if f_kod: rapor = rapor[rapor['Kod'].str.contains(f_kod, case=False, na=False)]
                     if f_isi: rapor = rapor[rapor['İsim'].str.contains(f_isi, case=False, na=False)]
 
-                # --- GÖSTERGELER (METRİKLER) ---
+                # --- GÖSTERGELER ---
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
-                m2.metric("Sistem Stoğu", f"{int(rapor['Miktar_Sistem'].sum())}")
+                m2.metric("Sistem Stoğu (Referans)", f"{int(rapor['Miktar_Sistem'].sum())}")
                 m3.metric("Toplam Fark", f"{int(rapor['FARK'].sum())}", delta=int(rapor['FARK'].sum()))
                 
                 # --- RENKLİ TABLO ---
@@ -218,7 +237,6 @@ def goster():
                     'Miktar_Sayilan': '{:,.0f}', 'Miktar_Sistem': '{:,.0f}', 'FARK': '{:,.0f}'
                 }), use_container_width=True, hide_index=True)
 
-                # EXCEL ÇIKTISI
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as wr: rapor.to_excel(wr, index=False)
                 st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
