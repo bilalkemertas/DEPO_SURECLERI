@@ -88,7 +88,7 @@ def goster():
             except Exception as e:
                 st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON ---
+    # --- 2. OPERASYON (Gelişmiş Hareket Bazlı Sorgu) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"):
             go_uretim_menu()
@@ -97,6 +97,7 @@ def goster():
         
         df_emirler = veritabani.get_internal_data("Is_Emirleri")
         df_stok_ana = veritabani.get_internal_data("Stok")
+        df_hareketler_ana = veritabani.get_internal_data("Hareketler")
         
         if not df_emirler.empty:
             df_emirler['Hazırlanan Adet'] = pd.to_numeric(df_emirler['Hazırlanan Adet'], errors='coerce').fillna(0)
@@ -108,14 +109,13 @@ def goster():
             if s_list:
                 dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
                 
-                # Dinamik Adres Getirme
                 def get_best_adr(kod):
-                    clean_kod = str(kod).strip()
+                    clean_kod = str(kod).strip().upper()
                     if 'Kod' in df_stok_ana.columns:
                         temp_stok = df_stok_ana.copy()
-                        temp_stok['Kod'] = temp_stok['Kod'].astype(str).str.strip()
+                        temp_stok['Kod'] = temp_stok['Kod'].astype(str).str.strip().str.upper()
                         res = temp_stok[temp_stok['Kod'] == clean_kod]
-                        return str(res.iloc[0]['Adres']) if not res.empty else "STOK YOK"
+                        return str(res.iloc[0]['Adres']).strip().upper() if not res.empty else "STOK YOK"
                     return "STOK YOK"
                 
                 dashboard_df["Alınacak Adres"] = dashboard_df["Stok Kodu"].apply(get_best_adr)
@@ -134,69 +134,75 @@ def goster():
                 if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
                     all_data = veritabani.get_internal_data("Is_Emirleri")
                     df_stok_guncel = veritabani.get_internal_data("Stok")
+                    df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
                     
-                    # Normalleştirme
-                    df_stok_guncel['Kod'] = df_stok_guncel['Kod'].astype(str).str.strip()
-                    df_stok_guncel['Adres'] = df_stok_guncel['Adres'].astype(str).str.strip()
+                    df_stok_guncel['Kod'] = df_stok_guncel['Kod'].astype(str).str.strip().str.upper()
+                    df_stok_guncel['Adres'] = df_stok_guncel['Adres'].astype(str).str.strip().str.upper()
                     df_stok_guncel['Miktar'] = pd.to_numeric(df_stok_guncel['Miktar'], errors='coerce').fillna(0)
                     
                     yeni_loglar = []
                     degisiklik_var_mi = False
                     
                     for i, row in edited_df.iterrows():
-                        mask = (all_data["İş Emri"].astype(str) == str(row["İş Emri"])) & \
-                               (all_data["Stok Kodu"].astype(str).str.strip() == str(row["Stok Kodu"]).strip()) & \
-                               (all_data["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
+                        # --- HAREKETLER SEKMESİNDEN TOPLAM ÇIKIŞI SORGULA ---
+                        s_emir = str(row["İş Emri"]).strip()
+                        s_kod = str(row["Stok Kodu"]).strip().upper()
+                        s_adr = str(row["Alınacak Adres"]).strip().upper()
                         
-                        if mask.any():
-                            try:
-                                v_eski = round(float(all_data.loc[mask, "Hazırlanan Adet"].values[0]), 2)
-                                v_yeni = round(float(row["Hazırlanan Adet"]), 2)
-                                fark = round(v_yeni - v_eski, 2)
-                            except:
-                                fark = 0
+                        mask_hareket = (df_hareketler_guncel['İş Emri'].astype(str) == s_emir) & \
+                                       (df_hareketler_guncel['Kod'].astype(str).str.strip().str.upper() == s_kod)
+                        
+                        # Bu iş emri için Hareketler sekmesine yazılmış toplam miktar
+                        eski_hareket_toplami = pd.to_numeric(df_hareketler_guncel[mask_hareket]['Miktar'], errors='coerce').sum()
+                        
+                        # Ekranda girilen yeni hedef miktar
+                        try:
+                            v_yeni = round(float(row["Hazırlanan Adet"]), 2)
+                        except:
+                            v_yeni = eski_hareket_toplami
 
-                            if fark != 0:
-                                degisiklik_var_mi = True
-                                s_kod = str(row["Stok Kodu"]).strip()
-                                s_adr = str(row["Alınacak Adres"]).strip()
+                        # Fark (Hareketler sekmesine yeni eklenecek miktar)
+                        fark = round(v_yeni - eski_hareket_toplami, 2)
+
+                        if fark != 0:
+                            degisiklik_var_mi = True
+                            
+                            # 1. HAREKET KAYDI OLUŞTUR
+                            yeni_loglar.append({
+                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "İşlem": "ÜRETİM HAZIRLIK",
+                                "İş Emri": s_emir,
+                                "Kod": s_kod,
+                                "İsim": str(row["Stok Adı"]),
+                                "Adres": s_adr,
+                                "Miktar": fark,
+                                "Personel": st.session_state.user if 'user' in st.session_state else "Sistem"
+                            })
+                            
+                            # 2. STOKTAN DÜŞÜŞ (Sadece adres STOK YOK değilse)
+                            if s_adr != "STOK YOK":
                                 stok_mask = (df_stok_guncel["Kod"] == s_kod) & (df_stok_guncel["Adres"] == s_adr)
-                                
                                 if stok_mask.any():
                                     mevcut = df_stok_guncel.loc[stok_mask, "Miktar"].values[0]
+                                    # Kural: Stok eksiye düşmesin
                                     df_stok_guncel.loc[stok_mask, "Miktar"] = max(0, mevcut - fark)
-                                    
-                                    yeni_loglar.append({
-                                        "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                        "İşlem": "ÜRETİM HAZIRLIK",
-                                        "İş Emri": str(row["İş Emri"]),
-                                        "Kod": s_kod,
-                                        "İsim": str(row["Stok Adı"]),
-                                        "Adres": s_adr,
-                                        "Miktar": fark,
-                                        "Personel": st.session_state.user if 'user' in st.session_state else "Sistem"
-                                    })
                             
-                            all_data.loc[mask, "Hazırlanan Adet"] = v_yeni
+                            # 3. ANA VERİ TABLOSUNU GÜNCELLE (Görsel tutarlılık için)
+                            mask_emir = (all_data["İş Emri"].astype(str) == s_emir) & \
+                                        (all_data["Stok Kodu"].astype(str).str.strip().str.upper() == s_kod)
+                            if mask_emir.any():
+                                all_data.loc[mask_emir, "Hazırlanan Adet"] = v_yeni
 
-                    # VERİTABANI İŞLEMLERİ
                     if degisiklik_var_mi:
                         veritabani.update_data("Is_Emirleri", all_data)
                         veritabani.update_data("Stok", df_stok_guncel)
                         
-                        # Hareketleri yazmayı dene
                         if yeni_loglar:
-                            try:
-                                df_hareketler = veritabani.get_internal_data("Hareketler")
-                                df_extre_son = pd.concat([df_hareketler, pd.DataFrame(yeni_loglar)], ignore_index=True)
-                                veritabani.update_data("Hareketler", df_extre_son)
-                                st.success(f"✅ {len(yeni_loglar)} adet hareket başarıyla Excel 'Hareketler' sekmesine aktarıldı.")
-                            except Exception as e:
-                                st.error(f"❌ Hareketler sekmesine yazılamadı! Hata: {e}")
-                        else:
-                            st.warning("⚠️ Miktar değişikliği algılandı ancak adres eşleşmediği için hareket kaydı oluşturulamadı.")
+                            df_final_hareket = pd.concat([df_hareketler_guncel, pd.DataFrame(yeni_loglar)], ignore_index=True)
+                            veritabani.update_data("Hareketler", df_final_hareket)
+                            st.success(f"✅ {len(yeni_loglar)} hareket işlendi. Hareketler sekmesi baz alınarak stoklar güncellendi.")
                     else:
-                        st.info("ℹ️ Hiçbir miktar değişikliği yapılmadığı için kayıt oluşturulmadı.")
+                        st.info("ℹ️ Hareketler sekmesindeki toplam ile girilen miktar aynı. İşlem yapılmadı.")
 
                     st.cache_data.clear()
                     st.rerun()
