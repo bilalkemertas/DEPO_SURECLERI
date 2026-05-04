@@ -69,7 +69,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON ---
+    # --- 2. OPERASYON (GÖRKEMLİ FİLTRELER EKLENDİ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -85,46 +85,15 @@ def goster():
             s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
             
             if s_list:
-                # --- ÖZET PANELİ ---
-                with st.expander("📊 İş Emri Genel Durum Özeti (Görüntülemek için tıklayın)", expanded=False):
-                    st.markdown("""
-                        <style>
-                        .scroll-container {
-                            max-height: 250px;
-                            overflow-y: auto;
-                            border: 1px solid #ddd;
-                            padding: 10px;
-                            border-radius: 5px;
-                        }
-                        </style>
-                    """, unsafe_allow_html=True)
-                    
-                    dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
-                    ozet_tablo = dashboard_df.groupby('İş Emri').agg({
-                        'İhtiyaç Miktarı': 'sum',
-                        'Hazırlanan Adet': 'sum'
-                    }).reset_index()
-                    ozet_tablo['Tamamlanma %'] = (ozet_tablo['Hazırlanan Adet'] / ozet_tablo['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
-                    
-                    st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
-                    st.dataframe(
-                        ozet_tablo.rename(columns={
-                            'İhtiyaç Miktarı': 'Toplam İhtiyaç',
-                            'Hazırlanan Adet': 'Toplam Hazırlanan'
-                        }),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    st.markdown('</div>', unsafe_allow_html=True)
+                dashboard_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
                 
-                st.markdown("---")
-                
-                # --- DETAY LİSTE ---
-                filtered = dashboard_df.copy()
-                mamul_list = sorted(filtered["Mamül Adı"].astype(str).unique().tolist())
-                m_sec = st.multiselect("🏗️ Mamül Adı Filtrele:", mamul_list)
-                if m_sec:
-                    filtered = filtered[filtered["Mamül Adı"].astype(str).isin(m_sec)]
+                # --- GÖRKEMLİ FİLTRE PANELİ ---
+                with st.container(border=True):
+                    st.markdown("🔍 **Akıllı Arama ve Filtreleme**")
+                    f1, f2, f3 = st.columns(3)
+                    f_adr = f1.text_input("📍 Adres Filtre:", placeholder="Örn: A-01")
+                    f_kod = f2.text_input("📦 Kod Filtre:", placeholder="Örn: P001")
+                    f_isi = f3.text_input("📝 İsim Filtre:", placeholder="Örn: Sünger")
                 
                 def get_best_adr(kod):
                     if 'Kod' in df_stok_ana.columns:
@@ -132,10 +101,17 @@ def goster():
                         return res.iloc[0]['Adres'] if not res.empty else "STOK YOK"
                     return "STOK YOK"
                 
-                filtered["Alınacak Adres"] = filtered["Stok Kodu"].apply(get_best_adr)
+                dashboard_df["Alınacak Adres"] = dashboard_df["Stok Kodu"].apply(get_best_adr)
+                
+                # Filtreleri Uygula
+                filtered = dashboard_df.copy()
+                if f_adr: filtered = filtered[filtered["Alınacak Adres"].str.contains(f_adr, case=False, na=False)]
+                if f_kod: filtered = filtered[filtered["Stok Kodu"].str.contains(f_kod, case=False, na=False)]
+                if f_isi: filtered = filtered[filtered["Stok Adı"].str.contains(f_isi, case=False, na=False)]
+                
                 filtered['Doluluk %'] = (filtered['Hazırlanan Adet'] / filtered['İhtiyaç Miktarı'] * 100).round(1).fillna(0)
 
-                st.markdown("#### 📝 Hazırlık Detay Listesi")
+                st.markdown(f"#### 📝 Hazırlık Detay Listesi ({len(filtered)} Kalem)")
                 edited_df = st.data_editor(
                     filtered,
                     column_order=["Stok Kodu", "Stok Adı", "Alınacak Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim", "Doluluk %"],
@@ -145,67 +121,69 @@ def goster():
                     key="hazirlik_editor"
                 )
                 
+                # --- STOKTAN DÜŞME VE NEGATİF KONTROLÜ ---
                 if st.button("✅ HAZIRLIĞI ONAYLA VE KAYDET", use_container_width=True, type="primary"):
-                    all_is_emirleri = veritabani.get_internal_data("Is_Emirleri")
+                    all_data = veritabani.get_internal_data("Is_Emirleri")
                     df_stok_guncel = veritabani.get_internal_data("Stok")
                     
-                    # Sayısal sütunların güvenliğini sağla
-                    all_is_emirleri['Hazırlanan Adet'] = pd.to_numeric(all_is_emirleri['Hazırlanan Adet'], errors='coerce').fillna(0)
                     df_stok_guncel['Miktar'] = pd.to_numeric(df_stok_guncel['Miktar'], errors='coerce').fillna(0)
                     
                     for i, row in edited_df.iterrows():
-                        mask = (all_is_emirleri["İş Emri"].astype(str) == str(row["İş Emri"])) & \
-                               (all_is_emirleri["Stok Kodu"].astype(str) == str(row["Stok Kodu"])) & \
-                               (all_is_emirleri["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
+                        mask = (all_data["İş Emri"].astype(str) == str(row["İş Emri"])) & \
+                               (all_data["Stok Kodu"].astype(str) == str(row["Stok Kodu"])) & \
+                               (all_data["Mamül Adı"].astype(str) == str(row["Mamül Adı"]))
                         
                         if mask.any():
-                            # Eski ve Yeni değer farkını (Delta) hesapla
-                            old_val = all_is_emirleri.loc[mask, "Hazırlanan Adet"].values[0]
-                            new_val = pd.to_numeric(row["Hazırlanan Adet"], errors='coerce')
-                            delta = new_val - old_val
+                            eski_haz = pd.to_numeric(all_data.loc[mask, "Hazırlanan Adet"], errors='coerce').fillna(0).values[0]
+                            yeni_haz = pd.to_numeric(row["Hazırlanan Adet"], errors='coerce').fillna(0)
+                            fark = yeni_haz - eski_haz
                             
-                            # Eğer alınan miktar arttıysa stoktan düş
-                            if delta > 0:
+                            if fark > 0:
                                 stok_mask = (df_stok_guncel["Kod"].astype(str) == str(row["Stok Kodu"])) & \
                                             (df_stok_guncel["Adres"].astype(str) == str(row["Alınacak Adres"]))
-                                
                                 if stok_mask.any():
-                                    mevcut_stok = df_stok_guncel.loc[stok_mask, "Miktar"].values[0]
-                                    # NEGATİF BAKİYE KORUMASI: Stok asla 0'ın altına düşmez
-                                    df_stok_guncel.loc[stok_mask, "Miktar"] = max(0, mevcut_stok - delta)
+                                    mevcut = df_stok_guncel.loc[stok_mask, "Miktar"].values[0]
+                                    # NEGATİF KORUMASI
+                                    df_stok_guncel.loc[stok_mask, "Miktar"] = max(0, mevcut - fark)
                             
-                            # İş emri tablosunu güncelle
-                            all_is_emirleri.loc[mask, "Hazırlanan Adet"] = new_val
+                            all_data.loc[mask, "Hazırlanan Adet"] = yeni_haz
 
-                    # Veritabanına her iki tabloyu da yaz
-                    veritabani.update_data("Is_Emirleri", all_is_emirleri)
+                    veritabani.update_data("Is_Emirleri", all_data)
                     veritabani.update_data("Stok", df_stok_guncel)
-                    
-                    st.success("Veriler eşitlendi ve stoklar ilgili adreslerden düşüldü!")
-                    st.cache_data.clear()
-                    st.rerun()
+                    st.success("Veriler kaydedildi ve stoklar düşüldü!"); st.cache_data.clear(); st.rerun()
 
-    # --- 3. RAPOR ---
+    # --- 3. RAPOR (GÖSTERGELER VE FİLTRELER EKLENDİ) ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
-        st.subheader("📊 Hazırlık Raporu ve Arşiv")
+        st.subheader("📊 Görkemli Hazırlık Raporu")
+        
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         if not df_lh.empty:
-            r_e = st.multiselect("📋 İş Emri Süz:", sorted(df_lh["İş Emri"].unique().tolist()))
-            res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
-            res['Doluluk %'] = (pd.to_numeric(res['Hazırlanan Adet'], errors='coerce').fillna(0) / 
-                                pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0) * 100).round(1).fillna(0)
-            st.dataframe(res, use_container_width=True, hide_index=True)
+            # Süzgeç Paneli
+            with st.container(border=True):
+                r_e = st.multiselect("📋 İş Emri Seç:", sorted(df_lh["İş Emri"].unique().tolist()))
+                rf1, rf2 = st.columns(2)
+                f_kod_r = rf1.text_input("📦 Kod Ara:", key="rkod")
+                f_isi_r = rf2.text_input("📝 İsim Ara:", key="risi")
             
-            st.markdown("---")
+            res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
+            if f_kod_r: res = res[res["Stok Kodu"].str.contains(f_kod_r, case=False, na=False)]
+            if f_isi_r: res = res[res["Stok Adı"].str.contains(f_isi_r, case=False, na=False)]
+            
+            res['İhtiyaç Miktarı'] = pd.to_numeric(res['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            res['Hazırlanan Adet'] = pd.to_numeric(res['Hazırlanan Adet'], errors='coerce').fillna(0)
+            res['Kalan'] = res['İhtiyaç Miktarı'] - res['Hazırlanan Adet']
+            
+            # --- METRİKLER ---
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Toplam İhtiyaç", f"{int(res['İhtiyaç Miktarı'].sum())}")
+            m2.metric("Toplam Hazırlanan", f"{int(res['Hazırlanan Adet'].sum())}", delta=int(res['Hazırlanan Adet'].sum()))
+            m3.metric("Bekleyen Miktar", f"{int(res['Kalan'].sum())}", delta_color="inverse", delta=-int(res['Kalan'].sum()))
+            
+            st.dataframe(res.style.map(lambda x: 'color: red' if x > 0 else 'color: green', subset=['Kalan']), use_container_width=True, hide_index=True)
+            
+            # EXCEL
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                 res.to_excel(writer, index=False, sheet_name='Hazirlik_Raporu')
-            
-            st.download_button(
-                label="📥 RAPORU EXCEL OLARAK İNDİR",
-                data=buffer.getvalue(),
-                file_name="Uretim_Hazirlik_Raporu.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            st.download_button("📥 RAPORU EXCEL OLARAK İNDİR", buffer.getvalue(), "Uretim_Raporu.xlsx", use_container_width=True)
