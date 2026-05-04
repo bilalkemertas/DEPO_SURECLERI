@@ -4,7 +4,7 @@ import veritabani
 import io
 from datetime import datetime
 
-def go_home():
+def go_home(): 
     st.session_state.page = 'home'
     st.session_state.uretim_page = 'menu'
 
@@ -165,35 +165,38 @@ def goster():
                                 
                                 if stok_mask.any():
                                     mevcut = df_stok_guncel.loc[stok_mask, "Miktar"].values[0]
+                                    # Stok düşme (En az 0 olacak şekilde)
                                     df_stok_guncel.loc[stok_mask, "Miktar"] = max(0, mevcut - fark)
                                     
+                                    # Hareket kaydı için hazırla
                                     yeni_loglar.append({
                                         "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                         "İşlem": "ÜRETİM HAZIRLIK",
-                                        "İş Emri": row["İş Emri"],
+                                        "İş Emri": str(row["İş Emri"]),
                                         "Kod": s_kod,
-                                        "İsim": row["Stok Adı"],
+                                        "İsim": str(row["Stok Adı"]),
                                         "Adres": s_adr,
                                         "Miktar": fark,
                                         "Personel": st.session_state.user if 'user' in st.session_state else "Sistem"
                                     })
                             
+                            # Ana veride hazırlanan adeti güncelle
                             all_data.loc[mask, "Hazırlanan Adet"] = yeni_haz
 
-                    # GÜNCELLEMELERİ BAS
+                    # VERİTABANI GÜNCELLEMELERİ
                     veritabani.update_data("Is_Emirleri", all_data)
                     veritabani.update_data("Stok", df_stok_guncel)
                     
-                    # Hareketler sayfası varsa yaz, yoksa sessizce geç
+                    # Hareketleri yaz
                     if yeni_loglar:
                         try:
                             df_hareketler = veritabani.get_internal_data("Hareketler")
                             df_extre_son = pd.concat([df_hareketler, pd.DataFrame(yeni_loglar)], ignore_index=True)
                             veritabani.update_data("Hareketler", df_extre_son)
-                        except:
-                            st.info("💡 Hareketler tablosu bulunamadığı için işlem geçmişi kaydedilmedi ama stoklar düşüldü.")
+                        except Exception as e:
+                            st.error(f"Hareket kaydı sırasında hata oluştu: {e}")
 
-                    st.success("İşlem başarıyla tamamlandı!")
+                    st.success("✅ Stoklar güncellendi ve hareketler 'Hareketler' sekmesine aktarıldı!")
                     st.cache_data.clear()
                     st.rerun()
 
