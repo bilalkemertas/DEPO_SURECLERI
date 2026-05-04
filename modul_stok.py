@@ -56,18 +56,5 @@ def goster():
             # Kayıt simülasyonu (Buraya veritabani.update_data entegrasyonu gelecek)
             st.success(f"✅ {move_type} işlemi başarıyla kaydedildi!")
             st.info(f"Zaman: {islem_zamani} | Ürün: {s_kod} | Kaynak: {src_adr} | Hedef: {dst_adr}")
-            if yeni_loglar:
-                            try:
-                                df_hareketler = veritabani.get_internal_data("Hareketler")
-                                df_extre_son = pd.concat([df_hareketler, pd.DataFrame(yeni_loglar)], ignore_index=True)
-                                veritabani.update_data("Hareketler", df_extre_son)
-                                st.success(f"✅ {len(yeni_loglar)} adet hareket başarıyla Excel 'Hareketler' sekmesine aktarıldı.")
-                            except Exception as e:
-                                st.error(f"❌ Hareketler sekmesine yazılamadı! Hata: {e}")
-                        else:
-                            st.warning("⚠️ Miktar değişikliği algılandı ancak adres eşleşmediği için hareket kaydı oluşturulamadı.")
-                    else:
-                        st.info("ℹ️ Hiçbir miktar değişikliği yapılmadığı için kayıt oluşturulmadı.")
-
                     st.cache_data.clear()
                     st.rerun()
