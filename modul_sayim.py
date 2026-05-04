@@ -164,7 +164,7 @@ def goster():
         with c_nav:
             if st.button("⬅️ GERİ"): go_sayim_menu(); st.rerun()
         with c_title:
-            st.subheader("📊 Görkemli Fark Raporu")
+            st.subheader("📊Fark Raporu")
         st.markdown("---")
         
         df_sayim_ana = veritabani.get_internal_data("sayim")
