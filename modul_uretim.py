@@ -37,7 +37,7 @@ def goster():
         st.button("🏗️ ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_hazirlik)
         st.button("📊 HAZIRLIK RAPORU", use_container_width=True, type="primary", on_click=go_rapor)
 
-    # --- 1. YÜKLEME (Mükerrer Kayıt ve Hatalı Ürün Eşleşmesi Engellendi) ---
+    # --- 1. YÜKLEME ---
     elif st.session_state.uretim_page == 'is_emri':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("📤 Yeni İş Emri Yükle")
@@ -77,20 +77,18 @@ def goster():
                 for c in cols_target:
                     if c not in df_raw.columns: df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
                 
-                # KECE HATASI FİLTRESİ: Sadece stok kodu dolu olan ve Mamül olmayan satırlar (veya tüm satırlar ama unique kontrolü ile)
                 df_final_save = df_raw.dropna(subset=['Stok Kodu'])[cols_target]
                 st.dataframe(df_final_save, use_container_width=True, hide_index=True)
 
                 if st.button("VERİTABANINA ŞİMDİ KAYDET", type="primary"):
                     existing = veritabani.get_internal_data("Is_Emirleri")
-                    # Bu iş emrine ait eski yanlış kayıtlar varsa temizle (Mükerrerliği önler)
                     existing = existing[existing["İş Emri"] != is_emri_adi]
                     updated = pd.concat([existing, df_final_save], ignore_index=True)
                     veritabani.update_data("Is_Emirleri", updated)
                     st.success(f"✅ {is_emri_adi} güncellendi!"); st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (Kalan İhtiyaç, Adres Stoğu, Toplam Stok - EKSİKSİZ) ---
+    # --- 2. OPERASYON (Geliştirilmiş Referans Sistemi) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -105,12 +103,12 @@ def goster():
             s_list = st.multiselect("📋 İş Emri Seçin:", sorted(df_emirler["İş Emri"].unique().tolist()))
             
             if s_list:
-                # KRİTİK: Gruplarken hem İş Emri hem Ürün Kodu hem Stok Kodu kullanıyoruz ki NECTAR hatası olmasın
+                # GRUPLAMA: Ürün Kodu ve Mamül Adı eklendi
                 sub_df = df_emirler[df_emirler["İş Emri"].isin(s_list)].copy()
-                pivot_df = sub_df.groupby(['İş Emri', 'Stok Kodu', 'Stok Adı', 'Birim']).agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
+                group_cols = ['İş Emri', 'Ürün Kodu', 'Mamül Adı', 'Stok Kodu', 'Stok Adı', 'Birim']
+                pivot_df = sub_df.groupby(group_cols).agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
                 pivot_df['Kalan'] = pivot_df['İhtiyaç Miktarı'] - pivot_df['Hazırlanan Adet']
                 
-                # İhtiyacı biten ürün listeden kalkar
                 bekleyenler_df = pivot_df[pivot_df['Kalan'] > 0.01].copy()
 
                 with st.container(border=True):
@@ -120,18 +118,27 @@ def goster():
                     if bekleyenler_df.empty:
                         st.success("✅ Bekleyen malzeme kalmadı!")
                     else:
-                        # Seçim kutusunda Malzeme Adı ve Stok Kodunu gösteriyoruz ki karışmasın
-                        secenekler = ["Seçiniz..."] + [f"{r['İş Emri']} | {r['Stok Kodu']} | {r['Stok Adı']}" for _, r in bekleyenler_df.iterrows()]
+                        # Seçim listesine Mamül bilgisi eklendi
+                        secenekler = ["Seçiniz..."] + [
+                            f"{r['İş Emri']} | {r['Mamül Adı']} | {r['Stok Kodu']} | {r['Stok Adı']}" 
+                            for _, r in bekleyenler_df.iterrows()
+                        ]
                         input_secim = p1.selectbox("📝 Malzeme Seçin:", secenekler)
                         
                         if input_secim != "Seçiniz...":
-                            # Seçilen satırı tam isabet bul
                             parts = input_secim.split(" | ")
                             sel_is_emri = parts[0]
-                            sel_stok_kod = parts[1]
+                            sel_mamul_adi = parts[1]
+                            sel_stok_kod = parts[2]
                             
-                            row = bekleyenler_df[(bekleyenler_df['İş Emri'] == sel_is_emri) & (bekleyenler_df['Stok Kodu'] == sel_stok_kod)].iloc[0]
+                            # Tam eşleşme için Ürün/Mamül kriteri eklendi
+                            row = bekleyenler_df[
+                                (bekleyenler_df['İş Emri'] == sel_is_emri) & 
+                                (bekleyenler_df['Mamül Adı'] == sel_mamul_adi) & 
+                                (bekleyenler_df['Stok Kodu'] == sel_stok_kod)
+                            ].iloc[0]
                             
+                            sel_urun_kod = row['Ürün Kodu']
                             k_mik = row['Kalan']
                             p2.text_input("🎯 Kalan İhtiyaç:", value=f"{int(k_mik)} {row['Birim']}", disabled=True)
                             
@@ -151,7 +158,6 @@ def goster():
 
                             input_adr = p3.selectbox("📍 Raf Adresi:", adrs_list)
                             
-                            r_stok = 0
                             if input_adr not in ["Seçiniz...", "STOK YOK"]:
                                 r_stok = temp_stok[temp_stok[st_adr_c] == input_adr][st_mik_c].sum()
                                 st.info(f"🏬 **Raf Mevcudu:** {int(r_stok)} | 🏢 **Toplam Depo:** {int(toplam_depo_stok)}")
@@ -166,8 +172,12 @@ def goster():
                                     mask_stok = (st.session_state.local_stok[st_kod_c].astype(str) == str(sel_stok_kod)) & (st.session_state.local_stok[st_adr_c] == input_adr)
                                     st.session_state.local_stok.loc[mask_stok, st_mik_c] -= input_mik
                                     
-                                    # İş Emri Güncelle (Sadece o İş Emri ve o Stok Koduna ait satırı bul)
-                                    mask_emir = (st.session_state.local_emirler['İş Emri'] == sel_is_emri) & (st.session_state.local_emirler['Stok Kodu'] == sel_stok_kod)
+                                    # İş Emri Güncelle (Ürün Kodu kriteri eklendi)
+                                    mask_emir = (
+                                        (st.session_state.local_emirler['İş Emri'] == sel_is_emri) & 
+                                        (st.session_state.local_emirler['Ürün Kodu'] == sel_urun_kod) & 
+                                        (st.session_state.local_emirler['Stok Kodu'] == sel_stok_kod)
+                                    )
                                     emir_indices = st.session_state.local_emirler[mask_emir].index
                                     
                                     d_kalan = input_mik
@@ -184,16 +194,16 @@ def goster():
 
                 st.markdown("---")
                 st.write("📊 **Hazırlık Durum Tablosu**")
+                # Tablo artık Ürün bazlı detay veriyor
                 st.dataframe(pivot_df.drop(columns=['Kalan']), use_container_width=True, hide_index=True)
 
-    # --- 3. RAPOR (İŞ EMRİ TAMAMLANMA YÜZDESİ VE DETAYLAR) ---
+    # --- 3. RAPOR ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("📊 Hazırlık Raporu")
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         
         if not df_lh.empty:
-            # 1. ÖZET TABLO (Yüzdeler)
             summary_df = df_lh.groupby("İş Emri").agg({"İhtiyaç Miktarı": "sum", "Hazırlanan Adet": "sum"}).reset_index()
             summary_df["Tamamlanma %"] = (summary_df["Hazırlanan Adet"] / summary_df["İhtiyaç Miktarı"] * 100).fillna(0).round(1)
             
@@ -202,7 +212,6 @@ def goster():
             
             st.divider()
             
-            # 2. DETAYLI TABLO
             r_e = st.multiselect("📋 İş Emri Filtrele:", sorted(df_lh["İş Emri"].unique().tolist()))
             filtered = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
             st.write("🔍 **Detaylı Malzeme Listesi**")
