@@ -74,7 +74,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (Üstteki tablo kaldırıldı) ---
+    # --- 2. OPERASYON ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -137,12 +137,19 @@ def goster():
                         current_req = row_info['İhtiyaç Miktarı']
                         current_prep = row_info['Hazırlanan Adet']
                         
+                        # HAYA kontrolü
+                        is_haya = str(selected_kod).upper().startswith("HAYA")
+                        
                         p2.text_input("📊 İhtiyaç:", value=f"{int(current_req)} {row_info['Birim']}", disabled=True)
 
                         temp_stok = df_stok_ana.copy()
                         temp_stok[stok_kod_col] = temp_stok[stok_kod_col].astype(str).str.strip().str.upper()
                         
-                        valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
+                        # HAYA malzemeler için stok > 0 kısıtı olmadan adresleri getir
+                        if is_haya:
+                            valid_stocks = temp_stok[temp_stok[stok_kod_col] == str(selected_kod).upper()].sort_values(stok_adr_col)
+                        else:
+                            valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
                         
                         st.write(f"🏷️ **Ürün:** {input_isim}")
                         kalan_yazi = int(current_req - current_prep)
@@ -157,6 +164,7 @@ def goster():
                             else:
                                 st.write(f"📦 **Raf Stoğu:** `-` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
                         else:
+                            # HAYA ise ama hiç adresi yoksa varsayılan bir adres uyarısı verilebilir, şimdilik seçtirmiyoruz
                             p3.selectbox("📍 Adres:", ["STOK YOK"], disabled=True)
                             st.write(f"📦 **Raf Stoğu:** `0` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
                     else:
@@ -166,18 +174,27 @@ def goster():
                     input_mik = p4.number_input("🔢 Miktar:", min_value=0.0, step=1.0)
                     
                     if st.button("⚡ HAREKETİ KAYDET", use_container_width=True, type="primary"):
+                        # Tekrar HAYA kontrolü
+                        is_haya = str(selected_kod).upper().startswith("HAYA")
+                        
                         if input_isim == "Seçiniz..." or input_adr in ["Seçiniz...", "STOK YOK"]:
                             st.error("Lütfen geçerli malzeme ve stoklu bir adres seçiniz!")
                         elif input_mik <= 0:
                             st.error("Miktar 0'dan büyük olmalıdır!")
-                        elif input_mik > current_stock_at_adr:
+                        # HAYA değilse stok kontrolü yap
+                        elif not is_haya and input_mik > current_stock_at_adr:
                             st.warning(f"⚠️ Adres stoğu yetersiz!")
                         elif (current_prep + input_mik) > current_req:
                             st.error(f"🚫 İhtiyaçtan fazlasını alamazsınız!")
                         else:
                             mask_stok = (st.session_state.local_stok[stok_kod_col].astype(str).str.strip().str.upper() == str(selected_kod).upper()) & \
                                         (st.session_state.local_stok[stok_adr_col].astype(str).str.strip().str.upper() == str(input_adr).upper())
-                            st.session_state.local_stok.loc[mask_stok, stok_mik_col] -= input_mik
+                            
+                            # HAYA ise stok girişi (artış), değilse stok çıkışı (azalış)
+                            if is_haya:
+                                st.session_state.local_stok.loc[mask_stok, stok_mik_col] += input_mik
+                            else:
+                                st.session_state.local_stok.loc[mask_stok, stok_mik_col] -= input_mik
                             
                             kalan = input_mik
                             emir_indices = st.session_state.local_emirler[(st.session_state.local_emirler['İş Emri'].astype(str).isin(s_list)) & \
@@ -194,7 +211,7 @@ def goster():
                             df_h_eski = veritabani.get_internal_data("Hareketler")
                             h_satir = {
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "İşlem": "ÜRETİM HAZIRLIK",
+                                "İşlem": "ÜRETİM HAZIRLIK (GİRİŞ)" if is_haya else "ÜRETİM HAZIRLIK",
                                 "İş Emri": ", ".join(s_list),
                                 "Kod": selected_kod,
                                 "İsim": input_isim,
