@@ -158,7 +158,7 @@ def goster():
                     veritabani.update_data("sayim", pd.concat([eski, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
                     st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
 
-    # --- 3. GÖRKEMLİ FARK RAPORU ---
+    # --- 3. FARK RAPORU ---
     elif st.session_state.sayim_page == 'rapor':
         c_nav, c_title = st.columns([1, 4])
         with c_nav:
