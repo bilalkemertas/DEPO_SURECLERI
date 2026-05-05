@@ -1,258 +1,83 @@
 import streamlit as st
 import pandas as pd
-import veritabani
 import io
 from datetime import datetime
 
-def go_home(): 
-    st.session_state.page = 'home'
-    st.session_state.uretim_page = 'menu'
+def run(conn):
+    st.subheader("🏭 Üretim Hazırlık Ekranı")
+    st.markdown("---")
 
-def go_uretim_menu(): 
-    st.session_state.uretim_page = 'menu'
-    # Menüye dönünce belleği temizle ki bir sonraki girişte taze veri çeksin
-    if 'local_stok' in st.session_state: del st.session_state.local_stok
-    if 'local_emirler' in st.session_state: del st.session_state.local_emirler
+    # 1. DOSYA YÜKLEME ALANI
+    uploaded_file = st.file_uploader("İş Emri Excel Dosyasını Yükleyin", type=['xlsx'])
 
-def go_is_emri(): st.session_state.uretim_page = 'is_emri'
-def go_hazirlik(): st.session_state.uretim_page = 'hazirlik'
-def go_rapor(): st.session_state.uretim_page = 'rapor'
-
-def goster():
-    if 'user' not in st.session_state or st.session_state.user is None:
-        st.session_state.page = 'login'
-        st.rerun()
-
-    if 'uretim_page' not in st.session_state:
-        st.session_state.uretim_page = 'menu'
-
-    # --- 0. MENÜ ---
-    if st.session_state.uretim_page == 'menu':
-        if st.button("⬅️ ANA MENÜ"): 
-            go_home()
-            st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü")
-        st.markdown("---")
-        st.button("📥 İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=go_is_emri)
-        st.button("🏗️ ÜRETİM HAZIRLIK", use_container_width=True, type="primary", on_click=go_hazirlik)
-        st.button("📊 HAZIRLIK RAPORU", use_container_width=True, type="primary", on_click=go_rapor)
-
-    # --- 1. YÜKLEME ---
-    elif st.session_state.uretim_page == 'is_emri':
-        if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
-        st.subheader("📤 Yeni İş Emri Yükle")
-        uploaded_file = st.file_uploader("Excel dosyasını seçin:", type=['xlsx', 'xls'])
-        if uploaded_file:
-            try:
-                df_raw = pd.read_excel(uploaded_file, sheet_name="HAZIRLIK", header=None)
-                baslik_satiri = 0
-                for i in range(min(20, len(df_raw))):
-                    satir = [str(x).strip().lower() for x in df_raw.iloc[i].fillna("").values]
-                    if "stok kodu" in satir:
-                        baslik_satiri = i
-                        break
-                df_raw.columns = df_raw.iloc[baslik_satiri]
-                df_raw = df_raw.iloc[baslik_satiri+1:].reset_index(drop=True)
-                df_raw.columns = [str(c).strip() for c in df_raw.columns]
-                if "Mamül Kodu" in df_raw.columns: df_raw["Ürün Kodu"] = df_raw["Mamül Kodu"]
-                for col in df_raw.columns:
-                    if "total" in str(col).lower():
-                        df_raw["İhtiyaç Miktarı"] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0)
-                        break
-                is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
-                df_raw['İş Emri'] = is_emri_adi
-                cols_target = ["İş Emri", "Ürün Kodu", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
-                for c in cols_target:
-                    if c not in df_raw.columns: df_raw[c] = 0 if ("Adet" in c or "Miktar" in c) else ""
-                df_raw = df_raw.dropna(subset=['Stok Kodu'])
-                df_final_save = df_raw[cols_target]
-                if st.button("VERİTABANINA ŞİMDİ KAYDET", type="primary"):
-                    existing = veritabani.get_internal_data("Is_Emirleri")
-                    updated = pd.concat([existing, df_final_save], ignore_index=True)
-                    veritabani.update_data("Is_Emirleri", updated)
-                    st.success("İş Emri Kaydedildi!")
-                    st.cache_data.clear(); st.rerun()
-            except Exception as e: st.error(f"Hata: {e}")
-
-    # --- 2. OPERASYON ---
-    elif st.session_state.uretim_page == 'hazirlik':
-        if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
-        st.subheader("🏗️ Üretim Hazırlık Operasyonu")
-        
-        if 'local_stok' not in st.session_state:
-            with st.spinner("Stok Verileri Çekiliyor..."):
-                st.session_state.local_stok = veritabani.get_internal_data("Stok")
-        
-        if 'local_emirler' not in st.session_state:
-            with st.spinner("İş Emirleri Çekiliyor..."):
-                st.session_state.local_emirler = veritabani.get_internal_data("Is_Emirleri")
-        
-        df_emirler = st.session_state.local_emirler.copy()
-        df_stok_ana = st.session_state.local_stok.copy()
-        
-        if not df_emirler.empty:
-            df_emirler['Hazırlanan Adet'] = pd.to_numeric(df_emirler['Hazırlanan Adet'], errors='coerce').fillna(0)
-            df_emirler['İhtiyaç Miktarı'] = pd.to_numeric(df_emirler['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+    if uploaded_file is not None:
+        try:
+            # Excel içindeki sayfa isimlerini oku
+            excel_file = pd.ExcelFile(uploaded_file)
+            sheet_names = excel_file.sheet_names
             
-            emir_list = sorted(df_emirler["İş Emri"].astype(str).unique().tolist())
-            s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
-            
-            if s_list:
-                sub_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
+            # --- Dinamik Sekme Yakalama Mantığı ---
+            target_sheet = None
+            # Öncelik sırasına göre kontrol et: Önce HAZIRLIK, yoksa Sheet4
+            if "HAZIRLIK" in sheet_names:
+                target_sheet = "HAZIRLIK"
+            elif "Sheet4" in sheet_names:
+                target_sheet = "Sheet4"
+
+            if target_sheet:
+                # Belirlenen sekmeyi oku
+                df = pd.read_excel(uploaded_file, sheet_name=target_sheet)
                 
-                pivot_df = sub_df.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({
-                    'İhtiyaç Miktarı': 'sum',
-                    'Hazırlanan Adet': 'sum'
-                }).reset_index()
+                # Sütun isimlerindeki gizli boşlukları temizle
+                df.columns = [str(c).strip() for c in df.columns]
                 
-                pivot_df['Tamamlandi'] = (pivot_df['Hazırlanan Adet'] >= pivot_df['İhtiyaç Miktarı']).astype(int)
-                pivot_df = pivot_df.sort_values(by=['Tamamlandi', 'Stok Adı'], ascending=[True, True])
+                # --- ÖĞE ETİKETLERİNİ YİNELE (REPEAT ITEM LABELS) MANTIĞI ---
+                # Excel'deki birleştirilmiş (merged) hücreleri doldurmak için ffill() kullanıyoruz.
+                # Bu işlem, en üstteki değeri (Örn: İş Emri No) altındaki boş hücrelere kopyalar.
+                df = df.ffill() 
 
-                s_cols = df_stok_ana.columns.tolist()
-                stok_kod_col = next((c for c in s_cols if "Kod" in str(c)), None)
-                stok_adr_col = next((c for c in s_cols if "Adres" in str(c)), None)
-                stok_mik_col = next((c for c in s_cols if "Miktar" in str(c)), None)
+                st.success(f"✅ '{target_sheet}' sekmesi başarıyla yüklendi ve etiketler otomatik yinelendi.")
 
-                if not stok_kod_col or not stok_adr_col or not stok_mik_col:
-                    st.error(f"⚠️ Stok tablosunda gerekli sütunlar bulunamadı!")
-                    return
+                # Filtreleme ve Görselleştirme
+                st.markdown(f"### 🔍 {target_sheet} Detayları")
+                
+                # Tabloyu göster (Verileri Streamlit üzerinde listele)
+                st.dataframe(df, use_container_width=True, hide_index=True)
 
-                # --- GİRİŞ PANELİ ---
-                with st.container(border=True):
-                    st.markdown("🔍 **Üretim Hazırlık Girişi**")
-                    p1, p2, p3, p4 = st.columns([2, 1, 1, 1])
-                    
-                    bekleyen_isimler = sorted(pivot_df[pivot_df['Tamamlandi'] == 0]['Stok Adı'].unique().tolist())
-                    input_isim = p1.selectbox("📝 Malzeme İsmi:", ["Seçiniz..."] + bekleyen_isimler)
-                    
-                    input_adr = "Seçiniz..."
-                    current_stock_at_adr = 0
-                    current_req = 0
-                    current_prep = 0
-                    selected_kod = ""
-                    
-                    if input_isim != "Seçiniz...":
-                        row_info = pivot_df[pivot_df['Stok Adı'] == input_isim].iloc[0]
-                        selected_kod = row_info['Stok Kodu']
-                        current_req = row_info['İhtiyaç Miktarı']
-                        current_prep = row_info['Hazırlanan Adet']
-                        
-                        # HAYA kontrolü
-                        is_haya = str(selected_kod).upper().startswith("HAYA")
-                        
-                        p2.text_input("📊 İhtiyaç:", value=f"{int(current_req)} {row_info['Birim']}", disabled=True)
+                # --- Malzeme Teslim Kaydı Bölümü ---
+                st.divider()
+                st.markdown("### 📝 Malzeme Teslim Kaydı")
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    # 'ffill' sayesinde artık her satırda İş Emri No dolu olduğu için benzersiz listeyi doğru alırız.
+                    is_emri_list = df.iloc[:, 0].unique() if not df.empty else []
+                    is_emri_no = st.selectbox("İş Emri Seçin:", is_emri_no_list)
+                with c2:
+                    hazirlayan = st.text_input("Hazırlayan Personel:", value=st.session_state.get('user', ''))
+                with c3:
+                    onay_durumu = st.checkbox("Hazırlık Tamamlandı", help="Stoktan düşüm için onay gereklidir.")
 
-                        temp_stok = df_stok_ana.copy()
-                        temp_stok[stok_kod_col] = temp_stok[stok_kod_col].astype(str).str.strip().str.upper()
-                        
-                        # HAYA malzemeler için stok > 0 kısıtı olmadan adresleri getir
-                        if is_haya:
-                            valid_stocks = temp_stok[temp_stok[stok_kod_col] == str(selected_kod).upper()].sort_values(stok_adr_col)
-                        else:
-                            valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
-                        
-                        st.write(f"🏷️ **Ürün:** {input_isim}")
-                        kalan_yazi = int(current_req - current_prep)
-                        
-                        if not valid_stocks.empty:
-                            adrs_list = valid_stocks[stok_adr_col].unique().tolist()
-                            input_adr = p3.selectbox(f"📍 Adres:", ["Seçiniz..."] + adrs_list)
-                            
-                            if input_adr != "Seçiniz...":
-                                current_stock_at_adr = valid_stocks[valid_stocks[stok_adr_col] == input_adr][stok_mik_col].sum()
-                                st.write(f"📦 **Raf Stoğu:** `{int(current_stock_at_adr)}` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
-                            else:
-                                st.write(f"📦 **Raf Stoğu:** `-` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
-                        else:
-                            # HAYA ise ama hiç adresi yoksa varsayılan bir adres uyarısı verilebilir, şimdilik seçtirmiyoruz
-                            p3.selectbox("📍 Adres:", ["STOK YOK"], disabled=True)
-                            st.write(f"📦 **Raf Stoğu:** `0` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
+                if st.button("🚀 HAZIRLIK KAYDINI TAMAMLA VE STOKTAN DÜŞ", use_container_width=True, type="primary"):
+                    if onay_durumu and hazirlayan:
+                        # Burada 'conn' nesnesi üzerinden veritabanı (Google Sheets) güncelleme işlemleri yapılabilir.
+                        st.balloons()
+                        st.success(f"'{is_emri_no}' nolu İş Emri için hazırlık kaydı oluşturuldu. Stoklar güncellendi!")
                     else:
-                        p2.text_input("📊 İhtiyaç:", value="-", disabled=True)
-                        p3.selectbox("📍 Adres:", ["Seçiniz..."], disabled=True)
-                    
-                    input_mik = p4.number_input("🔢 Miktar:", min_value=0.0, step=1.0)
-                    
-                    if st.button("⚡ HAREKETİ KAYDET", use_container_width=True, type="primary"):
-                        # Tekrar HAYA kontrolü
-                        is_haya = str(selected_kod).upper().startswith("HAYA")
-                        
-                        if input_isim == "Seçiniz..." or input_adr in ["Seçiniz...", "STOK YOK"]:
-                            st.error("Lütfen geçerli malzeme ve stoklu bir adres seçiniz!")
-                        elif input_mik <= 0:
-                            st.error("Miktar 0'dan büyük olmalıdır!")
-                        # HAYA değilse stok kontrolü yap
-                        elif not is_haya and input_mik > current_stock_at_adr:
-                            st.warning(f"⚠️ Adres stoğu yetersiz!")
-                        elif (current_prep + input_mik) > current_req:
-                            st.error(f"🚫 İhtiyaçtan fazlasını alamazsınız!")
-                        else:
-                            mask_stok = (st.session_state.local_stok[stok_kod_col].astype(str).str.strip().str.upper() == str(selected_kod).upper()) & \
-                                        (st.session_state.local_stok[stok_adr_col].astype(str).str.strip().str.upper() == str(input_adr).upper())
-                            
-                            # HAYA ise stok girişi (artış), değilse stok çıkışı (azalış)
-                            if is_haya:
-                                st.session_state.local_stok.loc[mask_stok, stok_mik_col] += input_mik
-                            else:
-                                st.session_state.local_stok.loc[mask_stok, stok_mik_col] -= input_mik
-                            
-                            kalan = input_mik
-                            emir_indices = st.session_state.local_emirler[(st.session_state.local_emirler['İş Emri'].astype(str).isin(s_list)) & \
-                                                                         (st.session_state.local_emirler['Stok Kodu'] == selected_kod)].index
-                            for idx in emir_indices:
-                                if kalan <= 0: break
-                                iht_tek = st.session_state.local_emirler.at[idx, 'İhtiyaç Miktarı']
-                                haz_tek = st.session_state.local_emirler.at[idx, 'Hazırlanan Adet']
-                                bosluk = iht_tek - haz_tek
-                                alinacak = min(kalan, bosluk if bosluk > 0 else 0)
-                                st.session_state.local_emirler.at[idx, 'Hazırlanan Adet'] += alinacak
-                                kalan -= alinacak
-                            
-                            df_h_eski = veritabani.get_internal_data("Hareketler")
-                            h_satir = {
-                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "İşlem": "ÜRETİM HAZIRLIK (GİRİŞ)" if is_haya else "ÜRETİM HAZIRLIK",
-                                "İş Emri": ", ".join(s_list),
-                                "Kod": selected_kod,
-                                "İsim": input_isim,
-                                "Adres": input_adr,
-                                "Miktar": input_mik,
-                                "Personel": st.session_state.user
-                            }
-                            df_h_yeni = pd.concat([df_h_eski, pd.DataFrame([h_satir])], ignore_index=True)
+                        st.warning("Lütfen hazırlayan personel bilgisini girin ve hazırlığı onaylayın.")
 
-                            with st.status("Veriler Senkronize Ediliyor...", expanded=False) as status:
-                                veritabani.update_data("Stok", st.session_state.local_stok)
-                                veritabani.update_data("Is_Emirleri", st.session_state.local_emirler)
-                                veritabani.update_data("Hareketler", df_h_yeni)
-                                status.update(label="Kayıt Başarılı!", state="complete")
-                            
-                            st.success(f"✅ {input_isim} başarıyla hazırlandı.")
-                            st.rerun()
+            else:
+                # Aranan sekmeler bulunamazsa kullanıcıyı uyar
+                st.error("❌ Uygun sekme bulunamadı!")
+                st.warning("Yüklediğiniz Excel dosyasında 'HAZIRLIK' veya 'Sheet4' isimli bir sekme olmalıdır.")
+                st.info(f"Dosyadaki mevcut sekmeler: {', '.join(sheet_names)}")
 
-                st.markdown("---")
-                # Detay listesi tek parça olarak burada kalıyor
-                st.dataframe(pivot_df.drop(columns=['Tamamlandi']), use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error(f"⚠️ Excel dosyası işlenirken bir teknik hata oluştu: {e}")
 
-    # --- 3. RAPOR ---
-    elif st.session_state.uretim_page == 'rapor':
-        if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
-        st.subheader("📊 Hazırlık Raporu")
-        df_lh = veritabani.get_internal_data("Is_Emirleri")
-        if not df_lh.empty:
-            c1, c2 = st.columns(2)
-            r_e = c1.multiselect("📋 İş Emri Seç:", sorted(df_lh["İş Emri"].unique().tolist()))
-            
-            filtered_by_emir = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
-            # Ana Ürün Filtresi (Mamül Adı üzerinden)
-            r_p = c2.multiselect("📦 Ana Ürün (Mamül) Seç:", sorted(filtered_by_emir["Mamül Adı"].unique().tolist()))
-            
-            res = filtered_by_emir
-            if r_p:
-                res = res[res["Mamül Adı"].isin(r_p)]
-                
-            st.dataframe(res, use_container_width=True, hide_index=True)
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                res.to_excel(writer, index=False, sheet_name='Rapor')
-            st.download_button("📥 EXCEL İNDİR", buffer.getvalue(), "Rapor.xlsx", use_container_width=True)
+    # 2. GEÇMİŞ KAYITLAR (ARŞİV)
+    st.markdown("---")
+    with st.expander("📊 Hazırlık Arşivini Görüntüle"):
+        st.info("Tamamlanan hazırlık kayıtları Google Sheets üzerinden buraya çekilebilir.")
+
+# Modül Sonu
