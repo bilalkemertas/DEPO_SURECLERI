@@ -69,14 +69,13 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (GİRİŞ PANELİ + UYARI SİSTEMİ + SIRALAMA) ---
+    # --- 2. OPERASYON (MALZEME İSMİ ODAKLI GİRİŞ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
         
         df_emirler = veritabani.get_internal_data("Is_Emirleri")
         df_stok_ana = veritabani.get_internal_data("Stok")
-        df_hareketler_ana = veritabani.get_internal_data("Hareketler")
         
         if not df_emirler.empty:
             df_emirler['Hazırlanan Adet'] = pd.to_numeric(df_emirler['Hazırlanan Adet'], errors='coerce').fillna(0)
@@ -86,120 +85,121 @@ def goster():
             s_list = st.multiselect("📋 Takip Edilecek İş Emirlerini Seçin:", emir_list)
             
             if s_list:
-                # Pivot hazırlığı (Hammadde bazlı özet)
+                # Pivot: Malzeme bazlı özet
                 sub_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
                 pivot_df = sub_df.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({
                     'İhtiyaç Miktarı': 'sum',
                     'Hazırlanan Adet': 'sum'
                 }).reset_index()
                 
-                # Bitenleri sona atma mantığı (Hazırlanan >= İhtiyaç ise 1, değilse 0)
+                # Bitenleri sona atma mantığı
                 pivot_df['Tamamlandi'] = (pivot_df['Hazırlanan Adet'] >= pivot_df['İhtiyaç Miktarı']).astype(int)
                 pivot_df = pivot_df.sort_values(by=['Tamamlandi', 'Stok Adı'], ascending=[True, True])
 
-                # --- ÜST GİRİŞ PANELİ (3 ALAN) ---
+                # Dinamik Sütun Bulucu
+                s_cols = df_stok_ana.columns.tolist()
+                stok_kod_col = next((c for c in s_cols if "Kod" in c), "Kod")
+                stok_adr_col = next((c for c in s_cols if "Adres" in c), "Adres")
+                stok_mik_col = next((c for c in s_cols if "Miktar" in c), "Miktar")
+                stok_isi_col = next((c for c in s_cols if "İsim" in c or "Adı" in c), "İsim")
+
+                # --- ÜST GİRİŞ PANELİ (MALZEME İSMİ ODAKLI) ---
                 with st.container(border=True):
-                    st.markdown("🔍 **Hızlı Hazırlık Girişi**")
+                    st.markdown("🔍 **Saha Hazırlık Girişi**")
                     p1, p2, p3 = st.columns(3)
                     
-                    # 1. Ürün Seçimi
-                    bekleyen_kodlar = pivot_df[pivot_df['Tamamlandi'] == 0]['Stok Kodu'].unique().tolist()
-                    input_kod = p1.selectbox("📦 Ürün Seç:", ["Seçiniz..."] + bekleyen_kodlar)
+                    # 1. Malzeme İsmi Seçimi
+                    bekleyen_isimler = sorted(pivot_df[pivot_df['Tamamlandi'] == 0]['Stok Adı'].unique().tolist())
+                    input_isim = p1.selectbox("📝 Malzeme İsmi Seç:", ["Seçiniz..."] + bekleyen_isimler)
                     
-                    # 2. Adres Önerisi (Alfabetik ilk dolu adres)
-                    input_adr = "-"
+                    input_adr = "Seçiniz..."
                     current_stock_at_adr = 0
                     current_req = 0
                     current_prep = 0
+                    selected_kod = ""
                     
-                    if input_kod != "Seçiniz...":
+                    if input_isim != "Seçiniz...":
+                        # Seçilen isme ait Stok Kodu'nu pivot_df'den çek
+                        selected_kod = pivot_df[pivot_df['Stok Adı'] == input_isim]['Stok Kodu'].values[0]
+                        
                         temp_stok = df_stok_ana.copy()
-                        temp_stok['Kod'] = temp_stok['Kod'].astype(str).str.strip().upper()
-                        # Alfabetik sıralı ve stok olan adresler
-                        valid_stocks = temp_stok[(temp_stok['Kod'] == input_kod.upper()) & (temp_stok['Miktar'] > 0)].sort_values('Adres')
+                        temp_stok[stok_kod_col] = temp_stok[stok_kod_col].astype(str).str.strip().upper()
                         
-                        if not valid_stocks.empty:
-                            # Adresleri tıklandığında listelemek için expander kullanıyoruz
-                            with p2:
-                                with st.expander(f"📍 {valid_stocks.iloc[0]['Adres']} (Önerilen)", expanded=False):
-                                    st.write("**Diğer Adresler:**")
-                                    st.dataframe(valid_stocks[['Adres', 'Miktar']], hide_index=True)
-                            
-                            input_adr = valid_stocks.iloc[0]['Adres']
-                            current_stock_at_adr = valid_stocks.iloc[0]['Miktar']
-                        else:
-                            p2.error("❌ STOK YOK!")
+                        # Adresleri alfabetik sırala (Stok olanları getir)
+                        valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
                         
-                        # Mevcut Durum Bilgisi
-                        row_info = pivot_df[pivot_df['Stok Kodu'] == input_kod].iloc[0]
-                        current_req = row_info['İhtiyaç Miktarı']
-                        current_prep = row_info['Hazırlanan Adet']
+                        adrs_list = valid_stocks[stok_adr_col].unique().tolist()
+                        input_adr = p2.selectbox(f"📍 {input_isim} Adresi Seç:", ["Seçiniz..."] + adrs_list)
+                        
+                        if input_adr != "Seçiniz...":
+                            current_stock_at_adr = valid_stocks[valid_stocks[stok_adr_col] == input_adr][stok_mik_col].sum()
+                            st.info(f"💡 **{input_adr}** rafındaki güncel stok: **{int(current_stock_at_adr)}**")
+                        
+                        # Mevcut İhtiyaç ve Hazırlanan Bilgisi
+                        current_req = pivot_df[pivot_df['Stok Adı'] == input_isim]['İhtiyaç Miktarı'].values[0]
+                        current_prep = pivot_df[pivot_df['Stok Adı'] == input_isim]['Hazırlanan Adet'].values[0]
                     
                     input_mik = p3.number_input("🔢 Alınan Miktar:", min_value=0.0, step=1.0)
                     
-                    if st.button("⚡ HAREKETİ İŞLE", use_container_width=True, type="primary"):
-                        if input_kod == "Seçiniz..." or input_adr == "STOK YOK":
-                            st.error("Hatalı ürün veya adres seçimi!")
+                    if st.button("⚡ HAREKETİ KAYDET VE STOKTAN DÜŞ", use_container_width=True, type="primary"):
+                        if input_isim == "Seçiniz..." or input_adr == "Seçiniz...":
+                            st.error("Lütfen malzeme ve adres seçiniz!")
+                        elif input_mik <= 0:
+                            st.error("Miktar 0'dan büyük olmalıdır!")
+                        elif input_mik > current_stock_at_adr:
+                            st.warning(f"⚠️ **{input_adr}** rafında sadece {int(current_stock_at_adr)} adet var! Diğer adresten devam edin.")
+                        elif (current_prep + input_mik) > current_req:
+                            st.error(f"🚫 Bu malzeme için toplam ihtiyaç {int(current_req)} adettir. Fazla alamazsınız!")
                         else:
-                            # KONTROL 1: Adres Stoğu Yetiyor mu?
-                            if input_mik > current_stock_at_adr:
-                                st.warning(f"⚠️ Adres stoğu {current_stock_at_adr}, diğer adresten devam edin!")
-                            # KONTROL 2: İhtiyaç Miktarı Aşılıyor mu?
-                            elif (current_prep + input_mik) > current_req:
-                                st.error(f"🚫 İhtiyaç miktarından ({current_req}) fazla ürün alamazsınız!")
-                            else:
-                                # --- KAYIT İŞLEMLERİ ---
-                                df_stok_guncel = veritabani.get_internal_data("Stok")
-                                df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
-                                all_is_emirleri = veritabani.get_internal_data("Is_Emirleri")
-                                
-                                # 1. Stoktan Düş
-                                s_mask = (df_stok_guncel['Kod'].astype(str).str.strip().str.upper() == input_kod.upper()) & \
-                                         (df_stok_guncel['Adres'].astype(str).str.strip().str.upper() == input_adr.upper())
-                                df_stok_guncel.loc[s_mask, 'Miktar'] -= input_mik
-                                
-                                # 2. Hareketler Logla
-                                h_satir = {
-                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "İşlem": "ÜRETİM HAZIRLIK",
-                                    "İş Emri": ", ".join(s_list),
-                                    "Kod": input_kod,
-                                    "İsim": row_info['Stok Adı'],
-                                    "Adres": input_adr,
-                                    "Miktar": input_mik,
-                                    "Personel": st.session_state.user
-                                }
-                                df_h = pd.concat([df_hareketler_guncel, pd.DataFrame([h_satir])], ignore_index=True)
-                                
-                                # 3. İş Emirlerine Dağıt (Waterfall Dağıtım)
-                                kalan_dagitilacak = input_mik
-                                emir_indices = all_is_emirleri[(all_is_emirleri['İş Emri'].astype(str).isin(s_list)) & 
-                                                              (all_is_emirleri['Stok Kodu'] == input_kod)].index
-                                for idx in emir_indices:
-                                    if kalan_dagitilacak <= 0: break
-                                    ihtiyac = all_is_emirleri.at[idx, 'İhtiyaç Miktarı']
-                                    hazir = all_is_emirleri.at[idx, 'Hazırlanan Adet']
-                                    bosluk = ihtiyac - hazir
-                                    alinacak = min(kalan_dagitilacak, bosluk if bosluk > 0 else 0)
-                                    all_is_emirleri.at[idx, 'Hazırlanan Adet'] += alinacak
-                                    kalan_dagitilacak -= alinacak
+                            # Kayıt Başlat
+                            df_stok_guncel = veritabani.get_internal_data("Stok")
+                            df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
+                            all_is_emirleri = veritabani.get_internal_data("Is_Emirleri")
+                            
+                            # 1. Stok Düş (Normalleştirilmiş veride ara)
+                            df_stok_guncel[stok_kod_col] = df_stok_guncel[stok_kod_col].astype(str).str.strip().upper()
+                            df_stok_guncel[stok_adr_col] = df_stok_guncel[stok_adr_col].astype(str).str.strip().upper()
+                            
+                            s_mask = (df_stok_guncel[stok_kod_col] == str(selected_kod).upper()) & (df_stok_guncel[stok_adr_col] == str(input_adr).upper())
+                            df_stok_guncel.loc[s_mask, stok_mik_col] -= input_mik
+                            
+                            # 2. Hareketler Logla
+                            h_satir = {
+                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "İşlem": "ÜRETİM HAZIRLIK",
+                                "İş Emri": ", ".join(s_list),
+                                "Kod": selected_kod,
+                                "İsim": input_isim,
+                                "Adres": input_adr,
+                                "Miktar": input_mik,
+                                "Personel": st.session_state.user
+                            }
+                            df_h = pd.concat([df_hareketler_guncel, pd.DataFrame([h_satir])], ignore_index=True)
+                            
+                            # 3. Waterfall (Şelale) Dağıtım
+                            kalan = input_mik
+                            emir_indices = all_is_emirleri[(all_is_emirleri['İş Emri'].astype(str).isin(s_list)) & (all_is_emirleri['Stok Kodu'] == selected_kod)].index
+                            for idx in emir_indices:
+                                if kalan <= 0: break
+                                ihtiyac_tek = all_is_emirleri.at[idx, 'İhtiyaç Miktarı']
+                                hazir_tek = all_is_emirleri.at[idx, 'Hazırlanan Adet']
+                                bosluk = ihtiyac_tek - hazir_tek
+                                alinacak = min(kalan, bosluk if bosluk > 0 else 0)
+                                all_is_emirleri.at[idx, 'Hazırlanan Adet'] += alinacak
+                                kalan -= alinacak
 
-                                # Kaydet
-                                veritabani.update_data("Stok", df_stok_guncel)
-                                veritabani.update_data("Hareketler", df_h)
-                                veritabani.update_data("Is_Emirleri", all_is_emirleri)
-                                
-                                st.success("Hazırlık kaydedildi!")
-                                st.cache_data.clear(); st.rerun()
+                            veritabani.update_data("Stok", df_stok_guncel)
+                            veritabani.update_data("Hareketler", df_h)
+                            veritabani.update_data("Is_Emirleri", all_is_emirleri)
+                            
+                            st.success(f"✅ {input_isim} hazırlığı kaydedildi!")
+                            st.cache_data.clear(); st.rerun()
 
-                # --- DETAY TABLO (PİVOT GÖRÜNÜM) ---
+                # --- PİVOT TABLO GÖRÜNÜMÜ ---
                 st.markdown("---")
-                st.dataframe(
-                    pivot_df,
-                    column_order=["Stok Kodu", "Stok Adı", "Önerilen Adres", "İhtiyaç Miktarı", "Hazırlanan Adet", "Depo Toplam Stok", "Birim"],
-                    use_container_width=True,
-                    hide_index=True
-                )
+                st.markdown("### 📊 Mevcut Hazırlık Durumu")
+                # Tamamlananları sona atan pivot tabloyu göster
+                st.dataframe(pivot_df.drop(columns=['Tamamlandi']), use_container_width=True, hide_index=True)
 
     # --- 3. RAPOR ---
     elif st.session_state.uretim_page == 'rapor':
