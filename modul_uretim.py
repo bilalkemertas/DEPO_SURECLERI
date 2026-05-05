@@ -10,7 +10,7 @@ def go_home():
 
 def go_uretim_menu(): 
     st.session_state.uretim_page = 'menu'
-    # Menüye dönünce belleği temizle, bir sonraki girişte taze veri çeksin
+    # Menüye dönünce belleği temizle ki bir sonraki girişte taze veri çeksin
     if 'local_stok' in st.session_state: del st.session_state.local_stok
     if 'local_emirler' in st.session_state: del st.session_state.local_emirler
 
@@ -74,7 +74,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (SIRALAMA VE FİLTRELEME GÜNCELLEMESİ) ---
+    # --- 2. OPERASYON ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -99,12 +99,22 @@ def goster():
             
             if s_list:
                 sub_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
+                
+                # --- SABİT GENEL DURUM TABLOSU ---
+                st.markdown("### 📈 İş Emri Genel Durumu")
+                status_df = sub_df.groupby(['İş Emri', 'Ürün Kodu', 'Mamül Adı']).agg({
+                    'İhtiyaç Miktarı': 'sum',
+                    'Hazırlanan Adet': 'sum'
+                }).reset_index()
+                status_df['İlerleme %'] = ((status_df['Hazırlanan Adet'] / status_df['İhtiyaç Miktarı']) * 100).fillna(0).astype(int)
+                st.dataframe(status_df, use_container_width=True, hide_index=True)
+                st.markdown("---")
+
                 pivot_df = sub_df.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({
                     'İhtiyaç Miktarı': 'sum',
                     'Hazırlanan Adet': 'sum'
                 }).reset_index()
                 
-                # --- SIRALAMA MANTIĞI: Tamamlananlar en alta (0: Devam Eden, 1: Tamamlanan) ---
                 pivot_df['Tamamlandi'] = (pivot_df['Hazırlanan Adet'] >= pivot_df['İhtiyaç Miktarı']).astype(int)
                 pivot_df = pivot_df.sort_values(by=['Tamamlandi', 'Stok Adı'], ascending=[True, True])
 
@@ -117,12 +127,10 @@ def goster():
                     st.error(f"⚠️ Stok tablosunda gerekli sütunlar bulunamadı!")
                     return
 
-                # --- ÜST GİRİŞ PANELİ ---
                 with st.container(border=True):
                     st.markdown("🔍 **Üretim Hazırlık Girişi**")
                     p1, p2, p3, p4 = st.columns([2, 1, 1, 1])
                     
-                    # --- SEÇİM ALANI FİLTRESİ: Sadece süreci devam edenler ---
                     bekleyen_isimler = sorted(pivot_df[pivot_df['Tamamlandi'] == 0]['Stok Adı'].unique().tolist())
                     input_isim = p1.selectbox("📝 Malzeme İsmi:", ["Seçiniz..."] + bekleyen_isimler)
                     
@@ -216,7 +224,6 @@ def goster():
                             st.rerun()
 
                 st.markdown("---")
-                # Detay listesi (Tamamlananlar en altta)
                 st.dataframe(pivot_df.drop(columns=['Tamamlandi']), use_container_width=True, hide_index=True)
 
     # --- 3. RAPOR ---
@@ -225,8 +232,19 @@ def goster():
         st.subheader("📊 Hazırlık Raporu")
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         if not df_lh.empty:
-            r_e = st.multiselect("📋 İş Emri Seç:", sorted(df_lh["İş Emri"].unique().tolist()))
-            res = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
+            # Filtreleme Paneli
+            c1, c2 = st.columns(2)
+            r_e = c1.multiselect("📋 İş Emri Seç:", sorted(df_lh["İş Emri"].unique().tolist()))
+            
+            # İş emrine göre ürünleri filtrele
+            filtered_by_emir = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
+            r_p = c2.multiselect("📦 Ana Ürün (Mamül) Seç:", sorted(filtered_by_emir["Ürün Kodu"].unique().tolist()))
+            
+            # Nihai Filtreleme
+            res = filtered_by_emir
+            if r_p:
+                res = res[res["Ürün Kodu"].isin(r_p)]
+                
             st.dataframe(res, use_container_width=True, hide_index=True)
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
