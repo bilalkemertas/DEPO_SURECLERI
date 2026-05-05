@@ -69,7 +69,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (GİRİŞ PANELİ + TAM AD GÖSTERİMİ) ---
+    # --- 2. OPERASYON (GİRİŞ PANELİ + HER DURUMDA BİLGİ GÖSTERİMİ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -101,7 +101,7 @@ def goster():
                 stok_mik_col = next((c for c in s_cols if "Miktar" in str(c)), None)
 
                 if not stok_kod_col or not stok_adr_col or not stok_mik_col:
-                    st.error(f"⚠️ Stok tablosunda gerekli sütunlar bulunamadı! (Bulunanlar: {s_cols})")
+                    st.error(f"⚠️ Stok tablosunda gerekli sütunlar bulunamadı!")
                     return
 
                 # --- ÜST GİRİŞ PANELİ ---
@@ -124,22 +124,31 @@ def goster():
                         current_req = row_info['İhtiyaç Miktarı']
                         current_prep = row_info['Hazırlanan Adet']
                         
-                        # İhtiyaç Miktarı (Salt Okunur)
+                        # İhtiyaç Miktarı Her Zaman Görünür
                         p2.text_input("📊 İhtiyaç:", value=f"{int(current_req)} {row_info['Birim']}", disabled=True)
 
                         temp_stok = df_stok_ana.copy()
                         temp_stok[stok_kod_col] = temp_stok[stok_kod_col].astype(str).str.strip().str.upper()
                         
+                        # Stokta olan adresleri bul
                         valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
-                        adrs_list = valid_stocks[stok_adr_col].unique().tolist()
-                        input_adr = p3.selectbox(f"📍 Adres:", ["Seçiniz..."] + adrs_list)
                         
-                        if input_adr != "Seçiniz...":
-                            current_stock_at_adr = valid_stocks[valid_stocks[stok_adr_col] == input_adr][stok_mik_col].sum()
+                        # Ürün Tam Adını ve Kalan İhtiyacı stok olsun olmasın her zaman yaz
+                        st.write(f"🏷️ **Ürün:** {input_isim}")
+                        kalan_yazi = int(current_req - current_prep)
+                        
+                        if not valid_stocks.empty:
+                            adrs_list = valid_stocks[stok_adr_col].unique().tolist()
+                            input_adr = p3.selectbox(f"📍 Adres:", ["Seçiniz..."] + adrs_list)
                             
-                            # Ürün Tam Adı ve Bilgi Satırı
-                            st.write(f"🏷️ **Ürün:** {input_isim}")
-                            st.write(f"📦 **Raf Stoğu:** `{int(current_stock_at_adr)}` | 🎯 **Kalan İhtiyaç:** `{int(current_req - current_prep)}`")
+                            if input_adr != "Seçiniz...":
+                                current_stock_at_adr = valid_stocks[valid_stocks[stok_adr_col] == input_adr][stok_mik_col].sum()
+                                st.write(f"📦 **Raf Stoğu:** `{int(current_stock_at_adr)}` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
+                            else:
+                                st.write(f"📦 **Raf Stoğu:** `-` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
+                        else:
+                            p3.selectbox("📍 Adres:", ["STOK YOK"], disabled=True)
+                            st.write(f"📦 **Raf Stoğu:** `0` | 🎯 **Kalan İhtiyaç:** `{kalan_yazi}`")
                     else:
                         p2.text_input("📊 İhtiyaç:", value="-", disabled=True)
                         p3.selectbox("📍 Adres:", ["Seçiniz..."], disabled=True)
@@ -147,14 +156,14 @@ def goster():
                     input_mik = p4.number_input("🔢 Miktar:", min_value=0.0, step=1.0)
                     
                     if st.button("⚡ HAREKETİ KAYDET", use_container_width=True, type="primary"):
-                        if input_isim == "Seçiniz..." or input_adr == "Seçiniz...":
-                            st.error("Lütfen malzeme ve adres seçiniz!")
+                        if input_isim == "Seçiniz..." or input_adr in ["Seçiniz...", "STOK YOK"]:
+                            st.error("Lütfen geçerli malzeme ve stoklu bir adres seçiniz!")
                         elif input_mik <= 0:
                             st.error("Miktar 0'dan büyük olmalıdır!")
                         elif input_mik > current_stock_at_adr:
-                            st.warning(f"⚠️ **{input_adr}** rafında sadece {int(current_stock_at_adr)} adet var!")
+                            st.warning(f"⚠️ Adres stoğu yetersiz!")
                         elif (current_prep + input_mik) > current_req:
-                            st.error(f"🚫 Toplam ihtiyaçtan fazlasını alamazsınız!")
+                            st.error(f"🚫 İhtiyaçtan fazlasını alamazsınız!")
                         else:
                             df_stok_guncel = veritabani.get_internal_data("Stok")
                             df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
@@ -193,7 +202,7 @@ def goster():
                             veritabani.update_data("Hareketler", df_h)
                             veritabani.update_data("Is_Emirleri", all_is_emirleri)
                             
-                            st.success(f"✅ Hazırlık kaydedildi!")
+                            st.success(f"✅ Kaydedildi!")
                             st.cache_data.clear(); st.rerun()
 
                 st.markdown("---")
