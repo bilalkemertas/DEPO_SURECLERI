@@ -13,7 +13,7 @@ def goster():
     st.subheader("📈 Raporlar ve Arşiv")
     rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazirlik Raporu", "📜 Hareket Arşivi"])
     
-    # --- TAB 1: MEVCUT STOK (Kesin Maskeleme) ---
+    # --- TAB 1: MEVCUT STOK (Tam Satır Maskeleme) ---
     with rt1: 
         df_stok = veritabani.get_internal_data("Stok").copy()
         
@@ -37,22 +37,19 @@ def goster():
                 a_col = next((c for c in cols_s if "Adres" in c), None)
                 if a_col: df_stok = df_stok[df_stok[a_col].astype(str).str.contains(f_adr_s, case=False, na=False)]
 
-            # --- SIFIR MİKTAR VE ADRES KONTROLÜ (GÜNCELLENDİ) ---
+            # --- TÜM SATIRI MASKELEME MANTIĞI ---
             m_col = next((c for c in cols_s if "Miktar" in c), None)
-            a_col = next((c for c in cols_s if "Adres" in c), None)
 
             if m_col:
-                # Sayısal kontrole zorla (0.0 veya "0" hepsini yakalar)
+                # Sayısal kontrole zorla
                 numeric_m = pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0)
                 mask = (numeric_m == 0)
                 
-                # Sütunları string tipine çevir ki "STOK YOK" metni hata vermesin
-                df_stok[m_col] = df_stok[m_col].astype(str)
-                if a_col:
-                    df_stok[a_col] = df_stok[a_col].astype(str)
-                    df_stok.loc[mask, a_col] = "STOK YOK"
+                # DataFrame tipini string'e çeviriyoruz (Tüm hücrelere metin basabilmek için)
+                df_stok = df_stok.astype(str)
                 
-                df_stok.loc[mask, m_col] = "STOK YOK"
+                # Miktarı 0 olan satırların TÜM kolonlarını "STOK YOK" yap
+                df_stok.loc[mask, :] = "STOK YOK"
 
             st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
             st.dataframe(df_stok, use_container_width=True, hide_index=True)
