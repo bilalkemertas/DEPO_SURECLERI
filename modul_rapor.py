@@ -13,18 +13,16 @@ def goster():
     st.subheader("📈 Raporlar ve Arşiv")
     rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazirlik Raporu", "📜 Hareket Arşivi"])
     
-    # --- TAB 1: MEVCUT STOK (Filtreler ve Adres Maskeleme) ---
+    # --- TAB 1: MEVCUT STOK (Kesin Maskeleme) ---
     with rt1: 
         df_stok = veritabani.get_internal_data("Stok").copy()
         
         if not df_stok.empty:
-            # 3'lü Filtre Kolonları
             sc1, sc2, sc3 = st.columns(3)
             f_kod_s = sc1.text_input("📦 Ürün Kodu Filtrele:", placeholder="Örn: ST-123", key="stok_kod_filtre")
             f_isi_s = sc2.text_input("📝 Ürün Adı Filtrele:", placeholder="Örn: Sünger", key="stok_isim_filtre")
             f_adr_s = sc3.text_input("📍 Adres Filtrele:", placeholder="Örn: A-01", key="stok_adres_filtre")
             
-            # Filtreleme Mantığı
             cols_s = df_stok.columns.tolist()
             
             if f_kod_s:
@@ -39,20 +37,22 @@ def goster():
                 a_col = next((c for c in cols_s if "Adres" in c), None)
                 if a_col: df_stok = df_stok[df_stok[a_col].astype(str).str.contains(f_adr_s, case=False, na=False)]
 
-            # --- SIFIR MİKTAR VE ADRES KONTROLÜ ---
+            # --- SIFIR MİKTAR VE ADRES KONTROLÜ (GÜNCELLENDİ) ---
             m_col = next((c for c in cols_s if "Miktar" in c), None)
             a_col = next((c for c in cols_s if "Adres" in c), None)
 
             if m_col:
-                # Önce miktar kontrolü
-                mask = (df_stok[m_col] == 0) | (df_stok[m_col] == "0")
+                # Sayısal kontrole zorla (0.0 veya "0" hepsini yakalar)
+                numeric_m = pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0)
+                mask = (numeric_m == 0)
                 
-                # Adres sütununu maskele
+                # Sütunları string tipine çevir ki "STOK YOK" metni hata vermesin
+                df_stok[m_col] = df_stok[m_col].astype(str)
                 if a_col:
+                    df_stok[a_col] = df_stok[a_col].astype(str)
                     df_stok.loc[mask, a_col] = "STOK YOK"
                 
-                # Miktar sütununu maskele
-                df_stok[m_col] = df_stok[m_col].apply(lambda x: "STOK YOK" if x == 0 or x == "0" else x)
+                df_stok.loc[mask, m_col] = "STOK YOK"
 
             st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
             st.dataframe(df_stok, use_container_width=True, hide_index=True)
