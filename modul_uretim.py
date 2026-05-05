@@ -8,7 +8,12 @@ def go_home():
     st.session_state.page = 'home'
     st.session_state.uretim_page = 'menu'
 
-def go_uretim_menu(): st.session_state.uretim_page = 'menu'
+def go_uretim_menu(): 
+    st.session_state.uretim_page = 'menu'
+    # Menüye dönünce belleği temizle ki bir sonraki girişte taze veri çeksin
+    if 'local_stok' in st.session_state: del st.session_state.local_stok
+    if 'local_emirler' in st.session_state: del st.session_state.local_emirler
+
 def go_is_emri(): st.session_state.uretim_page = 'is_emri'
 def go_hazirlik(): st.session_state.uretim_page = 'hazirlik'
 def go_rapor(): st.session_state.uretim_page = 'rapor'
@@ -69,13 +74,22 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (GİRİŞ PANELİ + HER DURUMDA BİLGİ GÖSTERİMİ) ---
+    # --- 2. OPERASYON (BELLEK ODAKLI ÇALIŞMA) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
         
-        df_emirler = veritabani.get_internal_data("Is_Emirleri")
-        df_stok_ana = veritabani.get_internal_data("Stok")
+        # --- BELLEK KONTROLÜ (Data Caching) ---
+        if 'local_stok' not in st.session_state:
+            with st.spinner("Stok Verileri Çekiliyor..."):
+                st.session_state.local_stok = veritabani.get_internal_data("Stok")
+        
+        if 'local_emirler' not in st.session_state:
+            with st.spinner("İş Emirleri Çekiliyor..."):
+                st.session_state.local_emirler = veritabani.get_internal_data("Is_Emirleri")
+        
+        df_emirler = st.session_state.local_emirler.copy()
+        df_stok_ana = st.session_state.local_stok.copy()
         
         if not df_emirler.empty:
             df_emirler['Hazırlanan Adet'] = pd.to_numeric(df_emirler['Hazırlanan Adet'], errors='coerce').fillna(0)
@@ -124,7 +138,6 @@ def goster():
                         current_req = row_info['İhtiyaç Miktarı']
                         current_prep = row_info['Hazırlanan Adet']
                         
-                        # İhtiyaç Miktarı Her Zaman Görünür
                         p2.text_input("📊 İhtiyaç:", value=f"{int(current_req)} {row_info['Birim']}", disabled=True)
 
                         temp_stok = df_stok_ana.copy()
@@ -133,7 +146,6 @@ def goster():
                         # Stokta olan adresleri bul
                         valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
                         
-                        # Ürün Tam Adını ve Kalan İhtiyacı stok olsun olmasın her zaman yaz
                         st.write(f"🏷️ **Ürün:** {input_isim}")
                         kalan_yazi = int(current_req - current_prep)
                         
@@ -165,16 +177,28 @@ def goster():
                         elif (current_prep + input_mik) > current_req:
                             st.error(f"🚫 İhtiyaçtan fazlasını alamazsınız!")
                         else:
-                            df_stok_guncel = veritabani.get_internal_data("Stok")
-                            df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
-                            all_is_emirleri = veritabani.get_internal_data("Is_Emirleri")
+                            # --- 1. YEREL BELLEKTE GÜNCELLEME (HIZ İÇİN) ---
                             
-                            df_stok_guncel[stok_kod_col] = df_stok_guncel[stok_kod_col].astype(str).str.strip().str.upper()
-                            df_stok_guncel[stok_adr_col] = df_stok_guncel[stok_adr_col].astype(str).str.strip().str.upper()
+                            # Stoktan Düş
+                            mask_stok = (st.session_state.local_stok[stok_kod_col].astype(str).str.strip().str.upper() == str(selected_kod).upper()) & \
+                                        (st.session_state.local_stok[stok_adr_col].astype(str).str.strip().str.upper() == str(input_adr).upper())
+                            st.session_state.local_stok.loc[mask_stok, stok_mik_col] -= input_mik
                             
-                            s_mask = (df_stok_guncel[stok_kod_col] == str(selected_kod).upper()) & (df_stok_guncel[stok_adr_col] == str(input_adr).upper())
-                            df_stok_guncel.loc[s_mask, stok_mik_col] -= input_mik
+                            # İş Emrinde Hazırlananı Arttır (Waterfall/Şelale Mantığı)
+                            kalan = input_mik
+                            emir_indices = st.session_state.local_emirler[(st.session_state.local_emirler['İş Emri'].astype(str).isin(s_list)) & \
+                                                                         (st.session_state.local_emirler['Stok Kodu'] == selected_kod)].index
+                            for idx in emir_indices:
+                                if kalan <= 0: break
+                                iht_tek = st.session_state.local_emirler.at[idx, 'İhtiyaç Miktarı']
+                                haz_tek = st.session_state.local_emirler.at[idx, 'Hazırlanan Adet']
+                                bosluk = iht_tek - haz_tek
+                                alinacak = min(kalan, bosluk if bosluk > 0 else 0)
+                                st.session_state.local_emirler.at[idx, 'Hazırlanan Adet'] += alinacak
+                                kalan -= alinacak
                             
+                            # Hareket Kaydı Hazırla
+                            df_h_eski = veritabani.get_internal_data("Hareketler")
                             h_satir = {
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 "İşlem": "ÜRETİM HAZIRLIK",
@@ -185,25 +209,17 @@ def goster():
                                 "Miktar": input_mik,
                                 "Personel": st.session_state.user
                             }
-                            df_h = pd.concat([df_hareketler_guncel, pd.DataFrame([h_satir])], ignore_index=True)
-                            
-                            kalan = input_mik
-                            emir_indices = all_is_emirleri[(all_is_emirleri['İş Emri'].astype(str).isin(s_list)) & (all_is_emirleri['Stok Kodu'] == selected_kod)].index
-                            for idx in emir_indices:
-                                if kalan <= 0: break
-                                ihtiyac_tek = all_is_emirleri.at[idx, 'İhtiyaç Miktarı']
-                                hazir_tek = all_is_emirleri.at[idx, 'Hazırlanan Adet']
-                                bosluk = ihtiyac_tek - hazir_tek
-                                alinacak = min(kalan, bosluk if bosluk > 0 else 0)
-                                all_is_emirleri.at[idx, 'Hazırlanan Adet'] += alinacak
-                                kalan -= alinacak
+                            df_h_yeni = pd.concat([df_h_eski, pd.DataFrame([h_satir])], ignore_index=True)
 
-                            veritabani.update_data("Stok", df_stok_guncel)
-                            veritabani.update_data("Hareketler", df_h)
-                            veritabani.update_data("Is_Emirleri", all_is_emirleri)
+                            # --- 2. EXCEL / VERİTABANI GÜNCELLEME ---
+                            with st.status("Veriler Senkronize Ediliyor...", expanded=False) as status:
+                                veritabani.update_data("Stok", st.session_state.local_stok)
+                                veritabani.update_data("Is_Emirleri", st.session_state.local_emirler)
+                                veritabani.update_data("Hareketler", df_h_yeni)
+                                status.update(label="Kayıt Başarılı!", state="complete")
                             
-                            st.success(f"✅ Kaydedildi!")
-                            st.cache_data.clear(); st.rerun()
+                            st.success(f"✅ {input_isim} için {int(input_mik)} adet başarıyla hazırlandı.")
+                            st.rerun()
 
                 st.markdown("---")
                 st.dataframe(pivot_df.drop(columns=['Tamamlandi']), use_container_width=True, hide_index=True)
@@ -212,6 +228,7 @@ def goster():
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("📊 Hazırlık Raporu")
+        # Raporlama her zaman en taze veriyi çekmelidir
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         if not df_lh.empty:
             r_e = st.multiselect("📋 İş Emri Seç:", sorted(df_lh["İş Emri"].unique().tolist()))
