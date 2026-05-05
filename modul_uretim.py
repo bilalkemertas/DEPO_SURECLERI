@@ -69,7 +69,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (GİRİŞ PANELİ + İHTİYAÇ MİKTARI GÖSTERİMİ) ---
+    # --- 2. OPERASYON (GİRİŞ PANELİ + TAM AD GÖSTERİMİ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -100,10 +100,14 @@ def goster():
                 stok_adr_col = next((c for c in s_cols if "Adres" in str(c)), None)
                 stok_mik_col = next((c for c in s_cols if "Miktar" in str(c)), None)
 
+                if not stok_kod_col or not stok_adr_col or not stok_mik_col:
+                    st.error(f"⚠️ Stok tablosunda gerekli sütunlar bulunamadı! (Bulunanlar: {s_cols})")
+                    return
+
                 # --- ÜST GİRİŞ PANELİ ---
                 with st.container(border=True):
                     st.markdown("🔍 **Saha Hazırlık Girişi**")
-                    p1, p2, p3, p4 = st.columns([2, 1, 1, 1]) # 4 Kolon yaptık
+                    p1, p2, p3, p4 = st.columns([2, 1, 1, 1])
                     
                     bekleyen_isimler = sorted(pivot_df[pivot_df['Tamamlandi'] == 0]['Stok Adı'].unique().tolist())
                     input_isim = p1.selectbox("📝 Malzeme İsmi:", ["Seçiniz..."] + bekleyen_isimler)
@@ -119,21 +123,23 @@ def goster():
                         selected_kod = row_info['Stok Kodu']
                         current_req = row_info['İhtiyaç Miktarı']
                         current_prep = row_info['Hazırlanan Adet']
-
-                        # İhtiyaç Miktarı Alanı (Salt Okunur)
+                        
+                        # İhtiyaç Miktarı (Salt Okunur)
                         p2.text_input("📊 İhtiyaç:", value=f"{int(current_req)} {row_info['Birim']}", disabled=True)
 
-                        if stok_kod_col and not df_stok_ana.empty:
-                            temp_stok = df_stok_ana.copy()
-                            temp_stok[stok_kod_col] = temp_stok[stok_kod_col].astype(str).str.strip().str.upper()
+                        temp_stok = df_stok_ana.copy()
+                        temp_stok[stok_kod_col] = temp_stok[stok_kod_col].astype(str).str.strip().str.upper()
+                        
+                        valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
+                        adrs_list = valid_stocks[stok_adr_col].unique().tolist()
+                        input_adr = p3.selectbox(f"📍 Adres:", ["Seçiniz..."] + adrs_list)
+                        
+                        if input_adr != "Seçiniz...":
+                            current_stock_at_adr = valid_stocks[valid_stocks[stok_adr_col] == input_adr][stok_mik_col].sum()
                             
-                            valid_stocks = temp_stok[(temp_stok[stok_kod_col] == str(selected_kod).upper()) & (temp_stok[stok_mik_col] > 0)].sort_values(stok_adr_col)
-                            adrs_list = valid_stocks[stok_adr_col].unique().tolist()
-                            input_adr = p3.selectbox(f"📍 Adres:", ["Seçiniz..."] + adrs_list)
-                            
-                            if input_adr != "Seçiniz...":
-                                current_stock_at_adr = valid_stocks[valid_stocks[stok_adr_col] == input_adr][stok_mik_col].sum()
-                                st.write(f"📦 **Raf Stoğu:** `{int(current_stock_at_adr)}` | **Kalan İhtiyaç:** `{int(current_req - current_prep)}`")
+                            # Ürün Tam Adı ve Bilgi Satırı
+                            st.write(f"🏷️ **Ürün:** {input_isim}")
+                            st.write(f"📦 **Raf Stoğu:** `{int(current_stock_at_adr)}` | 🎯 **Kalan İhtiyaç:** `{int(current_req - current_prep)}`")
                     else:
                         p2.text_input("📊 İhtiyaç:", value="-", disabled=True)
                         p3.selectbox("📍 Adres:", ["Seçiniz..."], disabled=True)
@@ -146,11 +152,10 @@ def goster():
                         elif input_mik <= 0:
                             st.error("Miktar 0'dan büyük olmalıdır!")
                         elif input_mik > current_stock_at_adr:
-                            st.warning(f"⚠️ **{input_adr}** rafında sadece {int(current_stock_at_adr)} adet var! Diğer adresten devam edin.")
+                            st.warning(f"⚠️ **{input_adr}** rafında sadece {int(current_stock_at_adr)} adet var!")
                         elif (current_prep + input_mik) > current_req:
-                            st.error(f"🚫 Toplam ihtiyaçtan ({int(current_req)}) fazlasını alamazsınız!")
+                            st.error(f"🚫 Toplam ihtiyaçtan fazlasını alamazsınız!")
                         else:
-                            # Güncelleme Motoru
                             df_stok_guncel = veritabani.get_internal_data("Stok")
                             df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
                             all_is_emirleri = veritabani.get_internal_data("Is_Emirleri")
@@ -188,7 +193,7 @@ def goster():
                             veritabani.update_data("Hareketler", df_h)
                             veritabani.update_data("Is_Emirleri", all_is_emirleri)
                             
-                            st.success(f"✅ {input_isim} kaydedildi!")
+                            st.success(f"✅ Hazırlık kaydedildi!")
                             st.cache_data.clear(); st.rerun()
 
                 st.markdown("---")
