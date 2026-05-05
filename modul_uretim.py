@@ -238,12 +238,12 @@ def goster():
             
             # İş emrine göre ürünleri filtrele
             filtered_by_emir = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
-            r_p = c2.multiselect("📦 Ana Ürün (Mamül) Seç:", sorted(filtered_by_emir["Ürün Kodu"].unique().tolist()))
+            r_p = c2.multiselect("📦 Ana Ürün (Mamül) Seç:", sorted(filtered_by_emir["Mamül Adı"].unique().tolist()))
             
             # Nihai Filtreleme
             res = filtered_by_emir
             if r_p:
-                res = res[res["Ürün Kodu"].isin(r_p)]
+                res = res[res["Mamül Adı"].isin(r_p)]
                 
             st.dataframe(res, use_container_width=True, hide_index=True)
             buffer = io.BytesIO()
