@@ -13,7 +13,7 @@ def goster():
     st.subheader("📈 Raporlar ve Arşiv")
     rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazirlik Raporu", "📜 Hareket Arşivi"])
     
-    # --- TAB 1: MEVCUT STOK (Filtreler ve Stok Yok İbaresi) ---
+    # --- TAB 1: MEVCUT STOK (Filtreler ve Adres Maskeleme) ---
     with rt1: 
         df_stok = veritabani.get_internal_data("Stok").copy()
         
@@ -39,10 +39,19 @@ def goster():
                 a_col = next((c for c in cols_s if "Adres" in c), None)
                 if a_col: df_stok = df_stok[df_stok[a_col].astype(str).str.contains(f_adr_s, case=False, na=False)]
 
-            # --- SIFIR MİKTAR KONTROLÜ ---
+            # --- SIFIR MİKTAR VE ADRES KONTROLÜ ---
             m_col = next((c for c in cols_s if "Miktar" in c), None)
+            a_col = next((c for c in cols_s if "Adres" in c), None)
+
             if m_col:
-                # Sayısal değerleri koruyarak sadece 0 olanları metne çeviriyoruz
+                # Önce miktar kontrolü
+                mask = (df_stok[m_col] == 0) | (df_stok[m_col] == "0")
+                
+                # Adres sütununu maskele
+                if a_col:
+                    df_stok.loc[mask, a_col] = "STOK YOK"
+                
+                # Miktar sütununu maskele
                 df_stok[m_col] = df_stok[m_col].apply(lambda x: "STOK YOK" if x == 0 or x == "0" else x)
 
             st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
