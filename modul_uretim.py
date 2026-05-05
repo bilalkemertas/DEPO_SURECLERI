@@ -88,7 +88,7 @@ def goster():
             except Exception as e:
                 st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON (Gelişmiş Hareket Bazlı Sorgu) ---
+    # --- 2. OPERASYON (Stok Düşme) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"):
             go_uretim_menu()
@@ -136,6 +136,7 @@ def goster():
                     df_stok_guncel = veritabani.get_internal_data("Stok")
                     df_hareketler_guncel = veritabani.get_internal_data("Hareketler")
                     
+                    # Normalleştirme
                     df_stok_guncel['Kod'] = df_stok_guncel['Kod'].astype(str).str.strip().str.upper()
                     df_stok_guncel['Adres'] = df_stok_guncel['Adres'].astype(str).str.strip().str.upper()
                     df_stok_guncel['Miktar'] = pd.to_numeric(df_stok_guncel['Miktar'], errors='coerce').fillna(0)
@@ -144,54 +145,98 @@ def goster():
                     degisiklik_var_mi = False
                     
                     for i, row in edited_df.iterrows():
-                        # --- HAREKETLER SEKMESİNDEN TOPLAM ÇIKIŞI SORGULA ---
                         s_emir = str(row["İş Emri"]).strip()
                         s_kod = str(row["Stok Kodu"]).strip().upper()
-                        s_adr = str(row["Alınacak Adres"]).strip().upper()
+                        secilen_ilk_adr = str(row["Alınacak Adres"]).strip().upper()
                         
+                        # Hareketler sekmesinden bu iş emri için bu ürünün toplam ne kadar hazırlandığını bul
                         mask_hareket = (df_hareketler_guncel['İş Emri'].astype(str) == s_emir) & \
                                        (df_hareketler_guncel['Kod'].astype(str).str.strip().str.upper() == s_kod)
+                        toplam_hazirlanmis = pd.to_numeric(df_hareketler_guncel[mask_hareket]['Miktar'], errors='coerce').sum()
                         
-                        # Bu iş emri için Hareketler sekmesine yazılmış toplam miktar
-                        eski_hareket_toplami = pd.to_numeric(df_hareketler_guncel[mask_hareket]['Miktar'], errors='coerce').sum()
-                        
-                        # Ekranda girilen yeni hedef miktar
                         try:
-                            v_yeni = round(float(row["Hazırlanan Adet"]), 2)
+                            hedef_hazirlik = round(float(row["Hazırlanan Adet"]), 2)
                         except:
-                            v_yeni = eski_hareket_toplami
+                            hedef_hazirlik = toplam_hazirlanmis
 
-                        # Fark (Hareketler sekmesine yeni eklenecek miktar)
-                        fark = round(v_yeni - eski_hareket_toplami, 2)
+                        kalan_fark = round(hedef_hazirlik - toplam_hazirlanmis, 2)
 
-                        if fark != 0:
+                        if kalan_fark > 0:
                             degisiklik_var_mi = True
                             
-                            # 1. HAREKET KAYDI OLUŞTUR
-                            yeni_loglar.append({
-                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "İşlem": "ÜRETİM HAZIRLIK",
-                                "İş Emri": s_emir,
-                                "Kod": s_kod,
-                                "İsim": str(row["Stok Adı"]),
-                                "Adres": s_adr,
-                                "Miktar": fark,
-                                "Personel": st.session_state.user if 'user' in st.session_state else "Sistem"
-                            })
+                            # --- ŞELALE MANTIĞI: ADRESLERİ BUL ---
+                            # Önce seçilen adresi, sonra diğer tüm adresleri getir
+                            potansiyel_stoklar = df_stok_guncel[df_stok_guncel['Kod'] == s_kod].copy()
+                            potansiyel_stoklar['oncelik'] = potansiyel_stoklar['Adres'].apply(lambda x: 0 if x == secilen_ilk_adr else 1)
+                            potansiyel_stoklar = potansiyel_stoklar.sort_values('oncelik')
+
+                            for idx_stok, s_row in potansiyel_stoklar.iterrows():
+                                if kalan_fark <= 0: break
+                                
+                                suanki_stok_adresi = s_row['Adres']
+                                suanki_miktar = s_row['Miktar']
+                                
+                                if suanki_miktar <= 0: continue # Bu rafta mal yok, sonrakine geç
+                                
+                                # Bu raftan ne kadar alabiliriz?
+                                dusulecek_miktar = min(suanki_miktar, kalan_fark)
+                                
+                                # Stok Güncelleme
+                                original_stok_mask = (df_stok_guncel['Kod'] == s_kod) & (df_stok_guncel['Adres'] == suanki_stok_adresi)
+                                df_stok_guncel.loc[original_stok_mask, 'Miktar'] -= dusulecek_miktar
+                                
+                                # Hareket Kaydı
+                                yeni_loglar.append({
+                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "İşlem": "ÜRETİM HAZIRLIK",
+                                    "İş Emri": s_emir,
+                                    "Kod": s_kod,
+                                    "İsim": str(row["Stok Adı"]),
+                                    "Adres": suanki_stok_adresi,
+                                    "Miktar": dusulecek_miktar,
+                                    "Personel": st.session_state.user if 'user' in st.session_state else "Sistem"
+                                })
+                                
+                                kalan_fark -= dusulecek_miktar
                             
-                            # 2. STOKTAN DÜŞÜŞ (Sadece adres STOK YOK değilse)
-                            if s_adr != "STOK YOK":
-                                stok_mask = (df_stok_guncel["Kod"] == s_kod) & (df_stok_guncel["Adres"] == s_adr)
-                                if stok_mask.any():
-                                    mevcut = df_stok_guncel.loc[stok_mask, "Miktar"].values[0]
-                                    # Kural: Stok eksiye düşmesin
-                                    df_stok_guncel.loc[stok_mask, "Miktar"] = max(0, mevcut - fark)
+                            # Eğer tüm adresler bittiği halde hala kalan_fark > 0 ise, 
+                            # mal depoda kalmamış demektir. Kalan miktar için işlem yapılamaz.
                             
-                            # 3. ANA VERİ TABLOSUNU GÜNCELLE (Görsel tutarlılık için)
+                            # İş emri tablosundaki hazırlanan adeti, gerçekte ne kadar hazırlayabildiysek ona göre güncelle
+                            hazirlanan_son_toplam = hedef_hazirlik - kalan_fark
                             mask_emir = (all_data["İş Emri"].astype(str) == s_emir) & \
                                         (all_data["Stok Kodu"].astype(str).str.strip().str.upper() == s_kod)
                             if mask_emir.any():
-                                all_data.loc[mask_emir, "Hazırlanan Adet"] = v_yeni
+                                all_data.loc[mask_emir, "Hazırlanan Adet"] = hazirlanan_son_toplam
+
+                        elif kalan_fark < 0:
+                            # İade mantığı (Miktar azaltılırsa seçilen ilk adrese geri girer)
+                            degisiklik_var_mi = True
+                            iade_mik = abs(kalan_fark)
+                            
+                            original_stok_mask = (df_stok_guncel['Kod'] == s_kod) & (df_stok_guncel['Adres'] == secilen_ilk_adr)
+                            if original_stok_mask.any():
+                                df_stok_guncel.loc[original_stok_mask, 'Miktar'] += iade_mik
+                            else:
+                                # Adres stokta yoksa yeni satır aç
+                                new_s = pd.DataFrame([{"Kod": s_kod, "İsim": row["Stok Adı"], "Adres": secilen_ilk_adr, "Miktar": iade_mik, "Durum": "Kullanılabilir"}])
+                                df_stok_guncel = pd.concat([df_stok_guncel, new_s], ignore_index=True)
+                            
+                            yeni_loglar.append({
+                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "İşlem": "ÜRETİM İADE (HAZIRLIK)",
+                                "İş Emri": s_emir,
+                                "Kod": s_kod,
+                                "İsim": str(row["Stok Adı"]),
+                                "Adres": secilen_ilk_adr,
+                                "Miktar": -iade_mik,
+                                "Personel": st.session_state.user if 'user' in st.session_state else "Sistem"
+                            })
+                            
+                            mask_emir = (all_data["İş Emri"].astype(str) == s_emir) & \
+                                        (all_data["Stok Kodu"].astype(str).str.strip().str.upper() == s_kod)
+                            if mask_emir.any():
+                                all_data.loc[mask_emir, "Hazırlanan Adet"] = hedef_hazirlik
 
                     if degisiklik_var_mi:
                         veritabani.update_data("Is_Emirleri", all_data)
@@ -200,9 +245,9 @@ def goster():
                         if yeni_loglar:
                             df_final_hareket = pd.concat([df_hareketler_guncel, pd.DataFrame(yeni_loglar)], ignore_index=True)
                             veritabani.update_data("Hareketler", df_final_hareket)
-                            st.success(f"✅ {len(yeni_loglar)} hareket işlendi. Hareketler sekmesi baz alınarak stoklar güncellendi.")
+                            st.success(f"✅ Hazırlık tamamlandı. Stoklar adreslerden düşüldü.")
                     else:
-                        st.info("ℹ️ Hareketler sekmesindeki toplam ile girilen miktar aynı. İşlem yapılmadı.")
+                        st.info("ℹ️ Değişiklik saptanmadı.")
 
                     st.cache_data.clear()
                     st.rerun()
