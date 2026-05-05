@@ -13,7 +13,7 @@ def goster():
     st.subheader("📈 Raporlar ve Arşiv")
     rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazirlik Raporu", "📜 Hareket Arşivi"])
     
-    # --- TAB 1: MEVCUT STOK (Filtreler Eklendi) ---
+    # --- TAB 1: MEVCUT STOK (Filtreler ve Stok Yok İbaresi) ---
     with rt1: 
         df_stok = veritabani.get_internal_data("Stok").copy()
         
@@ -24,7 +24,7 @@ def goster():
             f_isi_s = sc2.text_input("📝 Ürün Adı Filtrele:", placeholder="Örn: Sünger", key="stok_isim_filtre")
             f_adr_s = sc3.text_input("📍 Adres Filtrele:", placeholder="Örn: A-01", key="stok_adres_filtre")
             
-            # Filtreleme Mantığı (Sütun isimlerini dinamik yakalar)
+            # Filtreleme Mantığı
             cols_s = df_stok.columns.tolist()
             
             if f_kod_s:
@@ -38,6 +38,12 @@ def goster():
             if f_adr_s:
                 a_col = next((c for c in cols_s if "Adres" in c), None)
                 if a_col: df_stok = df_stok[df_stok[a_col].astype(str).str.contains(f_adr_s, case=False, na=False)]
+
+            # --- SIFIR MİKTAR KONTROLÜ ---
+            m_col = next((c for c in cols_s if "Miktar" in c), None)
+            if m_col:
+                # Sayısal değerleri koruyarak sadece 0 olanları metne çeviriyoruz
+                df_stok[m_col] = df_stok[m_col].apply(lambda x: "STOK YOK" if x == 0 or x == "0" else x)
 
             st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
             st.dataframe(df_stok, use_container_width=True, hide_index=True)
