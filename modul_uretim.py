@@ -128,7 +128,7 @@ def goster():
                             
                             # Detay 1: Toplam Kalan İhtiyaç
                             kalan_mik = row['Kalan']
-                            p2.text_input("🎯 Kalan İhtiyaç:", value=f"{int(kalan_mik)} {row['Birim']}", disabled=True)
+                            p2.text_input("🎯 Toplam İhtiyaç:", value=f"{int(kalan_mik)} {row['Birim']}", disabled=True)
                             
                             # Detay 2: Ürün Adı Etiketi
                             st.write(f"🏷️ **Seçili Ürün:** {input_isim}")
