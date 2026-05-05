@@ -74,7 +74,7 @@ def goster():
                     st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. OPERASYON ---
+    # --- 2. OPERASYON (Üstteki tablo kaldırıldı) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ DÖN"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -100,16 +100,6 @@ def goster():
             if s_list:
                 sub_df = df_emirler[df_emirler["İş Emri"].astype(str).isin(s_list)].copy()
                 
-                # --- SABİT GENEL DURUM TABLOSU ---
-                st.markdown("### 📈 İş Emri Genel Durumu")
-                status_df = sub_df.groupby(['İş Emri', 'Ürün Kodu', 'Mamül Adı']).agg({
-                    'İhtiyaç Miktarı': 'sum',
-                    'Hazırlanan Adet': 'sum'
-                }).reset_index()
-                status_df['İlerleme %'] = ((status_df['Hazırlanan Adet'] / status_df['İhtiyaç Miktarı']) * 100).fillna(0).astype(int)
-                st.dataframe(status_df, use_container_width=True, hide_index=True)
-                st.markdown("---")
-
                 pivot_df = sub_df.groupby(['Stok Kodu', 'Stok Adı', 'Birim']).agg({
                     'İhtiyaç Miktarı': 'sum',
                     'Hazırlanan Adet': 'sum'
@@ -127,6 +117,7 @@ def goster():
                     st.error(f"⚠️ Stok tablosunda gerekli sütunlar bulunamadı!")
                     return
 
+                # --- GİRİŞ PANELİ ---
                 with st.container(border=True):
                     st.markdown("🔍 **Üretim Hazırlık Girişi**")
                     p1, p2, p3, p4 = st.columns([2, 1, 1, 1])
@@ -184,7 +175,6 @@ def goster():
                         elif (current_prep + input_mik) > current_req:
                             st.error(f"🚫 İhtiyaçtan fazlasını alamazsınız!")
                         else:
-                            # Kayıt İşlemleri
                             mask_stok = (st.session_state.local_stok[stok_kod_col].astype(str).str.strip().str.upper() == str(selected_kod).upper()) & \
                                         (st.session_state.local_stok[stok_adr_col].astype(str).str.strip().str.upper() == str(input_adr).upper())
                             st.session_state.local_stok.loc[mask_stok, stok_mik_col] -= input_mik
@@ -224,6 +214,7 @@ def goster():
                             st.rerun()
 
                 st.markdown("---")
+                # Detay listesi tek parça olarak burada kalıyor
                 st.dataframe(pivot_df.drop(columns=['Tamamlandi']), use_container_width=True, hide_index=True)
 
     # --- 3. RAPOR ---
@@ -232,15 +223,13 @@ def goster():
         st.subheader("📊 Hazırlık Raporu")
         df_lh = veritabani.get_internal_data("Is_Emirleri")
         if not df_lh.empty:
-            # Filtreleme Paneli
             c1, c2 = st.columns(2)
             r_e = c1.multiselect("📋 İş Emri Seç:", sorted(df_lh["İş Emri"].unique().tolist()))
             
-            # İş emrine göre ürünleri filtrele
             filtered_by_emir = df_lh[df_lh["İş Emri"].isin(r_e)] if r_e else df_lh
+            # Ana Ürün Filtresi (Mamül Adı üzerinden)
             r_p = c2.multiselect("📦 Ana Ürün (Mamül) Seç:", sorted(filtered_by_emir["Mamül Adı"].unique().tolist()))
             
-            # Nihai Filtreleme
             res = filtered_by_emir
             if r_p:
                 res = res[res["Mamül Adı"].isin(r_p)]
