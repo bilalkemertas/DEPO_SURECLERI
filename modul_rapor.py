@@ -46,8 +46,7 @@ def goster():
                 if (numeric_values == 0).all():
                     is_completely_empty = True
 
-            st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
-            
+                    
             if is_completely_empty:
                 # Görsel 2'deki gibi tablo yerine uyarı veriyoruz
                 st.error("🚫 STOK YOK")
