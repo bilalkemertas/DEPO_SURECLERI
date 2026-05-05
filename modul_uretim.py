@@ -34,7 +34,7 @@ def goster():
             go_home()
             st.rerun()
             
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.3)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.4)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik'))
@@ -76,14 +76,16 @@ def goster():
                 cols = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                 df_save = df[[c for c in cols if c in df.columns]]
 
-                st.dataframe(df_save, use_container_width=True, hide_index=True)
+                # Yükleme ekranında da tabloyu gizlenebilir yaptık
+                with st.expander("📋 Yüklenecek Veri Önizlemesi", expanded=True):
+                    st.dataframe(df_save, use_container_width=True, hide_index=True)
 
-                if st.button("UYGULAMAYI GÜNCELLE", type="primary"):
+                if st.button("UYGULAMAYI GÜNCELLE", type="primary", use_container_width=True):
                     veritabani.update_data("Is_Emirleri", df_save)
                     st.success("✅ Veritabanı Sıfırlandı ve Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. HAZIRLIK (ÜÇLÜ KİLİTLEME) ---
+    # --- 2. HAZIRLIK (GİZLENEBİLİR TABLO) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık Operasyonu")
@@ -116,9 +118,11 @@ def goster():
                             st.success("Kaydedildi!"); st.rerun()
                 
                 st.divider()
-                st.dataframe(sub, use_container_width=True, hide_index=True)
+                # --- DETAY TABLOSU GİZLENEBİLİR YAPILDI ---
+                with st.expander("📋 Mevcut İş Emri Detay Listesi", expanded=False):
+                    st.dataframe(sub, use_container_width=True, hide_index=True)
 
-    # --- 3. RAPOR ---
+    # --- 3. RAPOR (GİZLENEBİLİR TABLO) ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("📊 Hazırlık Durum Raporu")
@@ -132,7 +136,11 @@ def goster():
             
             summary = df_rapor.groupby("İş Emri").agg({"İhtiyaç Miktarı":"sum", "Hazırlanan Adet":"sum"}).reset_index()
             summary["Tamamlanma %"] = (summary["Hazırlanan Adet"] / summary["İhtiyaç Miktarı"] * 100).fillna(0).round(1)
+            
+            st.markdown("### 📈 Özet Durum")
             st.table(summary)
             
-            st.write("🔍 **Detaylı Satır Verileri**")
-            st.dataframe(df_rapor, use_container_width=True, hide_index=True)
+            st.divider()
+            # --- RAPOR DETAYI DA GİZLENEBİLİR YAPILDI ---
+            with st.expander("🔍 Detaylı Satır Verilerini Görüntüle", expanded=False):
+                st.dataframe(df_rapor, use_container_width=True, hide_index=True)
