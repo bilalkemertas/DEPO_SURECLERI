@@ -1,6 +1,7 @@
 import streamlit as st
 import veritabani
 import pandas as pd
+import io  # Excel yazımı için gerekli
 
 def go_home(): 
     st.session_state.page = 'home'
@@ -13,7 +14,7 @@ def goster():
     st.subheader("📈 Raporlar ve Arşiv")
     rt1, rt2, rt3 = st.tabs(["🏠 Mevcut Stok", "🏭 Hazirlik Raporu", "📜 Hareket Arşivi"])
     
-    # --- TAB 1: MEVCUT STOK (Görsel 2 Uyarı Mantığı) ---
+    # --- TAB 1: MEVCUT STOK ---
     with rt1: 
         df_stok = veritabani.get_internal_data("Stok").copy()
         
@@ -37,7 +38,6 @@ def goster():
                 a_col = next((c for c in cols_s if "Adres" in c), None)
                 if a_col: df_stok = df_stok[df_stok[a_col].astype(str).str.contains(f_adr_s, case=False, na=False)]
 
-            # --- SIFIR MİKTAR KONTROLÜ VE UYARI EKRANI ---
             m_col = next((c for c in cols_s if "Miktar" in c), None)
             
             is_completely_empty = False
@@ -46,18 +46,23 @@ def goster():
                 if (numeric_values == 0).all():
                     is_completely_empty = True
 
-                    
             if is_completely_empty:
-                # Görsel 2'deki gibi tablo yerine uyarı veriyoruz
                 st.error("🚫 STOK YOK")
             else:
-                # Karışık veri varsa sıfırları maskele ama tabloyu göster
+                st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
                 if m_col:
                     mask = (pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0) == 0)
-                    df_stok = df_stok.astype(str)
-                    df_stok.loc[mask, :] = "STOK YOK"
+                    df_stok_view = df_stok.astype(str)
+                    df_stok_view.loc[mask, :] = "STOK YOK"
                 
-                st.dataframe(df_stok, use_container_width=True, hide_index=True)
+                st.dataframe(df_stok_view, use_container_width=True, hide_index=True)
+            
+            # Excel İndirme Butonu
+            buffer1 = io.BytesIO()
+            with pd.ExcelWriter(buffer1, engine='xlsxwriter') as writer:
+                df_stok.to_excel(writer, index=False, sheet_name='Mevcut Stok')
+            st.download_button("📥 MEVCUT STOK EXCEL İNDİR", buffer1.getvalue(), "Mevcut_Stok.xlsx", use_container_width=True)
+
         else:
             st.info("Stok verisi bulunamadı.")
     
@@ -71,6 +76,12 @@ def goster():
             if r_emir: 
                 r_df = r_df[r_df["İş Emri"].astype(str).isin(r_emir)]
             st.dataframe(r_df, use_container_width=True, hide_index=True)
+            
+            # Excel İndirme Butonu
+            buffer2 = io.BytesIO()
+            with pd.ExcelWriter(buffer2, engine='xlsxwriter') as writer:
+                r_df.to_excel(writer, index=False, sheet_name='Hazırlık Raporu')
+            st.download_button("📥 HAZIRLIK RAPORU EXCEL İNDİR", buffer2.getvalue(), "Hazirlik_Raporu.xlsx", use_container_width=True)
             
     # --- TAB 3: HAREKET ARŞİVİ ---
     with rt3:
@@ -105,6 +116,13 @@ def goster():
                 if i_col: df_f = df_f[df_f[i_col].astype(str).str.contains(f_isi, case=False, na=False)]
             
             st.markdown(f"**Sonuç:** {len(df_f)} kayıt bulundu.")
-            st.dataframe(df_f.iloc[::-1], use_container_width=True, hide_index=True)
+            df_f_view = df_f.iloc[::-1]
+            st.dataframe(df_f_view, use_container_width=True, hide_index=True)
+            
+            # Excel İndirme Butonu
+            buffer3 = io.BytesIO()
+            with pd.ExcelWriter(buffer3, engine='xlsxwriter') as writer:
+                df_f_view.to_excel(writer, index=False, sheet_name='Hareket Arşivi')
+            st.download_button("📥 HAREKET ARŞİVİ EXCEL İNDİR", buffer3.getvalue(), "Hareket_Arsivi.xlsx", use_container_width=True)
         else:
             st.info("Henüz kayıtlı bir hareket bulunamadı.")
