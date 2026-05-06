@@ -121,7 +121,7 @@ def goster():
         for i, item in enumerate(st.session_state.gecici_liste):
             with st.expander(f"{i+1}. {item['İşlem']} | {item['Kod']} | {item['Miktar']} Adet"):
                 st.write(f"**Ürün:** {item['İsim']} | **Lot:** {item['Lot']} | **Durum:** {item['Durum']}")
-                st.write(f"**Rota:** {item['Kaynak']} ➡️ {item['Hedef']}")
+                st.write(f"**Adres:** {item['Kaynak']} ➡️ {item['Hedef']}")
                 
                 if st.button(f"🗑️ Bu Satırı Sil", key=f"del_{i}"):
                     st.session_state[f"confirm_del_{i}"] = True
