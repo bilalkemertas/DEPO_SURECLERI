@@ -6,7 +6,7 @@ from datetime import datetime
 def go_home(): 
     st.session_state.page = 'home'
 
-# --- CLEAR FORM FONKSİYONU ---
+# --- FORM TEMİZLEME ---
 def clear_form():
     for key in [
         "s_kod", "s_lot", "s_mik", "s_dur",
@@ -14,7 +14,6 @@ def clear_form():
     ]:
         if key in st.session_state:
             del st.session_state[key]
-    st.rerun()
 
 def goster():
     if st.button("⬅️ ANA MENÜ"): 
@@ -24,7 +23,6 @@ def goster():
     st.subheader("📊 Stok Hareketleri")
     
     with st.container(border=True):
-        # --- İŞLEM TİPİ ---
         move_type = st.selectbox(
             "İşlem Tipi:", 
             ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], 
@@ -61,7 +59,6 @@ def goster():
 
         st.markdown("---")
         
-        # --- ADRESLER ---
         src_adr = "-"
         dst_adr = "-"
         
@@ -81,7 +78,7 @@ def goster():
             with a2:
                 dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_adr").upper().strip()
 
-        # --- KAYDET BUTONU ---
+        # --- KAYDET ---
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             if not s_kod or s_mik <= 0:
                 st.error("Lütfen Malzeme Kodu ve geçerli bir Miktar girin!")
@@ -135,7 +132,7 @@ def goster():
                     df_stok.loc[mask, 'Miktar'] = max(0, mevcut - s_mik)
                     success_stok = True
                 else:
-                    st.warning(f"{s_kod} kodu {src_adr} adresinde bulunamadı, sadece hareket kaydedildi.")
+                    st.warning(f"{s_kod} kodu {src_adr} adresinde bulunamadı, hareket kaydedildi.")
 
             elif move_type == "İÇ TRANSFER":
                 src_mask = (df_stok['Kod'] == s_kod) & (df_stok['Adres'] == src_adr)
@@ -171,8 +168,7 @@ def goster():
                 
                 st.success(f"{move_type} işlemi kaydedildi!")
                 st.cache_data.clear()
+                
+                # --- OTOMATİK TEMİZLE + RERUN ---
                 clear_form()
-
-        # --- CLEAR BUTONU ---
-        if st.button("🧹 FORMU TEMİZLE", use_container_width=True):
-            clear_form()
+                st.rerun()
