@@ -23,7 +23,7 @@ def goster():
     # --- 0. ANA MENÜ ---
     if st.session_state.uretim_page == 'menu':
         if st.button("⬅️ ANA MENÜYE DÖN"): go_home(); st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.9)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.10)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik'))
@@ -63,7 +63,7 @@ def goster():
                     veritabani.update_data("Is_Emirleri", df_save); st.success("✅ Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. HAZIRLIK (NAMEERROR ÇÖZÜLDÜ) ---
+    # --- 2. HAZIRLIK (TEMİZ TABLO GÖRÜNÜMÜ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık")
@@ -74,13 +74,11 @@ def goster():
             if sel_is != "Seçiniz...":
                 sub = df_db[df_db['İş Emri'] == sel_is].copy()
                 
-                # Değişkeni fonksiyon başında tanımlıyoruz ki NameError olmasın
                 bekleyenler = sub[(sub['İhtiyaç Miktarı'] - sub['Hazırlanan Adet']) > 0.001].copy()
                 
                 if not bekleyenler.empty:
-                    # Personel dostu seçim metni (Hammadde en başta)
+                    # Seçim Listesi (Hammadde en başta)
                     bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu'] + " (Ürün: " + bekleyenler['Mamül Adı'] + ")"
-                    
                     sel_display = st.selectbox("🎯 Hazırlanacak Malzemeyi Seçin:", ["Seçiniz..."] + bekleyenler['unique_key'].tolist())
                     
                     if sel_display != "Seçiniz...":
@@ -101,11 +99,13 @@ def goster():
                                 veritabani.update_data("Is_Emirleri", df_db)
                                 st.success("✅ Başarıyla Kaydedildi!"); st.rerun()
                 else:
-                    st.success("✅ Bu iş emrinde hazırlanacak malzeme kalmadı.")
+                    st.success("✅ Hazırlanacak malzeme kalmadı.")
                 
                 st.divider()
                 st.write("📝 **Tam Malzeme Listesi**")
-                st.dataframe(sub, use_container_width=True, hide_index=True)
+                # PATRONUN İSTEDİĞİ: Ürün Kodu ve Mamül Adı sütunlarını görselden kaldırdım
+                view_cols = ["İş Emri", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
+                st.dataframe(sub[view_cols], use_container_width=True, hide_index=True)
 
     # --- 3. RAPOR ---
     elif st.session_state.uretim_page == 'rapor':
