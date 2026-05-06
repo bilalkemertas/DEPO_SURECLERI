@@ -23,7 +23,7 @@ def goster():
     # --- 0. ANA MENÜ ---
     if st.session_state.uretim_page == 'menu':
         if st.button("⬅️ ANA MENÜYE DÖN"): go_home(); st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.7)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.8)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik'))
@@ -63,7 +63,7 @@ def goster():
                     veritabani.update_data("Is_Emirleri", df_save); st.success("✅ Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. HAZIRLIK (SADELEŞTİRİLMİŞ SEÇİM LİSTESİ) ---
+    # --- 2. HAZIRLIK (TEMİZ EKRAN) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık")
@@ -74,22 +74,15 @@ def goster():
             if sel_is != "Seçiniz...":
                 sub = df_db[df_db['İş Emri'] == sel_is].copy()
                 
-                with st.expander("📊 İş Emri Hazırlık Durum Özeti", expanded=False):
-                    pivot_df = sub.groupby(['Mamül Adı', 'Stok Kodu', 'Stok Adı', 'Birim']).agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
-                    st.dataframe(pivot_df, use_container_width=True, hide_index=True)
-
-                # --- KRİTİK DEĞİŞİKLİK BURADA ---
-                # Personel önce Stok Adını görsün (KECE, SUNGER vb.)
+                # --- GEREKSİZ ÖZET TABLO KALDIRILDI ---
                 bekleyenler = sub[(sub['İhtiyaç Miktarı'] - sub['Hazırlanan Adet']) > 0.001].copy()
                 
-                # Liste formatı: "HAMMADDE ADI | STOK KODU (Ürün: ANA ÜRÜN ADI)"
-                # Arka planda eşleşme için her satıra özel bir 'key' oluşturuyoruz
+                # Personel dostu seçim metni
                 bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu'] + " (Ürün: " + bekleyenler['Mamül Adı'] + ")"
                 
                 sel_display = st.selectbox("🎯 Hazırlanacak Malzemeyi Seçin:", ["Seçiniz..."] + bekleyenler['unique_key'].tolist())
                 
                 if sel_display != "Seçiniz...":
-                    # Arka planda satırı bul
                     row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
                     kalan = round(row['İhtiyaç Miktarı'] - row['Hazırlanan Adet'], 3)
                     
