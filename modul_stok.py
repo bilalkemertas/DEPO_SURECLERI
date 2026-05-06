@@ -18,16 +18,16 @@ def goster():
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
         
         katalog = veritabani.get_katalog()
-        sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog, key="prod_sec")
+        sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
         
         c1, c2 = st.columns(2)
         with c1:
-            # OTOMATİK VERİ GETİRME MANTIĞI KORUNDU
-            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "", key="s_kod_in").upper().strip()
-            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot_in").upper().strip()
+            # OTOMATİK VERİ GETİRME MANTIĞI VE ORİJİNAL SATIRLAR KORUNDU
+            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "").upper().strip()
+            s_lot = st.text_input("🔢 Parti/Lot No:").upper().strip()
         with c2:
-            s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik_in")
-            s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur_in")
+            s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0)
+            s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"])
 
         st.markdown("---")
         
@@ -39,17 +39,17 @@ def goster():
 
         if move_type == "GİRİŞ":
             with a1:
-                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_in").upper().strip()
+                dst_adr = st.text_input("📍 Hedef Adres (Nereye):").upper().strip()
         
         elif move_type == "ÇIKIŞ":
             with a1:
-                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_in").upper().strip()
+                src_adr = st.text_input("📍 Kaynak Adres (Nereden):").upper().strip()
         
         elif move_type == "İÇ TRANSFER":
             with a1:
-                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_tr").upper().strip()
+                src_adr = st.text_input("📍 Kaynak Adres (Nereden):").upper().strip()
             with a2:
-                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_tr").upper().strip()
+                dst_adr = st.text_input("📍 Hedef Adres (Nereye):").upper().strip()
 
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             if not s_kod or s_mik <= 0:
@@ -126,14 +126,7 @@ def goster():
                 yeni_log_df = pd.concat([df_hareketler, pd.DataFrame([yeni_hareket_satiri])], ignore_index=True)
                 veritabani.update_data("Hareketler", yeni_log_df)
                 
-                st.success(f"✅ {move_type} işlemi başarıyla kaydedildi!")
-                
-                # SADECE TEMİZLEME FONKSİYONU EKLENDİ
-                for key in ["s_lot_in", "s_mik_in", "dst_in", "src_in", "src_tr", "dst_tr", "prod_sec"]:
-                    if key in st.session_state:
-                        if key == "s_mik_in": st.session_state[key] = 0.0
-                        elif key == "prod_sec": st.session_state[key] = "+ MANUEL GİRİŞ"
-                        else: st.session_state[key] = ""
-                
+                # BAŞARI MESAJI VE TEMİZLEME İÇİN RERUN
+                st.success(f"✅ {move_type} işlemi kaydedildi!")
                 st.cache_data.clear()
-                st.rerun()
+                st.rerun() # SAYFAYI YENİLEYEREK TÜM INPUTLARI TEMİZLER
