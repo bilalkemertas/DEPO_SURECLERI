@@ -15,6 +15,12 @@ def clear_form():
         if key in st.session_state:
             del st.session_state[key]
 
+# --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
+def urun_secildi():
+    sec = st.session_state.get("sec")
+    if sec and sec != "+ MANUEL GİRİŞ":
+        st.session_state.s_kod = sec.split(" | ")[0]
+
 def goster():
     if st.button("⬅️ ANA MENÜ"): 
         go_home()
@@ -33,17 +39,14 @@ def goster():
         sec = st.selectbox(
             "🔍 Ürün Seç:", 
             ["+ MANUEL GİRİŞ"] + katalog, 
-            key="sec"
+            key="sec",
+            on_change=urun_secildi
         )
         
         c1, c2 = st.columns(2)
         with c1:
             s_kod = st.text_input(
                 "📦 Malzeme Kodu:",
-                value=st.session_state.get(
-                    "s_kod",
-                    sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else ""
-                ),
                 key="s_kod"
             ).upper().strip()
             
@@ -169,6 +172,5 @@ def goster():
                 st.success(f"{move_type} işlemi kaydedildi!")
                 st.cache_data.clear()
                 
-                # --- OTOMATİK TEMİZLE + RERUN ---
                 clear_form()
                 st.rerun()
