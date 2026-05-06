@@ -14,19 +14,20 @@ def goster():
     st.subheader("📊 Stok Hareketleri")
     
     with st.container(border=True):
-        # İşlem tipine göre dinamik alanlar
-        move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], key="move_type_key")
+        # İşlem tipine göre dinamik alanlar - KEY eklendi
+        move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], key="mv_type")
         
         katalog = veritabani.get_katalog()
-        sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog, key="product_sec_key")
+        sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog, key="prod_sec")
         
         c1, c2 = st.columns(2)
         with c1:
-            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "", key="s_kod_key").upper().strip()
-            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot_key").upper().strip()
+            # Value'yu session_state üzerinden kontrol ederek temizliği garanti ediyoruz
+            s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "", key="s_kod_in").upper().strip()
+            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot_in").upper().strip()
         with c2:
-            s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik_key")
-            s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur_key")
+            s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik_in")
+            s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur_in")
 
         st.markdown("---")
         
@@ -38,17 +39,17 @@ def goster():
 
         if move_type == "GİRİŞ":
             with a1:
-                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_adr_in_key").upper().strip()
+                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_in").upper().strip()
         
         elif move_type == "ÇIKIŞ":
             with a1:
-                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_adr_out_key").upper().strip()
+                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_in").upper().strip()
         
         elif move_type == "İÇ TRANSFER":
             with a1:
-                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_adr_tr_key").upper().strip()
+                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_tr").upper().strip()
             with a2:
-                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_adr_tr_key").upper().strip()
+                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_tr").upper().strip()
 
         if st.button("HAREKETİ KAYDET", use_container_width=True, type="primary"):
             if not s_kod or s_mik <= 0:
@@ -131,12 +132,14 @@ def goster():
                 veritabani.update_data("Hareketler", yeni_log_df)
                 
                 st.success(f"✅ {move_type} işlemi başarıyla kaydedildi ve stok güncellendi!")
-                st.info(f"Ürün: {s_kod} | Kaynak: {src_adr} | Hedef: {dst_adr} | Miktar: {s_mik}")
                 
                 # --- EKRANI TEMİZLEME VE MÜKERRER KAYIT ÖNLEME ---
-                for key in ["s_kod_key", "s_lot_key", "s_mik_key", "dst_adr_in_key", "src_adr_out_key", "src_adr_tr_key", "dst_adr_tr_key"]:
+                # Session state üzerindeki input değerlerini sıfırlıyoruz
+                for key in ["s_kod_in", "s_lot_in", "s_mik_in", "dst_in", "src_in", "src_tr", "dst_tr"]:
                     if key in st.session_state:
-                        del st.session_state[key]
+                        # Sayısal alanları 0.0, metin alanlarını boş string yapıyoruz
+                        st.session_state[key] = 0.0 if key == "s_mik_in" else ""
                 
                 st.cache_data.clear()
+                # Sayfayı yeniden çalıştırarak widget'ların boş halleriyle gelmesini sağlıyoruz
                 st.rerun()
