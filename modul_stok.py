@@ -22,6 +22,13 @@ def urun_secildi():
         st.session_state.s_kod = sec.split(" | ")[0]
 
 def goster():
+    # --- KAYIT SONRASI MESAJ + TEMİZLEME ---
+    if st.session_state.get("islem_basarili"):
+        st.success(st.session_state.get("mesaj", "İşlem başarılı"))
+        clear_form()
+        del st.session_state["islem_basarili"]
+        del st.session_state["mesaj"]
+
     if st.button("⬅️ ANA MENÜ"): 
         go_home()
         st.rerun()
@@ -169,8 +176,9 @@ def goster():
                 )
                 veritabani.update_data("Hareketler", yeni_log_df)
                 
-                st.success(f"{move_type} işlemi kaydedildi!")
                 st.cache_data.clear()
-                
-                clear_form()
+
+                st.session_state["islem_basarili"] = True
+                st.session_state["mesaj"] = f"{move_type} işlemi kaydedildi!"
+
                 st.rerun()
