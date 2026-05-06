@@ -3,217 +3,193 @@ import veritabani
 import pandas as pd
 from datetime import datetime
 
-# ----------------------------
-# NAVIGATION
-# ----------------------------
-def go_home():
-    st.session_state.page = "home"
+def go_home(): 
+    st.session_state.page = 'home'
 
-
-# ----------------------------
-# SAFE FORM RESET
-# (Streamlit-safe: ONLY delete keys)
-# ----------------------------
+# --- FORM TEMİZLEME (SENİN YÖNTEMİN) ---
 def clear_form():
+    st.session_state.reset_form = True
 
-    keys_to_clear = [
-        "s_kod",
-        "s_lot",
-        "s_mik",
-        "src_adr",
-        "dst_adr",
-        "sec",
-        "move_type",
-        "s_dur"
-    ]
-
-    for k in keys_to_clear:
-        if k in st.session_state:
-            del st.session_state[k]
-
-
-# ----------------------------
-# AUTO PRODUCT CODE FILL
-# ----------------------------
+# --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
 def urun_secildi():
     sec = st.session_state.get("sec")
-
     if sec and sec != "+ MANUEL GİRİŞ":
-        st.session_state["s_kod"] = sec.split(" | ")[0]
+        st.session_state.s_kod = sec.split(" | ")[0]
 
-
-# ----------------------------
-# MAIN SCREEN
-# ----------------------------
 def goster():
-
+    # --- TOPLU LİSTE İÇİN SESSION STATE BAŞLATMA ---
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
 
-    # ---- success message after save ----
+    # --- SENİN VERDİĞİN SIFIRLAMA BLOĞU ---
+    if st.session_state.get("reset_form"):
+        for k in ["s_kod", "s_lot", "s_mik", "sec", "src_adr", "dst_adr"]:
+            if k in st.session_state:
+                # Sayısal alan için özel durum, diğerleri için boş string
+                st.session_state[k] = 0.0 if k == "s_mik" else ""
+        st.session_state.reset_form = False
+
+    # --- KAYIT SONRASI MESAJ ---
     if st.session_state.get("islem_basarili"):
         st.success(st.session_state.get("mesaj", "İşlem başarılı"))
-
-        clear_form()
-
         del st.session_state["islem_basarili"]
         del st.session_state["mesaj"]
 
-    # ---- home button ----
-    if st.button("⬅️ ANA MENÜ"):
+    if st.button("⬅️ ANA MENÜ"): 
         go_home()
         st.rerun()
-
-    st.subheader("📊 Stok Hareketleri")
-
-    # ----------------------------
-    # INPUT FORM
-    # ----------------------------
+        
+    st.subheader("📊 Stok Hareketleri (Toplu İşlem)")
+    
     with st.container(border=True):
-
         move_type = st.selectbox(
-            "İşlem Tipi",
-            ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"],
+            "İşlem Tipi:", 
+            ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], 
             key="move_type"
         )
-
+        
         katalog = veritabani.get_katalog()
-
         sec = st.selectbox(
-            "Ürün Seç",
-            ["+ MANUEL GİRİŞ"] + katalog,
+            "🔍 Ürün Seç:", 
+            ["+ MANUEL GİRİŞ"] + katalog, 
             key="sec",
             on_change=urun_secildi
         )
-
+        
         c1, c2 = st.columns(2)
-
         with c1:
-            s_kod = st.text_input("Malzeme Kodu", key="s_kod")
-            s_lot = st.text_input("Lot No", key="s_lot")
-
+            s_kod = st.text_input(
+                "📦 Malzeme Kodu:",
+                key="s_kod"
+            ).upper().strip()
+            
+            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
+            
         with c2:
-            s_mik = st.number_input("Miktar", min_value=0.0, step=1.0, key="s_mik")
+            s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
             s_dur = st.selectbox(
-                "Durum",
-                ["Kullanılabilir", "Hasarlı", "Karantina"],
+                "Durum:", 
+                ["Kullanılabilir", "Hasarlı", "Karantina"], 
                 key="s_dur"
             )
 
         st.markdown("---")
-
+        
         src_adr = "-"
         dst_adr = "-"
-
-        c3, c4 = st.columns(2)
+        
+        a1, a2 = st.columns(2)
 
         if move_type == "GİRİŞ":
-            with c3:
-                dst_adr = st.text_input("Hedef Adres", key="dst_adr")
-
+            with a1:
+                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_adr").upper().strip()
+        
         elif move_type == "ÇIKIŞ":
-            with c3:
-                src_adr = st.text_input("Kaynak Adres", key="src_adr")
-
+            with a1:
+                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_adr").upper().strip()
+        
         elif move_type == "İÇ TRANSFER":
-            with c3:
-                src_adr = st.text_input("Kaynak Adres", key="src_adr")
-            with c4:
-                dst_adr = st.text_input("Hedef Adres", key="dst_adr")
+            with a1:
+                src_adr = st.text_input("📍 Kaynak Adres (Nereden):", key="src_adr").upper().strip()
+            with a2:
+                dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_adr").upper().strip()
 
-        # ----------------------------
-        # ADD TO LIST
-        # ----------------------------
+        # --- LİSTEYE EKLE ---
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-
             if not s_kod or s_mik <= 0:
                 st.error("Eksik bilgi!")
             else:
-
-                item = {
+                kalem = {
                     "İşlem": move_type,
-                    "Kod": s_kod.strip().upper(),
-                    "İsim": sec.split(" | ")[1] if sec != "+ MANUEL GİRİŞ" and " | " in sec else "MANUEL ÜRÜN",
+                    "Kod": s_kod,
+                    "İsim": sec.split(" | ")[1] if sec != "+ MANUEL GİRİŞ" and len(sec.split(" | ")) > 1 else "MANUEL ÜRÜN",
                     "Miktar": s_mik,
                     "Lot": s_lot,
                     "Durum": s_dur,
                     "Kaynak": src_adr,
                     "Hedef": dst_adr
                 }
-
-                st.session_state.gecici_liste.append(item)
-
+                st.session_state.gecici_liste.append(kalem)
+                
+                # SIFIRLAMA TETİKLE
                 clear_form()
                 st.rerun()
 
-    # ----------------------------
-    # PENDING LIST
-    # ----------------------------
+    # --- GEÇİCİ LİSTE ---
     if st.session_state.gecici_liste:
-
-        st.markdown("### Bekleyen İşlemler")
-
+        st.markdown("### 📋 İşlem Bekleyen Kalemler")
         for i, item in enumerate(st.session_state.gecici_liste):
-
-            with st.expander(f"{i+1}. {item['Kod']} | {item['Miktar']}"):
-
-                st.write(f"İşlem: {item['İşlem']}")
-                st.write(f"Ürün: {item['İsim']}")
-                st.write(f"Lot: {item['Lot']}")
-                st.write(f"Durum: {item['Durum']}")
-                st.write(f"Rota: {item['Kaynak']} ➜ {item['Hedef']}")
-
-                if st.button("Sil", key=f"del_{i}"):
-                    st.session_state.gecici_liste.pop(i)
-                    st.rerun()
+            with st.expander(f"{i+1}. {item['İşlem']} | {item['Kod']} | {item['Miktar']} Adet"):
+                st.write(f"**Ürün:** {item['İsim']} | **Lot:** {item['Lot']} | **Durum:** {item['Durum']}")
+                st.write(f"**Rota:** {item['Kaynak']} ➡️ {item['Hedef']}")
+                
+                if st.button(f"🗑️ Bu Satırı Sil", key=f"del_{i}"):
+                    st.session_state[f"confirm_del_{i}"] = True
+                
+                if st.session_state.get(f"confirm_del_{i}"):
+                    st.warning("Emin misiniz?")
+                    if st.button("Evet, Sil", key=f"yes_{i}"):
+                        st.session_state.gecici_liste.pop(i)
+                        del st.session_state[f"confirm_del_{i}"]
+                        st.rerun()
 
         st.divider()
 
-        # ----------------------------
-        # SAVE ALL
-        # ----------------------------
-        if st.button("🚀 KAYDET", use_container_width=True, type="primary"):
-
+        # --- TOPLU KAYDET ---
+        if st.button("🚀 TÜM HAREKETLERİ VERİTABANINA İŞLE", use_container_width=True, type="primary"):
             df_stok = veritabani.get_internal_data("Stok")
             df_hareketler = veritabani.get_internal_data("Hareketler")
+            islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            personel = st.session_state.user if 'user' in st.session_state else "Sistem"
+            
+            df_stok['Kod'] = df_stok['Kod'].astype(str).str.strip().str.upper()
+            df_stok['Adres'] = df_stok['Adres'].astype(str).str.strip().str.upper()
+            df_stok['Miktar'] = pd.to_numeric(df_stok['Miktar'], errors='coerce').fillna(0)
 
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            user = st.session_state.get("user", "Sistem")
-
-            df_stok["Kod"] = df_stok["Kod"].astype(str).str.upper().str.strip()
-            df_stok["Adres"] = df_stok["Adres"].astype(str).str.upper().str.strip()
-            df_stok["Miktar"] = pd.to_numeric(df_stok["Miktar"], errors="coerce").fillna(0)
-
-            count = 0
-
-            for r in st.session_state.gecici_liste:
-
-                hareket = {
-                    "Tarih": now,
-                    "İşlem": r["İşlem"],
-                    "Kod": r["Kod"],
-                    "İsim": r["İsim"],
-                    "Adres": r["Hedef"] if r["İşlem"] == "GİRİŞ" else r["Kaynak"],
-                    "Miktar": r["Miktar"],
-                    "Personel": user,
-                    "Durum": r["Durum"],
-                    "Lot": r["Lot"],
-                    "Kaynak_Adres": r["Kaynak"],
-                    "Hedef_Adres": r["Hedef"]
+            kaydedilen_sayi = 0
+            for satir in st.session_state.gecici_liste:
+                yeni_hareket_satiri = {
+                    "Tarih": islem_zamani, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
+                    "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
+                    "Miktar": satir["Miktar"], "Personel": personel, "Durum": satir["Durum"],
+                    "Lot": satir["Lot"], "Kaynak_Adres": satir["Kaynak"], "Hedef_Adres": satir["Hedef"]
                 }
+                
+                success_stok = False
+                if satir["İşlem"] == "GİRİŞ":
+                    mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
+                    if mask.any(): df_stok.loc[mask, 'Miktar'] += satir["Miktar"]
+                    else:
+                        new_row = pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])
+                        df_stok = pd.concat([df_stok, new_row], ignore_index=True)
+                    success_stok = True
+                elif satir["İşlem"] == "ÇIKIŞ":
+                    mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Kaynak"])
+                    if mask.any():
+                        mevcut = df_stok.loc[mask, 'Miktar'].values[0]
+                        df_stok.loc[mask, 'Miktar'] = max(0, mevcut - satir["Miktar"])
+                        success_stok = True
+                elif satir["İşlem"] == "İÇ TRANSFER":
+                    src_mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Kaynak"])
+                    dst_mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
+                    if src_mask.any():
+                        mevcut_src = df_stok.loc[src_mask, 'Miktar'].values[0]
+                        df_stok.loc[src_mask, 'Miktar'] = max(0, mevcut_src - satir["Miktar"])
+                        if dst_mask.any(): df_stok.loc[dst_mask, 'Miktar'] += satir["Miktar"]
+                        else:
+                            new_row = pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])
+                            df_stok = pd.concat([df_stok, new_row], ignore_index=True)
+                        success_stok = True
 
-                df_hareketler = pd.concat(
-                    [df_hareketler, pd.DataFrame([hareket])],
-                    ignore_index=True
-                )
+                if success_stok:
+                    df_hareketler = pd.concat([df_hareketler, pd.DataFrame([yeni_hareket_satiri])], ignore_index=True)
+                    kaydedilen_sayi += 1
 
-                count += 1
-
+            veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_hareketler)
-
+            
+            st.session_state["islem_basarili"] = True
+            st.session_state["mesaj"] = f"✅ {kaydedilen_sayi} kalem stok hareketi işlendi!"
             st.session_state.gecici_liste = []
-            st.session_state.islem_basarili = True
-            st.session_state.mesaj = f"{count} kayıt işlendi"
-
             st.cache_data.clear()
             st.rerun()
