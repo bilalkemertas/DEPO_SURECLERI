@@ -8,18 +8,12 @@ def go_home():
 
 # --- FORM TEMİZLEME ---
 def clear_form():
-    # Text / number alanları temizle
     for key in [
-        "s_kod", "s_lot", "s_mik",
-        "src_adr", "dst_adr"
+        "s_kod", "s_lot", "s_mik", "s_dur",
+        "src_adr", "dst_adr", "sec", "move_type"
     ]:
         if key in st.session_state:
             del st.session_state[key]
-
-    # Selectboxları default'a al
-    st.session_state["sec"] = "+ MANUEL GİRİŞ"
-    st.session_state["move_type"] = "GİRİŞ"
-    st.session_state["s_dur"] = "Kullanılabilir"
 
 # --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
 def urun_secildi():
@@ -28,7 +22,7 @@ def urun_secildi():
         st.session_state.s_kod = sec.split(" | ")[0]
 
 def goster():
-    # --- SESSION STATE BAŞLATMA ---
+    # --- SESSION STATE BAŞLAT ---
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
 
@@ -120,7 +114,6 @@ def goster():
                 }
                 st.session_state.gecici_liste.append(kalem)
 
-                # mesaj + temizleme
                 st.session_state["ekleme_ok"] = True
                 clear_form()
                 st.rerun()
