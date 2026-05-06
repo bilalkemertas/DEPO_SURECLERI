@@ -19,11 +19,20 @@ def go_uretim_menu():
 
 def goster():
     init_state()
+    
+    # --- STİL AYARLARI (KÜÇÜK PUNTO) ---
+    st.markdown("""
+        <style>
+        [data-testid="stMetricValue"] { font-size: 18px !important; }
+        [data-testid="stMetricLabel"] { font-size: 12px !important; }
+        .stCaption { font-size: 11px !important; }
+        </style>
+    """, unsafe_allow_html=True)
 
     # --- 0. ANA MENÜ ---
     if st.session_state.uretim_page == 'menu':
         if st.button("⬅️ ANA MENÜYE DÖN"): go_home(); st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.12)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.13)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik'))
@@ -63,7 +72,7 @@ def goster():
                     veritabani.update_data("Is_Emirleri", df_save); st.success("✅ Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. HAZIRLIK (GELİŞMİŞ GÖSTERGE PANELİ) ---
+    # --- 2. HAZIRLIK (KOMPAKT PANEL) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık")
@@ -95,50 +104,43 @@ def goster():
                         toplam_depo = temp_stok[st_mik_col].sum() if not temp_stok.empty else 0
                         
                         with st.container(border=True):
-                            st.write(f"🛠️ **Malzeme:** {row['Stok Adı']} ({s_kod})")
+                            st.markdown(f"🛠️ **{row['Stok Adı']}** ({s_kod})")
                             
+                            # Üst Satır
                             r1c1, r1c2 = st.columns([2, 1])
-                            
-                            # Üst Satır: Adres ve Miktar Girişi
                             adrs_list = ["Seçiniz..."]
                             if not temp_stok.empty:
                                 active_adrs = temp_stok[temp_stok[st_mik_col] > 0][st_adr_col].unique().tolist()
                                 adrs_list += sorted(active_adrs) if active_adrs else ["STOK YOK"]
                             else: adrs_list = ["STOK YOK"]
                             
-                            input_adr = r1c1.selectbox("📍 Raf Adresi Seçin:", adrs_list)
-                            input_mik = r1c2.number_input("🔢 Verilen Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0)
+                            input_adr = r1c1.selectbox("📍 Raf Adresi:", adrs_list, label_visibility="collapsed")
+                            input_mik = r1c2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0, label_visibility="collapsed")
                             
-                            # Alt Satır: Gelişmiş Gösterge Paneli
-                            st.markdown("---")
-                            m1, m2, m3 = st.columns(3)
-                            
+                            # Alt Satır (Gelişmiş & Kompakt Gösterge)
                             r_stok = 0
                             if input_adr not in ["Seçiniz...", "STOK YOK"]:
                                 r_stok = temp_stok[temp_stok[st_adr_col] == input_adr][st_mik_col].sum()
                             
-                            m1.metric("🏢 Raf Mevcudu", f"{int(r_stok)} {row.get('Birim', '')}")
-                            m2.metric("📦 Toplam Depo", f"{int(toplam_depo)} {row.get('Birim', '')}")
-                            m3.metric("🎯 Kalan İhtiyaç", f"{kalan_ih} {row.get('Birim', '')}", delta_color="inverse")
+                            m1, m2, m3 = st.columns(3)
+                            m1.metric("🏢 Raf", f"{int(r_stok)}")
+                            m2.metric("📦 Toplam", f"{int(toplam_depo)}")
+                            m3.metric("🎯 Kalan", f"{kalan_ih}", delta_color="inverse")
                             
                             if st.button("⚡ KAYDI TAMAMLA", use_container_width=True, type="primary"):
-                                if input_adr in ["Seçiniz...", "STOK YOK"]:
-                                    st.error("Lütfen geçerli bir raf adresi seçin!")
-                                elif input_mik <= 0:
-                                    st.error("Miktar giriniz!")
+                                if input_adr in ["Seçiniz...", "STOK YOK"] or input_mik <= 0:
+                                    st.error("Adres ve miktar kontrolü yapın!")
                                 else:
                                     mask_stok = (df_stok[st_kod_col].astype(str).str.strip().str.upper() == s_kod) & (df_stok[st_adr_col] == input_adr)
                                     df_stok.loc[mask_stok, st_mik_col] -= input_mik
-                                    
                                     mask_emir = (df_db['İş Emri'] == sel_is) & (df_db['Mamül Adı'] == row['Mamül Adı']) & \
                                                 (df_db['Stok Kodu'] == row['Stok Kodu']) & (df_db['Stok Adı'] == row['Stok Adı'])
                                     df_db.loc[mask_emir, 'Hazırlanan Adet'] += input_mik
-                                    
                                     veritabani.update_data("Stok", df_stok)
                                     veritabani.update_data("Is_Emirleri", df_db)
-                                    st.success(f"✅ İşlem Başarılı!"); st.rerun()
+                                    st.success("✅ Kaydedildi!"); st.rerun()
                 else:
-                    st.success("✅ Hazırlanacak malzeme kalmadı.")
+                    st.success("✅ Malzeme kalmadı.")
                 
                 st.divider()
                 st.write("📝 **Tam Malzeme Listesi**")
