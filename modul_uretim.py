@@ -74,9 +74,7 @@ def goster():
             if sel_is != "Seçiniz...":
                 sub = df_db[df_db['İş Emri'] == sel_is].copy()
                 
-                # --- GEREKSİZ ÖZET TABLO KALDIRILDI ---
-                bekleyenler = sub[(sub['İhtiyaç Miktarı'] - sub['Hazırlanan Adet']) > 0.001].copy()
-                
+                              
                 # Personel dostu seçim metni
                 bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu'] + " (Ürün: " + bekleyenler['Mamül Adı'] + ")"
                 
