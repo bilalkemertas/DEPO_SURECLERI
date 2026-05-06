@@ -23,7 +23,7 @@ def goster():
     # --- 0. ANA MENÜ ---
     if st.session_state.uretim_page == 'menu':
         if st.button("⬅️ ANA MENÜYE DÖN"): go_home(); st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.10)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.11)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik'))
@@ -63,17 +63,19 @@ def goster():
                     veritabani.update_data("Is_Emirleri", df_save); st.success("✅ Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. HAZIRLIK (TEMİZ TABLO GÖRÜNÜMÜ) ---
+    # --- 2. HAZIRLIK (ADRES ALANI GERİ GELDİ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık")
         
+        # Stok verisini her girişte tazele
+        st.session_state.local_stok = veritabani.get_internal_data("Stok")
         df_db = veritabani.get_internal_data("Is_Emirleri")
+        
         if not df_db.empty:
             sel_is = st.selectbox("📋 İş Emri Seçin:", ["Seçiniz..."] + sorted(df_db['İş Emri'].unique().tolist()))
             if sel_is != "Seçiniz...":
                 sub = df_db[df_db['İş Emri'] == sel_is].copy()
-                
                 bekleyenler = sub[(sub['İhtiyaç Miktarı'] - sub['Hazırlanan Adet']) > 0.001].copy()
                 
                 if not bekleyenler.empty:
@@ -83,27 +85,65 @@ def goster():
                     
                     if sel_display != "Seçiniz...":
                         row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
+                        s_kod = str(row['Stok Kodu']).strip().upper()
                         kalan = round(row['İhtiyaç Miktarı'] - row['Hazırlanan Adet'], 3)
+                        
+                        # --- ADRES VE STOK SORGULAMA ---
+                        df_stok = st.session_state.local_stok
+                        st_kod_col = next((c for c in df_stok.columns if "Kod" in str(c)), "Kod")
+                        st_adr_col = next((c for c in df_stok.columns if "Adres" in str(c)), "Adres")
+                        st_mik_col = next((c for c in df_stok.columns if "Miktar" in str(c)), "Miktar")
+                        
+                        temp_stok = df_stok[df_stok[st_kod_col].astype(str).str.strip().str.upper() == s_kod]
+                        toplam_depo = temp_stok[st_mik_col].sum() if not temp_stok.empty else 0
                         
                         with st.container(border=True):
                             st.info(f"📂 **Ait Olduğu Ürün:** {row['Mamül Adı']}")
-                            st.write(f"🛠️ **Malzeme:** {row['Stok Adı']} ({row['Stok Kodu']})")
-                            c1, c2 = st.columns(2)
-                            c1.metric("Kalan İhtiyaç", f"{kalan} {row.get('Birim', '')}")
-                            input_adet = c2.number_input("Verilen Miktar:", min_value=0.0, max_value=float(kalan), step=1.0)
+                            st.write(f"🛠️ **Malzeme:** {row['Stok Adı']} ({s_kod})")
+                            
+                            c1, c2, c3 = st.columns([1, 1, 1])
+                            c1.metric("🎯 Kalan İhtiyaç", f"{kalan} {row.get('Birim', '')}")
+                            
+                            # Adres Seçimi
+                            adrs_list = ["Seçiniz..."]
+                            if not temp_stok.empty:
+                                active_adrs = temp_stok[temp_stok[st_mik_col] > 0][st_adr_col].unique().tolist()
+                                adrs_list += sorted(active_adrs) if active_adrs else ["STOK YOK"]
+                            else: adrs_list = ["STOK YOK"]
+                            
+                            input_adr = c2.selectbox("📍 Raf Adresi:", adrs_list)
+                            
+                            # Raf Mevcudu Gösterimi
+                            r_stok = 0
+                            if input_adr not in ["Seçiniz...", "STOK YOK"]:
+                                r_stok = temp_stok[temp_stok[st_adr_col] == input_adr][st_mik_col].sum()
+                                st.caption(f"🏢 **Raf Mevcudu:** {int(r_stok)} | **Toplam Depo:** {int(toplam_depo)}")
+                            
+                            input_mik = c3.number_input("🔢 Verilen Miktar:", min_value=0.0, max_value=float(kalan), step=1.0)
                             
                             if st.button("⚡ KAYDI TAMAMLA", use_container_width=True, type="primary"):
-                                mask = (df_db['İş Emri'] == sel_is) & (df_db['Mamül Adı'] == row['Mamül Adı']) & \
-                                       (df_db['Stok Kodu'] == row['Stok Kodu']) & (df_db['Stok Adı'] == row['Stok Adı'])
-                                df_db.loc[mask, 'Hazırlanan Adet'] += input_adet
-                                veritabani.update_data("Is_Emirleri", df_db)
-                                st.success("✅ Başarıyla Kaydedildi!"); st.rerun()
+                                if input_adr in ["Seçiniz...", "STOK YOK"]:
+                                    st.error("Lütfen geçerli bir raf adresi seçin!")
+                                elif input_mik <= 0:
+                                    st.error("Miktar giriniz!")
+                                else:
+                                    # Stok Güncelleme (FIFO/Adres Bazlı)
+                                    mask_stok = (df_stok[st_kod_col].astype(str).str.strip().str.upper() == s_kod) & (df_stok[st_adr_col] == input_adr)
+                                    df_stok.loc[mask_stok, st_mik_col] -= input_mik
+                                    
+                                    # İş Emri Güncelleme (Üçlü Kilit)
+                                    mask_emir = (df_db['İş Emri'] == sel_is) & (df_db['Mamül Adı'] == row['Mamül Adı']) & \
+                                                (df_db['Stok Kodu'] == row['Stok Kodu']) & (df_db['Stok Adı'] == row['Stok Adı'])
+                                    df_db.loc[mask_emir, 'Hazırlanan Adet'] += input_mik
+                                    
+                                    veritabani.update_data("Stok", df_stok)
+                                    veritabani.update_data("Is_Emirleri", df_db)
+                                    st.success(f"✅ {input_mik} {row.get('Birim','')} kaydedildi!"); st.rerun()
                 else:
                     st.success("✅ Hazırlanacak malzeme kalmadı.")
                 
                 st.divider()
                 st.write("📝 **Tam Malzeme Listesi**")
-                # PATRONUN İSTEDİĞİ: Ürün Kodu ve Mamül Adı sütunlarını görselden kaldırdım
                 view_cols = ["İş Emri", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                 st.dataframe(sub[view_cols], use_container_width=True, hide_index=True)
 
