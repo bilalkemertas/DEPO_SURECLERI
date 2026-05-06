@@ -8,12 +8,18 @@ def go_home():
 
 # --- FORM TEMİZLEME ---
 def clear_form():
+    # Text / number alanları temizle
     for key in [
-        "s_kod", "s_lot", "s_mik", "s_dur",
-        "src_adr", "dst_adr", "sec", "move_type"
+        "s_kod", "s_lot", "s_mik",
+        "src_adr", "dst_adr"
     ]:
         if key in st.session_state:
             del st.session_state[key]
+
+    # Selectboxları default'a al
+    st.session_state["sec"] = "+ MANUEL GİRİŞ"
+    st.session_state["move_type"] = "GİRİŞ"
+    st.session_state["s_dur"] = "Kullanılabilir"
 
 # --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
 def urun_secildi():
@@ -22,9 +28,14 @@ def urun_secildi():
         st.session_state.s_kod = sec.split(" | ")[0]
 
 def goster():
-    # --- TOPLU LİSTE İÇİN SESSION STATE BAŞLATMA ---
+    # --- SESSION STATE BAŞLATMA ---
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
+
+    # --- LİSTEYE EKLEME MESAJI ---
+    if st.session_state.get("ekleme_ok"):
+        st.success("Kalem listeye eklendi")
+        del st.session_state["ekleme_ok"]
 
     # --- KAYIT SONRASI MESAJ + TEMİZLEME ---
     if st.session_state.get("islem_basarili"):
@@ -92,7 +103,7 @@ def goster():
             with a2:
                 dst_adr = st.text_input("📍 Hedef Adres (Nereye):", key="dst_adr").upper().strip()
 
-        # --- LİSTEYE EKLE BUTONU (YENİ) ---
+        # --- LİSTEYE EKLE ---
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
             if not s_kod or s_mik <= 0:
                 st.error("Eksik bilgi!")
@@ -108,10 +119,13 @@ def goster():
                     "Hedef": dst_adr
                 }
                 st.session_state.gecici_liste.append(kalem)
+
+                # mesaj + temizleme
+                st.session_state["ekleme_ok"] = True
                 clear_form()
                 st.rerun()
 
-    # --- GEÇİCİ LİSTE GÖSTERİMİ VE SİLME ---
+    # --- GEÇİCİ LİSTE ---
     if st.session_state.gecici_liste:
         st.markdown("### 📋 İşlem Bekleyen Kalemler")
         for i, item in enumerate(st.session_state.gecici_liste):
@@ -119,7 +133,6 @@ def goster():
                 st.write(f"**Ürün:** {item['İsim']} | **Lot:** {item['Lot']} | **Durum:** {item['Durum']}")
                 st.write(f"**Rota:** {item['Kaynak']} ➡️ {item['Hedef']}")
                 if st.button(f"🗑️ Bu Satırı Sil", key=f"del_{i}"):
-                    # Basit bir onay mekanizması
                     st.session_state[f"confirm_del_{i}"] = True
                 
                 if st.session_state.get(f"confirm_del_{i}"):
@@ -131,14 +144,13 @@ def goster():
 
         st.divider()
 
-        # --- TOPLU KAYDET (ESKİ BUTON FONKSİYONLARI BURAYA ALINDI) ---
+        # --- TOPLU KAYDET ---
         if st.button("🚀 TÜM HAREKETLERİ VERİTABANINA İŞLE", use_container_width=True, type="primary"):
             df_stok = veritabani.get_internal_data("Stok")
             df_hareketler = veritabani.get_internal_data("Hareketler")
             islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             personel = st.session_state.user if 'user' in st.session_state else "Sistem"
             
-            # Normalleştirme
             df_stok['Kod'] = df_stok['Kod'].astype(str).str.strip().str.upper()
             df_stok['Adres'] = df_stok['Adres'].astype(str).str.strip().str.upper()
             df_stok['Miktar'] = pd.to_numeric(df_stok['Miktar'], errors='coerce').fillna(0)
@@ -162,17 +174,22 @@ def goster():
                 }
 
                 success_stok = False
-                # GİRİŞ MANTIĞI
+
                 if satir["İşlem"] == "GİRİŞ":
                     mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
                     if mask.any():
                         df_stok.loc[mask, 'Miktar'] += satir["Miktar"]
                     else:
-                        new_row = pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])
+                        new_row = pd.DataFrame([{
+                            "Kod": satir["Kod"],
+                            "İsim": satir["İsim"],
+                            "Adres": satir["Hedef"],
+                            "Miktar": satir["Miktar"],
+                            "Durum": satir["Durum"]
+                        }])
                         df_stok = pd.concat([df_stok, new_row], ignore_index=True)
                     success_stok = True
 
-                # ÇIKIŞ MANTIĞI
                 elif satir["İşlem"] == "ÇIKIŞ":
                     mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Kaynak"])
                     if mask.any():
@@ -180,7 +197,6 @@ def goster():
                         df_stok.loc[mask, 'Miktar'] = max(0, mevcut - satir["Miktar"])
                         success_stok = True
 
-                # İÇ TRANSFER MANTIĞI
                 elif satir["İşlem"] == "İÇ TRANSFER":
                     src_mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Kaynak"])
                     dst_mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
@@ -190,7 +206,13 @@ def goster():
                         if dst_mask.any():
                             df_stok.loc[dst_mask, 'Miktar'] += satir["Miktar"]
                         else:
-                            new_row = pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])
+                            new_row = pd.DataFrame([{
+                                "Kod": satir["Kod"],
+                                "İsim": satir["İsim"],
+                                "Adres": satir["Hedef"],
+                                "Miktar": satir["Miktar"],
+                                "Durum": satir["Durum"]
+                            }])
                             df_stok = pd.concat([df_stok, new_row], ignore_index=True)
                         success_stok = True
 
@@ -198,7 +220,6 @@ def goster():
                     df_hareketler = pd.concat([df_hareketler, pd.DataFrame([yeni_hareket_satiri])], ignore_index=True)
                     kaydedilen_sayi += 1
 
-            # TOPLU GÜNCELLEME
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_hareketler)
             
