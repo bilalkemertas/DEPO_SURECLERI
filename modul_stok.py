@@ -6,14 +6,17 @@ from datetime import datetime
 def go_home(): 
     st.session_state.page = 'home'
 
-# --- FORM TEMİZLEME ---
+# --- FORM TEMİZLEME (HATA VEREN del KOMUTLARI GÜNCELLENDİ) ---
 def clear_form():
-    for key in [
-        "s_kod", "s_lot", "s_mik", "s_dur",
-        "src_adr", "dst_adr", "sec", "move_type"
-    ]:
-        if key in st.session_state:
-            del st.session_state[key]
+    # Widget'lara bağlı key'leri silmek yerine varsayılan değerlerine döndürüyoruz
+    # Bu yöntem StreamlitAPIException hatasını kalıcı olarak çözer.
+    if "s_kod" in st.session_state: st.session_state.s_kod = ""
+    if "s_lot" in st.session_state: st.session_state.s_lot = ""
+    if "s_mik" in st.session_state: st.session_state.s_mik = 0.0
+    if "s_dur" in st.session_state: st.session_state.s_dur = "Kullanılabilir"
+    if "dst_adr" in st.session_state: st.session_state.dst_adr = ""
+    if "src_adr" in st.session_state: st.session_state.src_adr = ""
+    if "sec" in st.session_state: st.session_state.sec = "+ MANUEL GİRİŞ"
 
 # --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
 def urun_secildi():
@@ -34,6 +37,7 @@ def goster():
     # --- KAYIT SONRASI MESAJ + TEMİZLEME ---
     if st.session_state.get("islem_basarili"):
         st.success(st.session_state.get("mesaj", "İşlem başarılı"))
+        # Kayıt sonrası tam temizlik için clear_form çağrılır
         clear_form()
         del st.session_state["islem_basarili"]
         del st.session_state["mesaj"]
@@ -115,7 +119,7 @@ def goster():
                 st.session_state.gecici_liste.append(kalem)
 
                 st.session_state["ekleme_ok"] = True
-                clear_form()
+                clear_form() # Formu değerleri boşaltarak temizler
                 st.rerun()
 
     # --- GEÇİCİ LİSTE ---
@@ -125,6 +129,8 @@ def goster():
             with st.expander(f"{i+1}. {item['İşlem']} | {item['Kod']} | {item['Miktar']} Adet"):
                 st.write(f"**Ürün:** {item['İsim']} | **Lot:** {item['Lot']} | **Durum:** {item['Durum']}")
                 st.write(f"**Rota:** {item['Kaynak']} ➡️ {item['Hedef']}")
+                
+                # Her satır için benzersiz key'lerle silme işlemi
                 if st.button(f"🗑️ Bu Satırı Sil", key=f"del_{i}"):
                     st.session_state[f"confirm_del_{i}"] = True
                 
@@ -152,34 +158,18 @@ def goster():
             
             for satir in st.session_state.gecici_liste:
                 yeni_hareket_satiri = {
-                    "Tarih": islem_zamani,
-                    "İşlem": satir["İşlem"],
-                    "İş Emri": "-",
-                    "Kod": satir["Kod"],
-                    "İsim": satir["İsim"],
-                    "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
-                    "Miktar": satir["Miktar"],
-                    "Personel": personel,
-                    "Durum": satir["Durum"],
-                    "Lot": satir["Lot"],
-                    "Kaynak_Adres": satir["Kaynak"],
-                    "Hedef_Adres": satir["Hedef"]
+                    "Tarih": islem_zamani, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
+                    "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
+                    "Miktar": satir["Miktar"], "Personel": personel, "Durum": satir["Durum"],
+                    "Lot": satir["Lot"], "Kaynak_Adres": satir["Kaynak"], "Hedef_Adres": satir["Hedef"]
                 }
 
                 success_stok = False
-
                 if satir["İşlem"] == "GİRİŞ":
                     mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
-                    if mask.any():
-                        df_stok.loc[mask, 'Miktar'] += satir["Miktar"]
+                    if mask.any(): df_stok.loc[mask, 'Miktar'] += satir["Miktar"]
                     else:
-                        new_row = pd.DataFrame([{
-                            "Kod": satir["Kod"],
-                            "İsim": satir["İsim"],
-                            "Adres": satir["Hedef"],
-                            "Miktar": satir["Miktar"],
-                            "Durum": satir["Durum"]
-                        }])
+                        new_row = pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])
                         df_stok = pd.concat([df_stok, new_row], ignore_index=True)
                     success_stok = True
 
@@ -196,16 +186,9 @@ def goster():
                     if src_mask.any():
                         mevcut_src = df_stok.loc[src_mask, 'Miktar'].values[0]
                         df_stok.loc[src_mask, 'Miktar'] = max(0, mevcut_src - satir["Miktar"])
-                        if dst_mask.any():
-                            df_stok.loc[dst_mask, 'Miktar'] += satir["Miktar"]
+                        if dst_mask.any(): df_stok.loc[dst_mask, 'Miktar'] += satir["Miktar"]
                         else:
-                            new_row = pd.DataFrame([{
-                                "Kod": satir["Kod"],
-                                "İsim": satir["İsim"],
-                                "Adres": satir["Hedef"],
-                                "Miktar": satir["Miktar"],
-                                "Durum": satir["Durum"]
-                            }])
+                            new_row = pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])
                             df_stok = pd.concat([df_stok, new_row], ignore_index=True)
                         success_stok = True
 
@@ -217,7 +200,7 @@ def goster():
             veritabani.update_data("Hareketler", df_hareketler)
             
             st.session_state["islem_basarili"] = True
-            st.session_state["mesaj"] = f"✅ {kaydedilen_sayi} kalem stok hareketi başarıyla işlendi!"
+            st.session_state["mesaj"] = f"✅ {kaydedilen_sayi} kalem stok hareketi işlendi!"
             st.session_state.gecici_liste = []
             st.cache_data.clear()
             st.rerun()
