@@ -23,7 +23,7 @@ def goster():
     # --- 0. ANA MENÜ ---
     if st.session_state.uretim_page == 'menu':
         if st.button("⬅️ ANA MENÜYE DÖN"): go_home(); st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.8)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.9)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik'))
@@ -63,7 +63,7 @@ def goster():
                     veritabani.update_data("Is_Emirleri", df_save); st.success("✅ Güncellendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. HAZIRLIK (TEMİZ EKRAN) ---
+    # --- 2. HAZIRLIK (NAMEERROR ÇÖZÜLDÜ) ---
     elif st.session_state.uretim_page == 'hazirlik':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🏗️ Üretim Hazırlık")
@@ -74,29 +74,34 @@ def goster():
             if sel_is != "Seçiniz...":
                 sub = df_db[df_db['İş Emri'] == sel_is].copy()
                 
-                              
-                # Personel dostu seçim metni
-                bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu'] + " (Ürün: " + bekleyenler['Mamül Adı'] + ")"
+                # Değişkeni fonksiyon başında tanımlıyoruz ki NameError olmasın
+                bekleyenler = sub[(sub['İhtiyaç Miktarı'] - sub['Hazırlanan Adet']) > 0.001].copy()
                 
-                sel_display = st.selectbox("🎯 Hazırlanacak Malzemeyi Seçin:", ["Seçiniz..."] + bekleyenler['unique_key'].tolist())
-                
-                if sel_display != "Seçiniz...":
-                    row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
-                    kalan = round(row['İhtiyaç Miktarı'] - row['Hazırlanan Adet'], 3)
+                if not bekleyenler.empty:
+                    # Personel dostu seçim metni (Hammadde en başta)
+                    bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu'] + " (Ürün: " + bekleyenler['Mamül Adı'] + ")"
                     
-                    with st.container(border=True):
-                        st.info(f"📂 **Ait Olduğu Ürün:** {row['Mamül Adı']}")
-                        st.write(f"🛠️ **Malzeme:** {row['Stok Adı']} ({row['Stok Kodu']})")
-                        c1, c2 = st.columns(2)
-                        c1.metric("Kalan İhtiyaç", f"{kalan} {row.get('Birim', '')}")
-                        input_adet = c2.number_input("Verilen Miktar:", min_value=0.0, max_value=float(kalan), step=1.0)
+                    sel_display = st.selectbox("🎯 Hazırlanacak Malzemeyi Seçin:", ["Seçiniz..."] + bekleyenler['unique_key'].tolist())
+                    
+                    if sel_display != "Seçiniz...":
+                        row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
+                        kalan = round(row['İhtiyaç Miktarı'] - row['Hazırlanan Adet'], 3)
                         
-                        if st.button("⚡ KAYDI TAMAMLA", use_container_width=True, type="primary"):
-                            mask = (df_db['İş Emri'] == sel_is) & (df_db['Mamül Adı'] == row['Mamül Adı']) & \
-                                   (df_db['Stok Kodu'] == row['Stok Kodu']) & (df_db['Stok Adı'] == row['Stok Adı'])
-                            df_db.loc[mask, 'Hazırlanan Adet'] += input_adet
-                            veritabani.update_data("Is_Emirleri", df_db)
-                            st.success("✅ Başarıyla Kaydedildi!"); st.rerun()
+                        with st.container(border=True):
+                            st.info(f"📂 **Ait Olduğu Ürün:** {row['Mamül Adı']}")
+                            st.write(f"🛠️ **Malzeme:** {row['Stok Adı']} ({row['Stok Kodu']})")
+                            c1, c2 = st.columns(2)
+                            c1.metric("Kalan İhtiyaç", f"{kalan} {row.get('Birim', '')}")
+                            input_adet = c2.number_input("Verilen Miktar:", min_value=0.0, max_value=float(kalan), step=1.0)
+                            
+                            if st.button("⚡ KAYDI TAMAMLA", use_container_width=True, type="primary"):
+                                mask = (df_db['İş Emri'] == sel_is) & (df_db['Mamül Adı'] == row['Mamül Adı']) & \
+                                       (df_db['Stok Kodu'] == row['Stok Kodu']) & (df_db['Stok Adı'] == row['Stok Adı'])
+                                df_db.loc[mask, 'Hazırlanan Adet'] += input_adet
+                                veritabani.update_data("Is_Emirleri", df_db)
+                                st.success("✅ Başarıyla Kaydedildi!"); st.rerun()
+                else:
+                    st.success("✅ Bu iş emrinde hazırlanacak malzeme kalmadı.")
                 
                 st.divider()
                 st.write("📝 **Tam Malzeme Listesi**")
