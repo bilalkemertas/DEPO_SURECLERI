@@ -14,15 +14,15 @@ def goster():
     st.subheader("📊 Stok Hareketleri")
     
     with st.container(border=True):
-        # İşlem tipine göre dinamik alanlar - KEY eklendi
-        move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], key="mv_type")
+        # İşlem tipine göre dinamik alanlar
+        move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"])
         
         katalog = veritabani.get_katalog()
         sec = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog, key="prod_sec")
         
         c1, c2 = st.columns(2)
         with c1:
-            # Value'yu session_state üzerinden kontrol ederek temizliği garanti ediyoruz
+            # OTOMATİK VERİ GETİRME MANTIĞI KORUNDU
             s_kod = st.text_input("📦 Malzeme Kodu:", value=sec.split(" | ")[0] if sec != "+ MANUEL GİRİŞ" else "", key="s_kod_in").upper().strip()
             s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot_in").upper().strip()
         with c2:
@@ -107,12 +107,10 @@ def goster():
                 src_mask = (df_stok['Kod'] == s_kod) & (df_stok['Adres'] == src_adr)
                 dst_mask = (df_stok['Kod'] == s_kod) & (df_stok['Adres'] == dst_adr)
                 
-                # Kaynaktan düş
                 if src_mask.any():
                     mevcut_src = df_stok.loc[src_mask, 'Miktar'].values[0]
                     df_stok.loc[src_mask, 'Miktar'] = max(0, mevcut_src - s_mik)
                     
-                    # Hedefe ekle
                     if dst_mask.any():
                         df_stok.loc[dst_mask, 'Miktar'] += s_mik
                     else:
@@ -124,22 +122,18 @@ def goster():
 
             # --- 3. KAYDET VE BİTİR ---
             if success_stok or move_type == "ÇIKIŞ":
-                # Stok Güncelle
                 veritabani.update_data("Stok", df_stok)
-                
-                # Hareketlere Yaz (Log)
                 yeni_log_df = pd.concat([df_hareketler, pd.DataFrame([yeni_hareket_satiri])], ignore_index=True)
                 veritabani.update_data("Hareketler", yeni_log_df)
                 
-                st.success(f"✅ {move_type} işlemi başarıyla kaydedildi ve stok güncellendi!")
+                st.success(f"✅ {move_type} işlemi başarıyla kaydedildi!")
                 
-                # --- EKRANI TEMİZLEME VE MÜKERRER KAYIT ÖNLEME ---
-                # Session state üzerindeki input değerlerini sıfırlıyoruz
-                for key in ["s_kod_in", "s_lot_in", "s_mik_in", "dst_in", "src_in", "src_tr", "dst_tr"]:
+                # SADECE TEMİZLEME FONKSİYONU EKLENDİ
+                for key in ["s_lot_in", "s_mik_in", "dst_in", "src_in", "src_tr", "dst_tr", "prod_sec"]:
                     if key in st.session_state:
-                        # Sayısal alanları 0.0, metin alanlarını boş string yapıyoruz
-                        st.session_state[key] = 0.0 if key == "s_mik_in" else ""
+                        if key == "s_mik_in": st.session_state[key] = 0.0
+                        elif key == "prod_sec": st.session_state[key] = "+ MANUEL GİRİŞ"
+                        else: st.session_state[key] = ""
                 
                 st.cache_data.clear()
-                # Sayfayı yeniden çalıştırarak widget'ların boş halleriyle gelmesini sağlıyoruz
                 st.rerun()
