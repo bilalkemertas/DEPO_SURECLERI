@@ -119,7 +119,7 @@ def goster():
                 with st.container(border=True):
                     st.markdown(f"🛠️ **{row['Stok Adı']}** ({s_kod})")
                     r1c1, r1c2 = st.columns([2, 1])
-                    adrs_list = ["Seçiniz..."]
+                    adrs_list = ["Adres Seçiniz..."]
                     if not temp_stok.empty:
                         active_adrs = temp_stok[temp_stok[st_mik_col] > 0][st_adr_col].unique().tolist()
                         adrs_list += sorted(active_adrs) if active_adrs else ["STOK YOK"]
@@ -129,7 +129,7 @@ def goster():
                     input_mik = r1c2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0, label_visibility="collapsed")
                     
                     r_stok = 0
-                    if input_adr not in ["Seçiniz...", "STOK YOK"]:
+                    if input_adr not in ["Adres Seçiniz...", "STOK YOK"]:
                         r_stok = temp_stok[temp_stok[st_adr_col] == input_adr][st_mik_col].sum()
                     
                     m1, m2, m3 = st.columns(3)
