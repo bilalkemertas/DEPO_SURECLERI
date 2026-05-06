@@ -80,8 +80,8 @@ def goster():
         df_db = veritabani.get_internal_data("Is_Emirleri")
         if not df_db.empty:
             is_emirleri = sorted(df_db['İş Emri'].unique().tolist())
-            secilen = st.selectbox("Lütfen hazırlık yapılacak iş emrini seçin:", ["Seçiniz..."] + is_emirleri)
-            if secilen != "Seçiniz...":
+            secilen = st.selectbox("Lütfen hazırlık yapılacak iş emrini seçin:", ["İş Emri Seçiniz..."] + is_emirleri)
+            if secilen != "İş Emri Seçiniz...":
                 if st.button("🚀 HAZIRLIĞA BAŞLA", use_container_width=True, type="primary"):
                     st.session_state.sel_is_emri = secilen
                     st.session_state.uretim_page = 'hazirlik_panel'
@@ -101,9 +101,9 @@ def goster():
         
         if not bekleyenler.empty:
             bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu'] + " (Ürün: " + bekleyenler['Mamül Adı'] + ")"
-            sel_display = st.selectbox("🎯 Malzeme Seç:", ["Seçiniz..."] + bekleyenler['unique_key'].tolist())
+            sel_display = st.selectbox("🎯 Malzeme Seç:", ["Hammadde Seçiniz..."] + bekleyenler['unique_key'].tolist())
             
-            if sel_display != "Seçiniz...":
+            if sel_display != "Hammadde Seçiniz...":
                 row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
                 s_kod = str(row['Stok Kodu']).strip().upper()
                 kalan_ih = round(row['İhtiyaç Miktarı'] - row['Hazırlanan Adet'], 3)
