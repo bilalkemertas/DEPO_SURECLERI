@@ -5,6 +5,11 @@ from streamlit_gsheets import GSheetsConnection
 # Modülleri aynı dizinden içe aktar
 import blok_kesim
 import teslim_alma
+import modul_rapor
+import modul_sayim
+import modul_stok
+import modul_uretim
+import teslim_alma
 
 # --- SAYFA AYARLARI VE KURUMSAL TEMA ---
 st.set_page_config(page_title="WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
