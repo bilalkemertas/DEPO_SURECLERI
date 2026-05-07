@@ -12,7 +12,7 @@ def run_blok_kesim(conn):
 
     with st.sidebar:
         st.header("📁 Veri Kaynağı")
-        uploaded_file = st.file_uploader("DataGrid Excel Dosyasını Yükleyin", type=['xlsx'])
+        uploaded_file = st.file_uploader("DataGrid Excel Dosyasını Yükleyin", type=['xlsx'], key="blok_kesim_uploader")
         
         if uploaded_file:
             df_main = pd.read_excel(uploaded_file, sheet_name='Main sheet')
@@ -70,7 +70,7 @@ def run_blok_kesim(conn):
                     if not filtered_skus.empty:
                         selected_sku = st.radio("En Yakın Sonuçlar:", filtered_skus['isim'].tolist(), key="sku_radio")
                         
-                        if st.button("BU KARTI EŞLEŞTİR VE KAYDET"):
+                        if st.button("BU KARTI EŞLEŞTİR VE KAYDET", key="btn_eslestir"):
                             bizim_kart = filtered_skus[filtered_skus['isim'] == selected_sku].iloc[0]
                             # Yeni eşleşmeyi listeye ekle
                             yeni_kayit = pd.DataFrame([{
@@ -78,8 +78,9 @@ def run_blok_kesim(conn):
                                 "Bizim_Kod": bizim_kart['kod'],
                                 "Bizim_İsim": bizim_kart['isim']
                             }])
-                            # Google Sheets Güncelle
-                            conn.create(worksheet="Eşleşmeler", data=pd.concat([mapping_df, yeni_kayit]), update=True)
+                            # Google Sheets Güncelle - Append hatasını önlemek için concat + update
+                            guncel_df = pd.concat([mapping_df, yeni_kayit], ignore_index=True)
+                            conn.update(worksheet="Eşleşmeler", data=guncel_df)
                             st.success("Hafızaya alındı! Sayfa yenileniyor...")
                             st.rerun()
                     else:
@@ -87,7 +88,7 @@ def run_blok_kesim(conn):
 
         # --- 4. OPERASYON: PARTİ NO İLE SORGULAMA ---
         st.divider()
-        parti_input = st.text_input("🔍 Parti No (Barkod) Okutun")
+        parti_input = st.text_input("🔍 Parti No (Barkod) Okutun", key="parti_arama")
         
         if parti_input:
             match = df[df['Parti No'].astype(str) == str(parti_input)]
@@ -104,7 +105,7 @@ def run_blok_kesim(conn):
                         elif item['Kategori'] == "Rulo": st.info(f"🌀 Uzunluk: {m} mt")
                         elif item['Kategori'] == "Plaka": st.info(f"📦 Paket İçi: {int(m)} Adet")
                         
-                        if st.button("HAREKETİ KAYDET"):
+                        if st.button("HAREKETİ KAYDET", key="btn_kaydet_blok"):
                             st.balloons()
                 else:
                     st.error("Bu ürünün tipi henüz eşleştirilmemiş. Lütfen yukarıdaki panelden eşleştirin.")
