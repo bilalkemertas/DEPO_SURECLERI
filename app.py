@@ -2,12 +2,11 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# Modülleri aynı dizinden içe aktar
+# 1. TÜM MODÜLLERİ AKTİF ŞEKİLDE İÇE AKTARIYORUZ
 import blok_kesim
 import teslim_alma
-# İleride eklenecek modüller için dosyaları oluşturduğunda bu yorum satırlarını açabilirsin:
-# import uretim_hazirlik
-# import depo_sayim
+import uretim_hazirlik
+import depo_sayim
 
 # --- SAYFA AYARLARI VE KURUMSAL TEMA ---
 st.set_page_config(page_title="WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
@@ -17,7 +16,7 @@ st.markdown("""
     <style>
         .block-container { padding: 2rem !important; max-width: 900px; margin: 0 auto; }
         
-        /* Ana Menü Butonları İçin Kesin Geçerli Seçici */
+        /* Ana Menü Butonları */
         div.stButton > button {
             height: 120px !important;
             width: 100% !important;
@@ -54,18 +53,16 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Google Sheets Bağlantısı (Çökmeyi önleyen hata yakalama)
+# Google Sheets Bağlantısı (Gizleme Şartları Kaldırıldı)
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error(f"Google Sheets Bağlantı Hatası: {e}")
-    conn = None
+except:
+    conn = None 
 
-# Oturum Yönetimi (Routing) ve Sıkışmış State Kurtarma
+# Oturum Yönetimi (Routing)
 if 'page' not in st.session_state:
     st.session_state['page'] = 'main'
 elif st.session_state['page'] not in ['main', 'mal_kabul', 'blok_kesim', 'uretim_hazirlik', 'depo_sayim']:
-    # Eğer hafızada tanımsız bir sayfa kalmışsa otomatik olarak ana menüye at
     st.session_state['page'] = 'main'
 
 # Kurumsal Üst Bilgi (Header)
@@ -80,64 +77,56 @@ st.markdown("""
 
 if st.session_state['page'] == 'main':
     st.subheader("Uygulama Menüsü")
-    st.write("") # Layout düzeni için boşluk
+    st.write("") 
     
-    # --- 1. SATIR BUTONLARI ---
     col1, col2 = st.columns(2)
-    
     with col1:
         if st.button("📦\nMal Kabul"):
             st.session_state['page'] = 'mal_kabul'
             st.rerun()
-            
     with col2:
         if st.button("✂️\nBlok & Rulo Kesim"):
             st.session_state['page'] = 'blok_kesim'
             st.rerun()
 
-    st.write("") # Satırlar arası boşluk
+    st.write("") 
 
-    # --- 2. SATIR BUTONLARI ---
     col3, col4 = st.columns(2)
-    
     with col3:
         if st.button("🔄\nÜretim Hazırlık (Kitleme)"):
             st.session_state['page'] = 'uretim_hazirlik'
             st.rerun()
-            
     with col4:
         if st.button("📊\nDepo Sayım & Envanter"):
             st.session_state['page'] = 'depo_sayim'
             st.rerun()
+
+# --- MODÜLLERİ ÇAĞIRMA (İçerikler Artık Boş Değil) ---
 
 elif st.session_state['page'] == 'mal_kabul':
     if st.button("⬅️ Ana Menüye Dön", key="back_mal_kabul_btn"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
-    if conn is not None:
-        teslim_alma.run(conn)
+    teslim_alma.run(conn)
 
 elif st.session_state['page'] == 'blok_kesim':
     if st.button("⬅️ Ana Menüye Dön", key="back_blok_kesim_btn"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
-    if conn is not None:
-        blok_kesim.run_blok_kesim(conn)
+    blok_kesim.run_blok_kesim(conn)
 
 elif st.session_state['page'] == 'uretim_hazirlik':
     if st.button("⬅️ Ana Menüye Dön", key="back_uretim_btn"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
-    st.info("🔄 Üretim Hazırlık modülü yapım aşamasındadır. Dosya oluşturulduğunda buraya bağlanacak.")
-    # İleride eklenecek: uretim_hazirlik.run(conn)
+    uretim_hazirlik.run(conn) # Eğer dosya içindeki fonksiyon adı farklıysa (örn: run_hazirlik) burayı güncellemelisin
 
 elif st.session_state['page'] == 'depo_sayim':
     if st.button("⬅️ Ana Menüye Dön", key="back_sayim_btn"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
-    st.info("📊 Depo Sayım modülü yapım aşamasındadır. Dosya oluşturulduğunda buraya bağlanacak.")
-    # İleride eklenecek: depo_sayim.run(conn)
+    depo_sayim.run(conn) # Eğer dosya içindeki fonksiyon adı farklıysa burayı güncellemelisin
