@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
 # Modülleri aynı dizinden içe aktar
@@ -8,39 +9,29 @@ import teslim_alma
 # --- SAYFA AYARLARI VE KURUMSAL TEMA ---
 st.set_page_config(page_title="WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
 
+# Garantili ve Evrensel CSS Tasarımı
 st.markdown("""
     <style>
-        /* Kurumsal ERP Hissiyatı İçin Güvenli CSS */
         .block-container { padding: 2rem !important; max-width: 900px; margin: 0 auto; }
-        header { visibility: hidden; }
-        footer { visibility: hidden; }
         
-        /* Ana Menü Karo (Tile) Tasarımı - Streamlit Özel Seçici */
-        div[data-testid="stButton"] > button {
-            width: 100%;
-            height: 120px;
-            border-radius: 12px;
-            background-color: #ffffff;
+        /* Ana Menü Butonları İçin Kesin Geçerli Seçici */
+        div.stButton > button {
+            height: 120px !important;
+            width: 100% !important;
+            border-radius: 12px !important;
+            font-size: 20px !important;
+            font-weight: bold !important;
+            background-color: #ffffff !important;
             color: #0b3c5d !important;
-            border: 1px solid #dcdcdc;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            font-size: 18px;
-            font-weight: 700;
-            transition: all 0.2s ease;
-            white-space: pre-wrap;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            border: 2px solid #0b3c5d !important;
+            transition: all 0.3s ease !important;
+            white-space: pre-wrap !important;
         }
-        div[data-testid="stButton"] > button:hover {
-            border-color: #328cc1;
-            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-            transform: translateY(-3px);
-            color: #328cc1 !important;
-        }
-        div[data-testid="stButton"] > button:active {
-            transform: translateY(0);
+        div.stButton > button:hover {
+            background-color: #0b3c5d !important;
+            color: #ffffff !important;
+            border-color: #11caa0 !important;
+            transform: translateY(-2px);
         }
         
         /* Kurumsal Header */
@@ -60,11 +51,18 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Google Sheets Bağlantısı
-conn = st.connection("gsheets", type=GSheetsConnection)
+# Google Sheets Bağlantısı (Çökmeyi önleyen hata yakalama)
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error(f"Google Sheets Bağlantı Hatası: {e}")
+    conn = None
 
-# Oturum Yönetimi (Routing)
+# Oturum Yönetimi (Routing) ve Sıkışmış State Kurtarma
 if 'page' not in st.session_state:
+    st.session_state['page'] = 'main'
+elif st.session_state['page'] not in ['main', 'mal_kabul', 'blok_kesim']:
+    # Eğer hafızada tanımsız bir sayfa kalmışsa otomatik olarak ana menüye at
     st.session_state['page'] = 'main'
 
 # Kurumsal Üst Bilgi (Header)
@@ -79,30 +77,32 @@ st.markdown("""
 
 if st.session_state['page'] == 'main':
     st.subheader("Uygulama Menüsü")
-    st.write("") # Boşluk eklemek için
+    st.write("") # Layout düzeni için boşluk
     
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("📦\nMal Kabul", use_container_width=True):
+        if st.button("📦\nMal Kabul"):
             st.session_state['page'] = 'mal_kabul'
             st.rerun()
             
     with col2:
-        if st.button("✂️\nBlok & Rulo Kesim", use_container_width=True):
+        if st.button("✂️\nBlok & Rulo Kesim"):
             st.session_state['page'] = 'blok_kesim'
             st.rerun()
 
 elif st.session_state['page'] == 'mal_kabul':
-    if st.button("⬅️ Ana Menüye Dön", key="back_mal_kabul"):
+    if st.button("⬅️ Ana Menüye Dön", key="back_mal_kabul_btn"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
-    teslim_alma.run(conn)
+    if conn is not None:
+        teslim_alma.run(conn)
 
 elif st.session_state['page'] == 'blok_kesim':
-    if st.button("⬅️ Ana Menüye Dön", key="back_blok_kesim"):
+    if st.button("⬅️ Ana Menüye Dön", key="back_blok_kesim_btn"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
-    blok_kesim.run_blok_kesim(conn)
+    if conn is not None:
+        blok_kesim.run_blok_kesim(conn)
