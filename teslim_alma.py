@@ -38,8 +38,7 @@ def run(conn):
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         with c_nav1:
             if st.button("⬅️ ANA MENÜ", use_container_width=True):
-                # Ana menüye dönerken hafızayı temizle ki bir sonraki girişte taze veri çekilsin
-                for k in ['full_stok_data', 'full_sas_data', 'full_har_data']:
+                for k in ['full_stok_data', 'full_sas_data', 'full_har_data', 'db_excel_data']:
                     if k in st.session_state: del st.session_state[k]
                 st.session_state.teslim_page = 'menu'; st.session_state.page = 'home'; st.rerun()
         with c_nav2:
@@ -72,7 +71,6 @@ def run(conn):
             try:
                 df_excel = pd.read_excel(up_sas, sheet_name='Main sheet')
                 df_excel['Parti No'] = df_excel['Parti No'].astype(str).str.strip().str.split(".").str[0]
-                st.session_state['last_uploaded_excel'] = df_excel
                 
                 mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
                 if not mapping_df.empty:
@@ -81,8 +79,17 @@ def run(conn):
                     df_excel['TEMİZ_KOD'] = df_excel['Malzeme Kodu'].apply(clean_code)
                     sas_ref = str(df_excel['Teslimat No'].iloc[0]).split(".")[0]
                     st.session_state.new_po_no = f"SAS-{sas_ref}"
+                    
                     df_merged = df_excel.merge(mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], left_on='TEMİZ_KOD', right_on='FORM_TEMİZ', how='left')
-                    if st.button("🚀 EXCEL VERİLERİNİ AKTAR", use_container_width=True):
+                    
+                    if st.button("🚀 EXCEL VERİLERİNİ AKTAR VE DRİVE'A KAYDET", use_container_width=True):
+                        # Kalıcı Excel Hafızasını Güncelle
+                        db_excel = veritabani.get_internal_data("Excel_Hafizasi")
+                        new_records = df_excel[['Parti No', 'Malzeme Kodu', 'Teslimat Miktarı']].copy()
+                        new_records['SAS_No'] = st.session_state.new_po_no
+                        db_excel = pd.concat([db_excel, new_records], ignore_index=True).drop_duplicates(subset=['Parti No', 'SAS_No'])
+                        veritabani.update_data("Excel_Hafizasi", db_excel)
+                        
                         st.session_state.sip_gecici_liste = []
                         for i, row in df_merged.iterrows():
                             if pd.notna(row['BRN KOD']):
@@ -138,17 +145,18 @@ def run(conn):
                     st.session_state.sel_tedarikci = df_b[df_b['Sipariş No'] == sec_sip].iloc[0]['Tedarikçi']
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
                     st.session_state.mk_gecici_liste = {}
-                    # Seçimden kabule geçerken veriyi taze çek
+                    # Kalıcı verileri her girişte taze çek
                     st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
                     st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
                     st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
+                    st.session_state.db_excel_data = veritabani.get_internal_data("Excel_Hafizasi")
                     st.session_state.teslim_page = 'kabul'; st.rerun()
 
     # --- 3. MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**SAS:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
-        # Eğer herhangi bir şekilde hafıza boşsa (örn. sayfa yenileme), tekrar çek
+        if 'db_excel_data' not in st.session_state: st.session_state.db_excel_data = veritabani.get_internal_data("Excel_Hafizasi")
         if 'full_stok_data' not in st.session_state: st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
         if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
         if 'full_har_data' not in st.session_state: st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
@@ -158,8 +166,13 @@ def run(conn):
             
             def process_scan(code):
                 if not code: return
-                if 'last_uploaded_excel' not in st.session_state:
-                    st.error("Excel verisi bulunamadı!"); return
+                
+                # Excel Hafızasını kullan (Drive'dan gelen kalıcı veri)
+                ex_df = st.session_state.db_excel_data
+                found = ex_df[(ex_df['Parti No'] == code) & (ex_df['SAS_No'] == st.session_state.sel_siparis)]
+                
+                if found.empty:
+                    st.error(f"❌ Excel verisi bulunamadı! (Parti No: {code} / SAS: {st.session_state.sel_siparis})"); return
                 
                 if code in st.session_state.mk_gecici_liste and not st.session_state.get('undo_active', False):
                     st.warning(f"⚠️ Bu barkod zaten okutuldu: {code}"); return
@@ -168,12 +181,6 @@ def run(conn):
                 if 'Tedarikçi Barkod' in df_stok_local.columns:
                     if code in df_stok_local['Tedarikçi Barkod'].astype(str).values and not st.session_state.get('undo_active', False):
                         st.error(f"❌ Bu barkod daha önce sisteme kaydedilmiş! (Parti No: {code})"); return
-                
-                ex_df = st.session_state['last_uploaded_excel']
-                found = ex_df[ex_df['Parti No'] == code]
-                
-                if found.empty:
-                    st.error(f"Excel'de bulunamadı: {code}"); return
                 
                 row = found.iloc[0]
                 m_kod = clean_code(row['Malzeme Kodu'])
@@ -191,9 +198,9 @@ def run(conn):
                                 del st.session_state.mk_gecici_liste[code]
                         else:
                             st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(row['Teslimat Miktarı']), "Ad": match.iloc[0]['BRN ÜRÜN ADI']}
-                            st.success(f"Okundu: {brn_kod}")
+                            st.success(f"✅ Okundu: {brn_kod}")
                         st.rerun()
-                    else: st.error(f"Mapping yok: {m_kod}")
+                    else: st.error(f"⚠️ Mapping yok: {m_kod}")
 
             if 'scan_counter' not in st.session_state: st.session_state.scan_counter = 0
             scan_code = c_op1.text_input("🔍 Barkod (Parti No) Okutun:", key=f"barkod_input_{st.session_state.scan_counter}")
@@ -222,11 +229,11 @@ def run(conn):
 
         if st.session_state.mk_gecici_liste:
             st.divider()
-            if st.button("🚀 TESLİMATI TAMAMLA", type="primary", use_container_width=True):
+            if st.button("🚀 TÜMÜNÜ STOĞA KAYDET", type="primary", use_container_width=True):
                 df_stok = st.session_state.full_stok_data
                 df_s = st.session_state.full_sas_data
                 df_har = st.session_state.full_har_data
-                pers = st.session_state.get('kullanici_adi', "Sistem")
+                pers = st.session_state.get('kullanici_adi', "Bilal")
                 
                 for _, row in sub[sub['Gelen (Yeni)'] > 0].iterrows():
                     m_stok = (df_stok['Kod'] == row['Stok Kodu']) & (df_stok.get('Tedarikçi Barkod', pd.Series()) == row['Parti No'])
@@ -242,12 +249,11 @@ def run(conn):
                 veritabani.update_data("Satin_Alma", df_s)
                 veritabani.update_data("Hareketler", df_har)
                 
-                # Kayıt bittikten sonra hafızayı sil ki bir dahaki sefere yeni veri çekilsin
-                for k in ['full_stok_data', 'full_sas_data', 'full_har_data']: 
+                for k in ['full_stok_data', 'full_sas_data', 'full_har_data', 'db_excel_data']: 
                     if k in st.session_state: del st.session_state[k]
                     
-                st.session_state.mk_gecici_liste = {}; st.success("Toplu Kayıt Başarılı!"); st.rerun()
+                st.session_state.mk_gecici_liste = {}; st.success("✅ Toplu Kayıt Başarılı!"); st.rerun()
 
     st.markdown("---")
     col_sign2 = st.columns([3, 1])[1]
-    with col_sign2: st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>Logistics Solutions</small></div>", unsafe_allow_html=True)
+    with col_sign2: st.markdown(f"<div style='text-align: right;'><b>🚀 {st.session_state.get('kullanici_adi', 'Bilal Kemertaş')}</b><br><small>Logistics Solutions</small></div>", unsafe_allow_html=True)
