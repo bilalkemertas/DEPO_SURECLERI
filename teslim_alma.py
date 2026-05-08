@@ -256,4 +256,4 @@ def run(conn):
 
     st.markdown("---")
     col_sign2 = st.columns([3, 1])[1]
-    with col_sign2: st.markdown(f"<div style='text-align: right;'><b>🚀 {st.session_state.get('kullanici_adi', 'Bilal Kemertaş')}</b><br><small>Logistics Solutions</small></div>", unsafe_allow_html=True)
+    with col_sign2: st.markdown(f"<div style='text-align: right;'><b>🚀 {st.session_state.get('kullanici_adi', 'Bilal Kemertaş')}</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
