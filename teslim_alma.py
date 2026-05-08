@@ -18,11 +18,13 @@ def clear_form():
 def run(conn):
     init_state()
 
+    # Ekran alanını maksimize etmek için kompakt stil ayarları
     st.markdown("""
         <style>
-        [data-testid="stMetricValue"] { font-size: 18px !important; }
-        [data-testid="stMetricLabel"] { font-size: 12px !important; }
-        .stCaption { font-size: 11px !important; }
+        [data-testid="stMetricValue"] { font-size: 16px !important; }
+        [data-testid="stMetricLabel"] { font-size: 11px !important; }
+        .stVerticalBlock { gap: 0.5rem !important; }
+        .stMarkdown { margin-bottom: -10px !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -33,197 +35,146 @@ def run(conn):
 
     # --- 0. ANA MENÜ ---
     if st.session_state.teslim_page == 'menu':
-        st.subheader("📦 Mal Kabul & Teslim Alma Modülü")
-        st.markdown("---")
-        
+        st.subheader("📦 Mal Kabul & Teslim Alma")
         col1, col2 = st.columns(2)
         with col1:
-            st.button("📦\nMAL KABUL\n(Açık Siparişleri Teslim Al)", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'secim'))
+            st.button("📦 MAL KABUL", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'secim'))
         with col2:
-            st.button("📝\nSATINALMA SİPARİŞİ\n(Yeni Sipariş Oluştur)", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
+            st.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
 
-    # --- 1. SİPARİŞ OLUŞTURMA EKRANI ---
+    # --- 1. SAS OLUŞTURMA ---
     elif st.session_state.teslim_page == 'olustur':
-        if st.button("⬅️ ANA MENÜYE DÖN"): 
-            st.session_state.sip_gecici_liste = []
-            st.session_state.new_po_no = None
-            st.session_state.teslim_page = 'menu'
-            st.rerun()
+        if st.button("⬅️ MENÜ"): 
+            st.session_state.sip_gecici_liste = []; st.session_state.new_po_no = None; st.session_state.teslim_page = 'menu'; st.rerun()
 
-        st.subheader("📝 Yeni Satınalma Siparişi Oluştur")
-        
         if not st.session_state.new_po_no:
             st.session_state.new_po_no = f"SAS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
         with st.container(border=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                sip_tedarikci = st.text_input("🏢 Tedarikçi Adı (Zorunlu):").upper().strip()
-            with col2:
-                sip_no = st.text_input("📄 Sipariş Numarası (Otomatik):", value=st.session_state.new_po_no, disabled=True)
+            c1, c2 = st.columns(2)
+            sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
+            sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
 
-        st.markdown("---")
-        
         try:
             katalog = veritabani.get_katalog() 
         except:
             katalog = []
             
-        sec_urun = st.selectbox("Katalogdan Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog, key="sip_katalog_secim")
+        sec_urun = st.selectbox("🎯 Ürün:", ["+ MANUEL GİRİŞ"] + katalog, key="sip_katalog_secim")
 
         c1, c2, c3 = st.columns([2, 1, 1])
-        with c1:
-            if sec_urun != "+ MANUEL GİRİŞ" and " | " in sec_urun:
-                s_kod = sec_urun.split(" | ")[0]; s_isim = sec_urun.split(" | ")[1]
-                st.text_input("📦 Malzeme Kodu:", value=s_kod, disabled=True, key="sip_kod_d")
-            else:
-                s_kod = st.text_input("📦 Malzeme Kodu:", key="sip_kod_m").upper().strip()
-                s_isim = st.text_input("📝 Malzeme Adı:", key="sip_isim_m").upper().strip()
+        if sec_urun != "+ MANUEL GİRİŞ" and " | " in sec_urun:
+            s_kod = sec_urun.split(" | ")[0]; s_isim = sec_urun.split(" | ")[1]
+            c1.text_input("📦 Kod:", value=s_kod, disabled=True)
+        else:
+            s_kod = c1.text_input("📦 Kod:", key="sip_kod_m").upper().strip()
+            s_isim = st.text_input("📝 Ad:", key="sip_isim_m").upper().strip()
 
-        with c2:
-            s_mik = st.number_input("🔢 Sipariş Miktarı:", min_value=0.0, step=1.0, key="sip_mik_m")
-        with c3:
-            s_birim = st.selectbox("📏 Birim:", ["ADET", "KG", "METRE", "LİTRE", "PAKET", "KUTU", "RULO"], key="sip_birim_m")
+        s_mik = c2.number_input("🔢 Miktar:", min_value=0.0, step=1.0)
+        s_birim = c3.selectbox("📏 Birim:", ["ADET", "KG", "METRE", "PAKET", "RULO"])
 
-        if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            if not sip_tedarikci or not s_kod or s_mik <= 0:
-                st.error("Eksik bilgileri doldurun!")
-            else:
+        if st.button("➕ EKLE", use_container_width=True):
+            if sip_tedarikci and s_kod and s_mik > 0:
                 next_kalem = (len(st.session_state.sip_gecici_liste) + 1) * 10
-                kalem = {
-                    "Tedarikçi": sip_tedarikci, "Sipariş No": st.session_state.new_po_no,
-                    "Kalem No": next_kalem,
-                    "Stok Kodu": s_kod, "Stok Adı": s_isim, "Sipariş Miktarı": s_mik,
-                    "Gelen Miktar": 0.0, "Birim": s_birim
-                }
-                st.session_state.sip_gecici_liste.append(kalem)
+                st.session_state.sip_gecici_liste.append({
+                    "Tedarikçi": sip_tedarikci, "Sipariş No": st.session_state.new_po_no, "Kalem No": next_kalem,
+                    "Stok Kodu": s_kod, "Stok Adı": s_isim, "Sipariş Miktarı": s_mik, "Gelen Miktar": 0.0, "Birim": s_birim
+                })
                 st.rerun()
 
         if st.session_state.sip_gecici_liste:
-            st.markdown("### 📋 Sipariş Sepeti")
-            for i, item in enumerate(st.session_state.sip_gecici_liste):
-                with st.expander(f"Kalem {item['Kalem No']}: {item['Stok Adı']} - {item['Sipariş Miktarı']} {item['Birim']}"):
-                    if st.button(f"🗑️ Satırı Sil", key=f"del_sip_{i}"):
-                        st.session_state.sip_gecici_liste.pop(i); st.rerun()
-            
-            if st.button("🚀 SİPARİŞİ SİSTEME KAYDET", type="primary", use_container_width=True):
+            if st.button("🚀 SİPARİŞİ KAYDET", type="primary", use_container_width=True):
                 try:
-                    df_mevcut = veritabani.get_internal_data("Satin_Alma")
-                    if "Kalem No" not in df_mevcut.columns: df_mevcut["Kalem No"] = 0
+                    df_m = veritabani.get_internal_data("Satin_Alma")
+                    if "Kalem No" not in df_m.columns: df_m["Kalem No"] = 0
                 except:
-                    df_mevcut = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Kalem No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
-
-                df_yeni = pd.DataFrame(st.session_state.sip_gecici_liste)
-                df_son = pd.concat([df_mevcut, df_yeni], ignore_index=True)
+                    df_m = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Kalem No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
+                df_son = pd.concat([df_m, pd.DataFrame(st.session_state.sip_gecici_liste)], ignore_index=True)
                 veritabani.update_data("Satin_Alma", df_son)
-                st.session_state.sip_gecici_liste = []; st.session_state.new_po_no = None
-                st.success("✅ Kaydedildi!"); st.session_state.teslim_page = 'menu'; st.rerun()
+                st.session_state.sip_gecici_liste = []; st.session_state.new_po_no = None; st.success("Kaydedildi"); st.session_state.teslim_page = 'menu'; st.rerun()
 
-    # --- 2. MAL KABUL SEÇİM (ADIM 1) ---
+    # --- 2. MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
-        if st.button("⬅️ ANA MENÜYE DÖN"): st.session_state.teslim_page = 'menu'; st.rerun()
-        st.subheader("🔍 Mal Kabul Seçimi")
-
+        if st.button("⬅️ MENÜ"): st.session_state.teslim_page = 'menu'; st.rerun()
         try:
-            df_siparis = veritabani.get_internal_data("Satin_Alma")
-            if "Kalem No" not in df_siparis.columns: df_siparis["Kalem No"] = 10
-            
-            df_bekleyen = df_siparis[(df_siparis['Sipariş Miktarı'] - df_siparis['Gelen Miktar']) > 0]
-            tedarikci_listesi = ["Tümü"] + sorted(df_bekleyen['Tedarikçi'].dropna().unique().tolist())
+            df_s = veritabani.get_internal_data("Satin_Alma")
+            df_b = df_s[(df_s['Sipariş Miktarı'] - df_s['Gelen Miktar']) > 0]
+            t_list = ["Tümü"] + sorted(df_b['Tedarikçi'].dropna().unique().tolist())
         except:
-            df_bekleyen = pd.DataFrame(); tedarikci_listesi = ["Tümü"]
+            df_b = pd.DataFrame(); t_list = ["Tümü"]
 
         with st.container(border=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                secilen_tedarikci = st.selectbox("🏢 Tedarikçi Seç:", tedarikci_listesi)
-            with col2:
-                sip_filt = df_bekleyen if secilen_tedarikci == "Tümü" else df_bekleyen[df_bekleyen['Tedarikçi'] == secilen_tedarikci]
-                siparis_listesi = sorted(sip_filt['Sipariş No'].dropna().unique().tolist())
-                secilen_siparis = st.selectbox("📄 Sipariş No:", ["Seçiniz..."] + siparis_listesi)
-
-            irsaliye = st.text_input("🧾 İrsaliye No:").upper().strip()
+            c1, c2 = st.columns(2)
+            sec_ted = c1.selectbox("🏢 Tedarikçi:", t_list)
+            sip_f = df_b if sec_ted == "Tümü" else df_b[df_b['Tedarikçi'] == sec_ted]
+            sec_sip = c2.selectbox("📄 SAS No:", ["Seçiniz..."] + sorted(sip_f['Sipariş No'].unique().tolist()))
+            irs = st.text_input("🧾 İrsaliye No:").upper().strip()
 
             if st.button("🚀 İLERLE", use_container_width=True, type="primary"):
-                if secilen_siparis != "Seçiniz..." and irsaliye:
-                    st.session_state.sel_tedarikci = df_bekleyen[df_bekleyen['Sipariş No'] == secilen_siparis].iloc[0]['Tedarikçi']
-                    st.session_state.sel_siparis = secilen_siparis
-                    st.session_state.irsaliye_no = irsaliye
-                    st.session_state.mk_gecici_liste = []
-                    st.session_state.teslim_page = 'kabul'; st.rerun()
+                if sec_sip != "Seçiniz..." and irs:
+                    st.session_state.sel_tedarikci = df_b[df_b['Sipariş No'] == sec_sip].iloc[0]['Tedarikçi']
+                    st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
+                    st.session_state.mk_gecici_liste = []; st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- 3. ÜRÜN GİRİŞİ (ADIM 2) ---
+    # --- 3. MAL KABUL GİRİŞ (KOMPAKT TASARIM) ---
     elif st.session_state.teslim_page == 'kabul':
-        if st.button("⬅️ SEÇİME DÖN"): st.session_state.teslim_page = 'secim'; st.rerun()
-        st.info(f"**Sipariş:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
+        c1, c2 = st.columns([1, 4])
+        if c1.button("⬅️ GERİ"): st.session_state.teslim_page = 'secim'; st.rerun()
+        c2.caption(f"**Sipariş:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
-        df_siparis = veritabani.get_internal_data("Satin_Alma")
-        if "Kalem No" not in df_siparis.columns: df_siparis["Kalem No"] = 10
+        df_s = veritabani.get_internal_data("Satin_Alma")
+        sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
+        if "Kalem No" not in sub.columns: sub["Kalem No"] = 10
         
-        df_stok = veritabani.get_internal_data("Stok")
-        df_hareket = veritabani.get_internal_data("Hareketler")
-
-        sub = df_siparis[df_siparis['Sipariş No'] == st.session_state.sel_siparis].copy()
-        sub['unique_key'] = sub['Kalem No'].astype(str) + " | " + sub['Stok Adı'] + " (" + sub['Stok Kodu'] + ")"
+        sub['key'] = sub['Kalem No'].astype(str) + " | " + sub['Stok Adı'] + " (" + sub['Stok Kodu'] + ")"
         bekleyenler = sub[(sub['Sipariş Miktarı'] - sub['Gelen Miktar']) > 0].copy()
 
         if not bekleyenler.empty:
-            sel_display = st.selectbox("🎯 Malzeme Seç:", ["Seçiniz..."] + bekleyenler['unique_key'].tolist())
+            sel_d = st.selectbox("🎯 Malzeme:", ["Seçiniz..."] + bekleyenler['key'].tolist(), label_visibility="collapsed")
 
-            if sel_display != "Seçiniz...":
-                row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
-                sepetteki = sum([x['Miktar'] for x in st.session_state.mk_gecici_liste if x['Kalem No'] == row['Kalem No']])
-                # Kalan ihtiyaç hesabı
-                kalan_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'] - sepetteki, 3)
+            if sel_d != "Seçiniz...":
+                row = bekleyenler[bekleyenler['key'] == sel_d].iloc[0]
+                sep = sum([x['Miktar'] for x in st.session_state.mk_gecici_liste if x['Kalem No'] == row['Kalem No']])
+                k_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'] - sep, 3)
 
                 with st.container(border=True):
-                    st.markdown(f"🛠️ **Kalem No: {row['Kalem No']}** | {row['Stok Adı']}")
+                    # TASARIM TASARRUFU: Malzeme adı ve metrikler yan yana
+                    h1, h2, h3 = st.columns([2, 1, 1])
+                    h1.markdown(f"**{row['Stok Adı']}**")
+                    h2.metric("📦 Sipariş", f"{row['Sipariş Miktarı']} {row['Birim']}")
+                    h3.metric("🎯 Kalan", f"{k_ih} {row['Birim']}", delta_color="inverse")
                     
-                    # METRİKLER: Sipariş Miktarı ve Kalan Teslim Alma
-                    col_m1, col_m2 = st.columns(2)
-                    col_m1.metric("📦 Sipariş Miktarı", f"{row['Sipariş Miktarı']} {row['Birim']}")
-                    col_m2.metric("🎯 Kalan Bekleyen", f"{kalan_ih} {row['Birim']}", delta_color="inverse")
-                    
-                    st.markdown("---")
-                    
-                    r1c1, r1c2 = st.columns([2, 1])
-                    input_adr = r1c1.text_input("📍 Adres:", key="mk_adr").upper().strip()
-                    input_mik = r1c2.number_input("🔢 Kabul Miktarı:", min_value=0.0, max_value=float(kalan_ih), step=1.0, key="mk_mik")
+                    r1, r2 = st.columns([2, 1])
+                    i_adr = r1.text_input("📍 Adres:", key="mk_adr", placeholder="Örn: A-01").upper().strip()
+                    i_mik = r2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik")
 
                     if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-                        if input_adr and input_mik > 0:
+                        if i_adr and i_mik > 0:
                             st.session_state.mk_gecici_liste.append({
                                 "Kalem No": row['Kalem No'], "Stok Kodu": row['Stok Kodu'],
-                                "Stok Adı": row['Stok Adı'], "Adres": input_adr, "Miktar": input_mik, "Birim": row['Birim']
+                                "Stok Adı": row['Stok Adı'], "Adres": i_adr, "Miktar": i_mik, "Birim": row['Birim']
                             })
                             clear_form(); st.rerun()
 
             if st.session_state.mk_gecici_liste:
-                st.markdown("### 🛒 Sepet")
-                for i, item in enumerate(st.session_state.mk_gecici_liste):
-                    with st.expander(f"Kalem {item['Kalem No']}: {item['Miktar']} {item['Birim']}"):
-                        if st.button(f"🗑️ Satırı Sil", key=f"del_mk_{i}"):
-                            st.session_state.mk_gecici_liste.pop(i); st.rerun()
-                
-                if st.button("🚀 TÜMÜNÜ STOĞA KAYDET", type="primary", use_container_width=True):
-                    personel = st.session_state.kullanici_adi if 'kullanici_adi' in st.session_state else "Sistem"
+                st.markdown("---")
+                if st.button("🚀 STOĞA KAYDET", type="primary", use_container_width=True):
+                    df_stok = veritabani.get_internal_data("Stok")
+                    df_har = veritabani.get_internal_data("Hareketler")
+                    pers = st.session_state.kullanici_adi if 'kullanici_adi' in st.session_state else "Sistem"
+                    
                     for item in st.session_state.mk_gecici_liste:
-                        mask_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres'])
-                        if mask_stok.any():
-                            df_stok.loc[mask_stok, 'Miktar'] += item['Miktar']
-                        else:
-                            df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])], ignore_index=True)
+                        m_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres'])
+                        if m_stok.any(): df_stok.loc[m_stok, 'Miktar'] += item['Miktar']
+                        else: df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])], ignore_index=True)
+                        
+                        m_sas = (df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == item['Kalem No'])
+                        df_s.loc[m_sas, 'Gelen Miktar'] += item['Miktar']
+                        
+                        df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": item['Stok Kodu'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Personel": pers, "Lot": st.session_state.irsaliye_no}])], ignore_index=True)
 
-                        mask_emir = (df_siparis['Sipariş No'] == st.session_state.sel_siparis) & (df_siparis['Kalem No'] == item['Kalem No'])
-                        df_siparis.loc[mask_emir, 'Gelen Miktar'] += item['Miktar']
+                    veritabani.update_data("Stok", df_stok); veritabani.update_data("Satin_Alma", df_s); veritabani.update_data("Hareketler", df_har)
+                    st.session_state.mk_gecici_liste = []; st.success("Başarılı"); st.rerun()
 
-                        df_hareket = pd.concat([df_hareket, pd.DataFrame([{
-                            "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "İşlem": "GİRİŞ", 
-                            "İş Emri": st.session_state.sel_siparis, "Kod": item['Stok Kodu'], "Adres": item['Adres'], 
-                            "Miktar": item['Miktar'], "Personel": personel, "Lot": st.session_state.irsaliye_no
-                        }])], ignore_index=True)
-
-                    veritabani.update_data("Stok", df_stok)
-                    veritabani.update_data("Satin_Alma", df_siparis)
-                    veritabani.update_data("Hareketler", df_hareket)
-                    st.session_state.mk_gecici_liste = []; st.success("✅ Kaydedildi!"); st.rerun()
+            st.caption("**Açık Kalemler**")
+            st.dataframe(bekleyenler[["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar"]], use_container_width=True, hide_index=True)
