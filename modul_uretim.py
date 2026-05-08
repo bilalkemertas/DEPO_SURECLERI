@@ -21,7 +21,6 @@ def go_uretim_menu():
 def goster():
     init_state()
     
-    # --- STİL AYARLARI (KÜÇÜK PUNTO) ---
     st.markdown("""
         <style>
         [data-testid="stMetricValue"] { font-size: 18px !important; }
@@ -33,13 +32,13 @@ def goster():
     # --- 0. ANA MENÜ ---
     if st.session_state.uretim_page == 'menu':
         if st.button("⬅️ ANA MENÜYE DÖN"): go_home(); st.rerun()
-        st.subheader("🏭 Üretim Hazırlık Modülü (v18.14)")
+        st.subheader("🏭 Üretim Hazırlık Modülü (v18.15)")
         st.markdown("---")
         st.button("📥 YENİ İŞ EMRİ YÜKLE", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'is_emri'))
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik_secim'))
         st.button("📊 HAZIRLIK RAPORU", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'rapor'))
 
-    # --- 1. YÜKLEME ---
+    # --- 1. YÜKLEME (GÜVENLİ MOD - APPEND) ---
     elif st.session_state.uretim_page == 'is_emri':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("📤 İş Emri Excel'i Yükle")
@@ -56,21 +55,40 @@ def goster():
                 df.columns = df.iloc[0]
                 df = df.iloc[1:].reset_index(drop=True)
                 df.columns = [str(c).strip() for c in df.columns]
+                
                 if 'Mamül Adı' in df.columns: df['Mamül Adı'] = df['Mamül Adı'].ffill()
                 elif 'Ürün Adı' in df.columns: df['Mamül Adı'] = df['Ürün Adı'].ffill()
+                
                 df = df.dropna(subset=['Stok Kodu', 'Stok Adı'])
                 df['İş Emri'] = is_emri_adi
                 df['Hazırlanan Adet'] = 0
+                
                 for col in df.columns:
                     if any(x in col.lower() for x in ['total', 'ihtiyaç', 'miktar']):
                         df['İhtiyaç Miktarı'] = pd.to_numeric(df[col], errors='coerce').fillna(0); break
-                df = df[df['Stok Kodu'] != df.get('Ürün Kodu', '---')]
+                
                 cols = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                 df_save = df[[c for c in cols if c in df.columns]]
+                
                 with st.expander("📋 Yüklenecek Veri Önizlemesi", expanded=True):
                     st.dataframe(df_save, use_container_width=True, hide_index=True)
-                if st.button("UYGULAMAYI GÜNCELLE", type="primary", use_container_width=True):
-                    veritabani.update_data("Is_Emirleri", df_save); st.success("✅ Güncellendi!"); st.rerun()
+                
+                if st.button("LİSTEYE İLAVE ET (GÜVENLİ YÜKLEME)", type="primary", use_container_width=True):
+                    # --- KRİTİK NOKTA: ESKİ VERİYİ ÇEK VE YENİSİYLE BİRLEŞTİR ---
+                    try:
+                        df_old = veritabani.get_internal_data("Is_Emirleri")
+                    except:
+                        df_old = pd.DataFrame(columns=df_save.columns)
+                    
+                    # Eğer bu iş emri zaten varsa, mükerrer kaydı önlemek için eskisini silebiliriz (opsiyonel)
+                    df_old = df_old[df_old['İş Emri'] != is_emri_adi]
+                    
+                    # Yeni ve eski veriyi birleştir
+                    df_final = pd.concat([df_old, df_save], ignore_index=True)
+                    
+                    veritabani.update_data("Is_Emirleri", df_final)
+                    st.success(f"✅ {is_emri_adi} başarıyla eklendi ve veritabanı korundu!")
+                    st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
     # --- 2. ADIM A: İŞ EMRİ SEÇİM EKRANI ---
@@ -143,8 +161,11 @@ def goster():
                         else:
                             mask_stok = (df_stok[st_kod_col].astype(str).str.strip().str.upper() == s_kod) & (df_stok[st_adr_col] == input_adr)
                             df_stok.loc[mask_stok, st_mik_col] -= input_mik
+                            
+                            # Veritabanında güncelleme yaparken doğru satırı bulmak için maske
                             mask_emir = (df_db['İş Emri'] == st.session_state.sel_is_emri) & (df_db['Mamül Adı'] == row['Mamül Adı']) & \
                                         (df_db['Stok Kodu'] == row['Stok Kodu']) & (df_db['Stok Adı'] == row['Stok Adı'])
+                            
                             df_db.loc[mask_emir, 'Hazırlanan Adet'] += input_mik
                             veritabani.update_data("Stok", df_stok)
                             veritabani.update_data("Is_Emirleri", df_db)
