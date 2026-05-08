@@ -25,6 +25,22 @@ def run(conn):
         </style>
     """, unsafe_allow_html=True)
 
+    # --- YAN YANA GERİ BUTONLARI (ÜST NAVİGASYON) ---
+    if st.session_state.teslim_page != 'menu':
+        c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
+        with c_nav1:
+            if st.button("⬅️ ANA MENÜ", use_container_width=True):
+                st.session_state.teslim_page = 'menu'
+                st.session_state.page = 'home'
+                st.rerun()
+        with c_nav2:
+            if st.session_state.teslim_page in ['kabul', 'secim']:
+                prev = 'menu' if st.session_state.teslim_page == 'secim' else 'secim'
+                if st.button("⬅️ GERİ", use_container_width=True):
+                    st.session_state.teslim_page = prev
+                    st.rerun()
+        st.divider()
+
     # --- 0. ANA MENÜ ---
     if st.session_state.teslim_page == 'menu':
         st.subheader("📦 Mal Kabul & Teslim Alma")
@@ -36,9 +52,6 @@ def run(conn):
 
     # --- 1. SAS OLUŞTURMA ---
     elif st.session_state.teslim_page == 'olustur':
-        if st.button("⬅️ MENÜ"): 
-            st.session_state.sip_gecici_liste = []; st.session_state.new_po_no = None; st.session_state.teslim_page = 'menu'; st.rerun()
-
         if not st.session_state.new_po_no:
             st.session_state.new_po_no = f"SAS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
@@ -81,7 +94,6 @@ def run(conn):
 
     # --- 2. MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
-        if st.button("⬅️ MENÜ"): st.session_state.teslim_page = 'menu'; st.rerun()
         try:
             df_s = veritabani.get_internal_data("Satin_Alma")
             df_b = df_s[(df_s['Sipariş Miktarı'] - df_s['Gelen Miktar']) > 0]
@@ -104,9 +116,7 @@ def run(conn):
 
     # --- 3. MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
-        c1, c2 = st.columns([1, 4])
-        if c1.button("⬅️"): st.session_state.teslim_page = 'secim'; st.rerun()
-        c2.caption(f"**PO:** {st.session_state.sel_siparis}")
+        st.caption(f"**PO:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
         df_s = veritabani.get_internal_data("Satin_Alma")
         sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
@@ -127,6 +137,9 @@ def run(conn):
                     m_col1.metric("📦 Sipariş", f"{row['Sipariş Miktarı']}")
                     m_col2.metric("🎯 Kalan", f"{k_ih}", delta_color="inverse")
                     
+                    # --- TEDARİKÇİ BARKOD GİRİŞ ALANI ---
+                    r_barkod = st.text_input("🏷️ Tedarikçi Barkod / Parti No:", key="mk_ted_barkod").upper().strip()
+                    
                     r1, r2, r3 = st.columns([1.5, 1, 1])
                     i_adr = r1.text_input("📍 Adres:", key="mk_adr_input").upper().strip()
                     i_mik = r2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik_input")
@@ -137,14 +150,14 @@ def run(conn):
                             st.session_state.mk_gecici_liste.append({
                                 "Kalem No": row['Kalem No'], "Stok Kodu": row['Stok Kodu'],
                                 "Stok Adı": row['Stok Adı'], "Adres": i_adr, "Miktar": i_mik, 
-                                "Birim": row['Birim'], "Durum": i_dur
+                                "Birim": row['Birim'], "Durum": i_dur, "Tedarikçi Barkod": r_barkod
                             })
                             st.rerun()
 
             if st.session_state.mk_gecici_liste:
                 st.markdown("🛒 **Sepettekiler**")
                 for i, item in enumerate(st.session_state.mk_gecici_liste):
-                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} ({item['Adres']}) - {item['Durum']}", expanded=False):
+                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} ({item['Tedarikçi Barkod']})", expanded=False):
                         if st.button(f"🗑️ Sil", key=f"del_mk_{i}"):
                             st.session_state.mk_gecici_liste.pop(i); st.rerun()
                 
@@ -154,22 +167,30 @@ def run(conn):
                     pers = st.session_state.get('kullanici_adi', "Sistem")
                     
                     for item in st.session_state.mk_gecici_liste:
-                        m_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres']) & (df_stok['Durum'] == item['Durum'])
+                        # Stok Güncelleme (Tedarikçi Barkod ile eşleşme aranır)
+                        m_stok = (df_stok['Kod'] == item['Stok Kodu']) & \
+                                 (df_stok['Adres'] == item['Adres']) & \
+                                 (df_stok['Durum'] == item['Durum']) & \
+                                 (df_stok.get('Tedarikçi Barkod', pd.Series()) == item['Tedarikçi Barkod'])
+                        
                         if m_stok.any(): 
                             df_stok.loc[m_stok, 'Miktar'] += item['Miktar']
                         else: 
                             df_stok = pd.concat([df_stok, pd.DataFrame([{
-                                "Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": item['Durum']
+                                "Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], 
+                                "Adres": item['Adres'], "Miktar": item['Miktar'], 
+                                "Durum": item['Durum'], "Tedarikçi Barkod": item['Tedarikçi Barkod']
                             }])], ignore_index=True)
                         
                         m_sas = (df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == item['Kalem No'])
                         df_s.loc[m_sas, 'Gelen Miktar'] += item['Miktar']
                         
+                        # Hareket Kaydı
                         df_har = pd.concat([df_har, pd.DataFrame([{
                             "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "İşlem": "GİRİŞ", 
                             "İş Emri": st.session_state.sel_siparis, "Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], 
                             "Adres": item['Adres'], "Miktar": item['Miktar'], "Personel": pers, "Durum": item['Durum'], 
-                            "Lot": st.session_state.irsaliye_no
+                            "Lot": st.session_state.irsaliye_no, "Tedarikçi Barkod": item['Tedarikçi Barkod']
                         }])], ignore_index=True)
 
                     veritabani.update_data("Stok", df_stok); veritabani.update_data("Satin_Alma", df_s); veritabani.update_data("Hareketler", df_har)
@@ -178,7 +199,7 @@ def run(conn):
             st.caption("**Açık SAS Kalemleri**")
             st.dataframe(bekleyenler[["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar"]], use_container_width=True, hide_index=True)
 
-    # --- SAYFA SONU İMZASI (Garantili Yer) ---
+    # --- SAYFA SONU İMZASI ---
     st.markdown("---")
     col_sign1, col_sign2 = st.columns([3, 1])
     with col_sign2:
