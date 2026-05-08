@@ -94,13 +94,17 @@ if not st.session_state['logged_in']:
     sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
     
     if st.button("Sisteme Giriş Yap", use_container_width=True):
-        # Buraya kendi gerçek şifrelerini yazabilirsin
-        if kadi == "admin" and sifre == "1234": 
-            st.session_state['logged_in'] = True
-            st.session_state['kullanici_adi'] = "Depo Yöneticisi"
-            st.rerun()
+        # Şifre kontrolünü secrets üzerinden yapıyoruz
+        if "kullanici_adi" in st.secrets and "sifre" in st.secrets:
+            if kadi == st.secrets["kullanici_adi"] and sifre == st.secrets["sifre"]: 
+                st.session_state['logged_in'] = True
+                st.session_state['kullanici_adi'] = "Depo Yöneticisi"
+                st.rerun()
+            else:
+                st.error("Hatalı kullanıcı adı veya şifre!")
         else:
-            st.error("Hatalı kullanıcı adı veya şifre!")
+            st.error("Sistem Hatası: Secrets yapılandırması bulunamadı. Lütfen ayarları kontrol edin.")
+            
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 2. ANA UYGULAMA (GİRİŞ YAPILDIYSA) ---
