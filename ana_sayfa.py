@@ -30,3 +30,5 @@ def goster():
     with c2:
         st.button("📝 SAYIM SİSTEMİ", use_container_width=True, type="primary", on_click=go_sayim)
         st.button("📈 RAPOR VE ARŞİV", use_container_width=True, type="primary", on_click=go_rapor)
+
+veritabani.footer()
