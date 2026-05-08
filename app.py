@@ -84,7 +84,7 @@ try:
 except:
     conn = None 
 
-# --- OTURUM (SESSION) YÖNETİMİ ---
+# --- OTURUM (SESSION) YÖNETİMİ VE GÜVENLİK AĞI ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'kullanici_adi' not in st.session_state:
@@ -92,18 +92,21 @@ if 'kullanici_adi' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state['page'] = 'main'
 
+# Herhangi bir modül yanlış bir sayfa ismi gönderirse sistemi kurtarıp ana menüye atar
+gecerli_sayfalar = ['main', 'home', 'mal_kabul', 'blok_kesim', 'uretim', 'stok', 'sayim', 'rapor']
+if st.session_state['page'] not in gecerli_sayfalar:
+    st.session_state['page'] = 'main'
+
 # --- 1. KULLANICI GİRİŞ (LOGIN) EKRANI ---
 if not st.session_state['logged_in']:
     
-    # Ekranı ortalamak için boş sütunlar kullanıyoruz (1 birim sol, 1.5 birim orta, 1 birim sağ)
     col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
         st.write("")
         st.write("")
-        st.write("") # Üstten biraz boşluk bırak
+        st.write("") 
         
-        # Orijinal Streamlit kutusu (border=True)
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center; color: #0b3c5d; margin-bottom: 10px;'>🏢 BRN WMS Giriş</h2>", unsafe_allow_html=True)
             st.divider()
@@ -111,9 +114,8 @@ if not st.session_state['logged_in']:
             kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adınızı girin")
             sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
             
-            st.write("") # Buton öncesi ufak boşluk
+            st.write("") 
             
-            # Giriş butonu
             if st.button("Sisteme Giriş Yap", use_container_width=True):
                 if "users" in st.secrets:
                     kullanici_listesi = st.secrets["users"]
@@ -129,7 +131,6 @@ if not st.session_state['logged_in']:
 
 # --- 2. ANA UYGULAMA (GİRİŞ YAPILDIYSA) ---
 else:
-    # Kurumsal Üst Bilgi (Header)
     st.markdown(f"""
         <div class="erp-header">
             <p class="erp-title">BRN WMS Enterprise</p>
@@ -138,11 +139,11 @@ else:
     """, unsafe_allow_html=True)
 
     # --- ANA MENÜ (TILE EKRANI) ---
-    if st.session_state['page'] == 'main':
+    # MODÜLLERDEN GELEN 'home' KOMUTUNU DA ANA MENÜ OLARAK KABUL EDİYORUZ
+    if st.session_state['page'] in ['main', 'home']:
         st.subheader("Uygulama Menüsü")
         st.write("") 
         
-        # 1. SATIR (use_container_width ve type="primary" ile simetri sağlandı)
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("📦\nMal Kabul", type="primary", use_container_width=True):
@@ -157,9 +158,8 @@ else:
                 st.session_state['page'] = 'uretim'
                 st.rerun()
 
-        st.write("") # Boşluk
+        st.write("") 
         
-        # 2. SATIR
         col4, col5, col6 = st.columns(3)
         with col4:
             if st.button("📍\nStok & Adresleme", type="primary", use_container_width=True):
@@ -174,9 +174,8 @@ else:
                 st.session_state['page'] = 'rapor'
                 st.rerun()
                 
-        # Çıkış Yap Butonu (Standart boyutlarda solda duracak)
         st.divider()
-        col_cikis, _ = st.columns([1, 4]) # Sola dayalı küçük buton için
+        col_cikis, _ = st.columns([1, 4]) 
         with col_cikis:
             if st.button("🚪 Güvenli Çıkış Yap", use_container_width=True):
                 st.session_state['logged_in'] = False
