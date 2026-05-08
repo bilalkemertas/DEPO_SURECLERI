@@ -153,7 +153,7 @@ def goster():
             """
             <div style='text-align: right;'>
                 <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+                <p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p>
             </div>
             """, 
             unsafe_allow_html=True
