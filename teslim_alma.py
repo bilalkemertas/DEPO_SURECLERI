@@ -140,62 +140,54 @@ def run(conn):
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**SAS:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
+        # HATA ÖNLEME: Barkod giriş kutusunu bir container içine alıyoruz
         with st.container(border=True):
             c_op1, c_op2 = st.columns([4, 1])
             
-            # DETERMINISTIC SCAN FUNCTION
             def process_scan(code):
                 if not code: return
-                
                 if 'last_uploaded_excel' not in st.session_state:
-                    st.error("Excel verisi bulunamadı!")
-                    return
+                    st.error("Excel verisi bulunamadı!"); return
                 
                 ex_df = st.session_state['last_uploaded_excel']
                 found = ex_df[ex_df['Parti No'] == code]
                 
                 if found.empty:
-                    st.error(f"Excel'de bulunamadı: {code}")
-                    return
+                    st.error(f"Excel'de bulunamadı: {code}"); return
                 
                 row = found.iloc[0]
                 m_kod = clean_code(row['Malzeme Kodu'])
-                
                 map_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
-                if map_df.empty:
-                    st.error("Mapping dosyası boş!")
-                    return
+                
+                if not map_df.empty:
+                    map_df.columns = [str(c).strip().upper() for c in map_df.columns]
+                    map_df['FORM_TEMİZ'] = map_df['FORM SÜNGER KOD'].apply(clean_code)
+                    match = map_df[map_df['FORM_TEMİZ'] == m_kod]
                     
-                map_df.columns = [str(c).strip().upper() for c in map_df.columns]
-                map_df['FORM_TEMİZ'] = map_df['FORM SÜNGER KOD'].apply(clean_code)
-                
-                match = map_df[map_df['FORM_TEMİZ'] == m_kod]
-                
-                if match.empty:
-                    st.error(f"Mapping uyuşmazlığı: {m_kod}")
-                    return
-                
-                brn_kod = match.iloc[0]['BRN KOD']
-                
-                # Geri al modu kontrolü
-                if st.session_state.get('undo_active', False):
-                    if code in st.session_state.mk_gecici_liste:
-                        del st.session_state.mk_gecici_liste[code]
-                        st.warning(f"Silindi: {code}")
-                else:
-                    st.session_state.mk_gecici_liste[code] = {
-                        "Kod": brn_kod,
-                        "Miktar": float(row['Teslimat Miktarı'])
-                    }
-                    st.success(f"Eklendi: {brn_kod}")
-                
-                st.session_state.barkod_input = "" # Inputu temizle
-                st.rerun() # UI Güncellemesini garanti et
+                    if not match.empty:
+                        brn_kod = match.iloc[0]['BRN KOD']
+                        if st.session_state.get('undo_active', False):
+                            if code in st.session_state.mk_gecici_liste:
+                                del st.session_state.mk_gecici_liste[code]
+                        else:
+                            st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(row['Teslimat Miktarı'])}
+                            st.success(f"Okundu: {brn_kod}")
+                        
+                        # HATA FIX: Widget'ı sıfırlamak için session_state'i elle değiştirmek yerine
+                        # Streamlit rerun mekanizmasını tetikleyip formu temizletiyoruz.
+                        st.rerun()
+                    else: st.error(f"Mapping yok: {m_kod}")
 
-            # UI INPUT (on_change KALDIRILDI)
-            scan_code = st.text_input("🔍 Barkod (Parti No) Okutun:", key="barkod_input")
+            # Widget anahtarını her rerun'da değiştirmek input'u temizler
+            if 'scan_counter' not in st.session_state: st.session_state.scan_counter = 0
+            
+            scan_code = c_op1.text_input(
+                "🔍 Barkod (Parti No) Okutun:", 
+                key=f"barkod_input_{st.session_state.scan_counter}"
+            )
             
             if scan_code:
+                st.session_state.scan_counter += 1
                 process_scan(scan_code.strip().split(".")[0])
             
             st.checkbox("🔄 Geri Al", key="undo_active")
