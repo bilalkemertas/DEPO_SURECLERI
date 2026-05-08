@@ -38,6 +38,9 @@ def run(conn):
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         with c_nav1:
             if st.button("⬅️ ANA MENÜ", use_container_width=True):
+                # Ana menüye dönerken hafızayı temizle ki bir sonraki girişte taze veri çekilsin
+                for k in ['full_stok_data', 'full_sas_data', 'full_har_data']:
+                    if k in st.session_state: del st.session_state[k]
                 st.session_state.teslim_page = 'menu'; st.session_state.page = 'home'; st.rerun()
         with c_nav2:
             if st.session_state.teslim_page in ['kabul', 'secim', 'olustur']:
@@ -134,13 +137,18 @@ def run(conn):
                 if sec_sip != "Seçiniz..." and irs:
                     st.session_state.sel_tedarikci = df_b[df_b['Sipariş No'] == sec_sip].iloc[0]['Tedarikçi']
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
-                    st.session_state.mk_gecici_liste = {}; st.session_state.teslim_page = 'kabul'; st.rerun()
+                    st.session_state.mk_gecici_liste = {}
+                    # Seçimden kabule geçerken veriyi taze çek
+                    st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
+                    st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
+                    st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
+                    st.session_state.teslim_page = 'kabul'; st.rerun()
 
     # --- 3. MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**SAS:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
-        # HIZLANDIRMA: Verileri session_state'e bir kez yükleyelim
+        # Eğer herhangi bir şekilde hafıza boşsa (örn. sayfa yenileme), tekrar çek
         if 'full_stok_data' not in st.session_state: st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
         if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
         if 'full_har_data' not in st.session_state: st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
@@ -153,11 +161,9 @@ def run(conn):
                 if 'last_uploaded_excel' not in st.session_state:
                     st.error("Excel verisi bulunamadı!"); return
                 
-                # MÜKERRER KONTROLÜ 1: Geçici listede var mı?
                 if code in st.session_state.mk_gecici_liste and not st.session_state.get('undo_active', False):
                     st.warning(f"⚠️ Bu barkod zaten okutuldu: {code}"); return
 
-                # MÜKERRER KONTROLÜ 2: Stokta/Dosyada bu Parti No daha önce işlenmiş mi?
                 df_stok_local = st.session_state.full_stok_data
                 if 'Tedarikçi Barkod' in df_stok_local.columns:
                     if code in df_stok_local['Tedarikçi Barkod'].astype(str).values and not st.session_state.get('undo_active', False):
@@ -198,7 +204,6 @@ def run(conn):
             
             st.checkbox("🔄 Geri Al", key="undo_active")
 
-        # CANLI TABLO (Hafızadaki veriden filtrele)
         sub = st.session_state.full_sas_data[st.session_state.full_sas_data['Sipariş No'] == st.session_state.sel_siparis].copy()
         sub['Gelen (Yeni)'] = 0.0; sub['Parti No'] = ""; sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ"); sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
         
@@ -218,7 +223,6 @@ def run(conn):
         if st.session_state.mk_gecici_liste:
             st.divider()
             if st.button("🚀 TESLİMATI TAMAMLA", type="primary", use_container_width=True):
-                # TOPLU YAZMA OPERASYONU (DRIVE'A BİR KERE GİDER)
                 df_stok = st.session_state.full_stok_data
                 df_s = st.session_state.full_sas_data
                 df_har = st.session_state.full_har_data
@@ -234,13 +238,14 @@ def run(conn):
                     df_s.loc[(df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == row['Kalem No']), 'Gelen Miktar'] += row['Gelen (Yeni)']
                     df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": row['Stok Kodu'], "İsim": row['Stok Adı'], "Miktar": row['Gelen (Yeni)'], "Personel": pers, "Lot": st.session_state.irsaliye_no, "Tedarikçi Barkod": row['Parti No'], "Adres": "DEPO-1", "Durum": "Kullanılabilir"}])], ignore_index=True)
                 
-                # Tek seferde toplu güncelleme
                 veritabani.update_data("Stok", df_stok)
                 veritabani.update_data("Satin_Alma", df_s)
                 veritabani.update_data("Hareketler", df_har)
                 
-                # Hafızayı temizle ve bitir
-                for k in ['full_stok_data', 'full_sas_data', 'full_har_data']: del st.session_state[k]
+                # Kayıt bittikten sonra hafızayı sil ki bir dahaki sefere yeni veri çekilsin
+                for k in ['full_stok_data', 'full_sas_data', 'full_har_data']: 
+                    if k in st.session_state: del st.session_state[k]
+                    
                 st.session_state.mk_gecici_liste = {}; st.success("Toplu Kayıt Başarılı!"); st.rerun()
 
     st.markdown("---")
