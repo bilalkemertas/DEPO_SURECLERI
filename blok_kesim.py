@@ -4,13 +4,17 @@ import pandas as pd
 def run_blok_kesim(conn):
     st.title("✂️ Blok & Rulo Kesim")
     
-    # --- 1. HAFIZAYI (MAPPING) YÜKLE ---
+    # --- 1. HAFIZAYI (MAPPING) YÜKLE VE KONTROL ET ---
     try:
+        # Sekme varsa oku
         mapping_df = conn.read(worksheet="Eşleşmeler", ttl="0")
-    except:
+    except Exception:
+        # Sekme yoksa veya silindiyse boş bir DataFrame oluştur
         mapping_df = pd.DataFrame(columns=["Tedarikçi_Kodu", "BRN Kod", "Brn_isim"])
+        # Patron, buraya dikkat: Eğer sekme yoksa ilk eşleştirmede sistem bu tabloyu Sheets'te oluşturacaktır.
+        st.warning("⚠️ 'Eşleşmeler' sekmesi bulunamadı. İlk eşleştirmede otomatik oluşturulacak.")
 
-    # --- 2. DOSYA YÜKLEME ALANI (ANA EKRAN) ---
+    # --- 2. DOSYA YÜKLEME ALANI ---
     with st.container(border=True):
         st.write("📁 **Veri Kaynağı**")
         uploaded_file = st.file_uploader("DataGrid Excel Dosyasını Yükleyin", type=['xlsx'], key="blok_kesim_uploader", label_visibility="collapsed")
@@ -20,7 +24,6 @@ def run_blok_kesim(conn):
                 df_main = pd.read_excel(uploaded_file, sheet_name='Main sheet')
                 df_sunger = pd.read_excel(uploaded_file, sheet_name='Sünger')
                 
-                # Sınıflandırma Mantığı
                 def classify(tanim):
                     tanim_up = str(tanim).upper()
                     if "BLOKCM" in tanim_up: return "Blok"
@@ -30,7 +33,11 @@ def run_blok_kesim(conn):
 
                 df_main['Kategori'] = df_main['Malzeme Tanımı'].apply(classify)
                 
-                # Eşleşmelerle Birleştir
+                # Sütun tiplerini eşitle (String yaparak eşleşme hatasını önle)
+                df_main['Malzeme Kodu'] = df_main['Malzeme Kodu'].astype(str).str.strip()
+                mapping_df['Tedarikçi_Kodu'] = mapping_df['Tedarikçi_Kodu'].astype(str).str.strip()
+
+                # Merge işlemi
                 df_final = df_main.merge(
                     mapping_df[['Tedarikçi_Kodu', 'BRN Kod', 'Brn_isim']], 
                     left_on='Malzeme Kodu', 
@@ -49,13 +56,11 @@ def run_blok_kesim(conn):
         df = st.session_state['main_data']
         unmapped = df[df['BRN Kod'].isna()][['Malzeme Kodu', 'Malzeme Tanımı']].drop_duplicates()
 
-        # Özet Metrikler
         c1, c2, c3 = st.columns(3)
         c1.metric("Toplam Satır", len(df))
         c2.metric("Tanınan Ürünler", len(df[df['BRN Kod'].notna()]))
         c3.metric("Bekleyen Yeni SKU", len(unmapped))
 
-        # --- AKILLI EŞLEŞTİRME ---
         if not unmapped.empty:
             with st.expander("⚠️ Yeni Ürün Tiplerini Tanımla", expanded=True):
                 target_row = unmapped.iloc[0]
@@ -75,12 +80,18 @@ def run_blok_kesim(conn):
                         if st.button("🚀 BU KARTI EŞLEŞTİR VE KAYDET", key="btn_eslestir"):
                             bir_kart = filtered_skus[filtered_skus['isim'] == selected_sku].iloc[0]
                             yeni_kayit = pd.DataFrame([{
-                                "Tedarikçi_Kodu": target_row['Malzeme Kodu'],
-                                "BRN Kod": bir_kart['kod'],
-                                "Brn_isim": bir_kart['isim']
+                                "Tedarikçi_Kodu": str(target_row['Malzeme Kodu']).strip(),
+                                "BRN Kod": str(bir_kart['kod']).strip(),
+                                "Brn_isim": str(bir_kart['isim']).strip()
                             }])
+                            
+                            # Mevcut mapping'e ekle ve Sheets'e yaz
                             guncel_df = pd.concat([mapping_df, yeni_kayit], ignore_index=True)
                             conn.update(worksheet="Eşleşmeler", data=guncel_df)
+                            
+                            # Hafızayı temizle ki yeni tabloyla tekrar analiz yapsın
+                            if 'main_data' in st.session_state: del st.session_state['main_data']
+                            
                             st.success("Hafızaya alındı!")
                             st.rerun()
 
@@ -95,7 +106,7 @@ def run_blok_kesim(conn):
                 if pd.notna(item['BRN Kod']):
                     with st.container(border=True):
                         st.success(f"Ürün Tanındı: **{item['Brn_isim']}**")
-                        st.caption(f"Tedarikçi Kodu: {item['Malzeme Kodu']} | Kategori: {item['Kategori']}")
+                        st.caption(f"BRN Kodu: {item['BRN Kod']} | Kategori: {item['Kategori']}")
                         
                         m = item['Teslimat Miktarı']
                         if item['Kategori'] == "Blok": st.info(f"📏 Yükseklik: {m} cm")
