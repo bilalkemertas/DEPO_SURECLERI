@@ -205,25 +205,25 @@ else:
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_uretim.goster() # Hatanın çözüldüğü kısım
+        modul_uretim.goster() # Hata düzeldi
 
     elif st.session_state['page'] == 'stok':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_stok.run(conn) 
+        modul_stok.goster() # Hata düzeldi
 
     elif st.session_state['page'] == 'sayim':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_sayim.run(conn) 
+        modul_sayim.goster() # İleride olası hata ihtimaline karşı düzeltildi
 
     elif st.session_state['page'] == 'rapor':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_rapor.run(conn)
+        modul_rapor.goster() # İleride olası hata ihtimaline karşı düzeltildi
