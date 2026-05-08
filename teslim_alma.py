@@ -33,6 +33,7 @@ def run(conn):
         </style>
     """, unsafe_allow_html=True)
 
+    # --- ÜST NAVİGASYON ---
     if st.session_state.teslim_page != 'menu':
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         with c_nav1:
@@ -45,6 +46,7 @@ def run(conn):
                     st.session_state.teslim_page = prev; st.rerun()
         st.divider()
 
+    # --- 0. ANA MENÜ ---
     if st.session_state.teslim_page == 'menu':
         st.subheader("📦 Mal Kabul & Teslim Alma")
         col1, col2 = st.columns(2)
@@ -53,6 +55,7 @@ def run(conn):
         with col2:
             st.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
 
+    # --- 1. SAS OLUŞTURMA (MANUEL + EXCEL) ---
     elif st.session_state.teslim_page == 'olustur':
         if not st.session_state.new_po_no:
             st.session_state.new_po_no = f"SAS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -60,7 +63,7 @@ def run(conn):
             c1, c2 = st.columns(2)
             sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
             sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
-        st.write("📂 **Excel ile SAS Oluştur (DataGrid)**")
+        
         up_sas = st.file_uploader("DataGrid Dosyası Yükle", type=['xlsx'], key="sas_excel_up", label_visibility="collapsed")
         if up_sas:
             try:
@@ -74,7 +77,7 @@ def run(conn):
                     sas_ref = str(df_excel['Teslimat No'].iloc[0]).split(".")[0]
                     st.session_state.new_po_no = f"SAS-{sas_ref}"
                     df_merged = df_excel.merge(mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], left_on='TEMİZ_KOD', right_on='FORM_TEMİZ', how='left')
-                    if st.button("🚀 EXCEL VERİLERİNİ LİSTEYE AKTAR", use_container_width=True):
+                    if st.button("🚀 EXCEL VERİLERİNİ AKTAR", use_container_width=True):
                         st.session_state.sip_gecici_liste = []
                         for i, row in df_merged.iterrows():
                             if pd.notna(row['BRN KOD']):
@@ -85,6 +88,7 @@ def run(conn):
                                 })
                         st.rerun()
             except Exception as e: st.error(f"Excel hatası: {e}")
+        
         st.divider()
         st.write("➕ **Manuel Kalem Ekle**")
         try: katalog = veritabani.get_katalog()
@@ -113,6 +117,7 @@ def run(conn):
                 veritabani.update_data("Satin_Alma", df_son)
                 st.session_state.sip_gecici_liste = []; st.session_state.new_po_no = None; st.session_state.teslim_page = 'menu'; st.rerun()
 
+    # --- 2. MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
         df_s = veritabani.get_internal_data("Satin_Alma")
         df_b = df_s[(df_s['Sipariş Miktarı'] - df_s['Gelen Miktar']) > 0]
@@ -129,6 +134,7 @@ def run(conn):
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
                     st.session_state.mk_gecici_liste = {}; st.session_state.teslim_page = 'kabul'; st.rerun()
 
+    # --- 3. MAL KABUL GİRİŞ (LİSTE ODAKLI OPERASYON) ---
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**SAS:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
@@ -137,33 +143,56 @@ def run(conn):
             
             def process_scan():
                 code = st.session_state.barkod_input.strip()
-                if code and 'last_uploaded_excel' in st.session_state:
-                    ex_df = st.session_state['last_uploaded_excel']
-                    found = ex_df[ex_df['Parti No'].astype(str) == code]
+                if not code: return
+                
+                if 'last_uploaded_excel' in st.session_state:
+                    ex_df = st.session_state['last_uploaded_excel'].copy()
+                    
+                    # --- FIX 1: Veri Tipi ve Format Temizliği ---
+                    ex_df['Parti No'] = ex_df['Parti No'].astype(str).str.strip().str.split(".").str[0]
+                    clean_scan = code.split(".")[0]
+                    
+                    found = ex_df[ex_df['Parti No'] == clean_scan]
+                    
                     if not found.empty:
                         m_kod = clean_code(found.iloc[0]['Malzeme Kodu'])
                         map_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
+                        
                         if not map_df.empty:
                             map_df.columns = [str(c).strip().upper() for c in map_df.columns]
                             map_df['FORM_TEMİZ'] = map_df['FORM SÜNGER KOD'].apply(clean_code)
+                            
+                            # --- FIX 2: Mapping Garanti Eşleşme ---
                             match = map_df[map_df['FORM_TEMİZ'] == m_kod]
+                            
                             if not match.empty:
                                 brn_kod = match.iloc[0]['BRN KOD']
                                 if st.session_state.get('undo_active', False):
-                                    if code in st.session_state.mk_gecici_liste: del st.session_state.mk_gecici_liste[code]
+                                    if clean_scan in st.session_state.mk_gecici_liste: 
+                                        del st.session_state.mk_gecici_liste[clean_scan]
                                 else:
-                                    st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(found.iloc[0]['Teslimat Miktarı'])}
-                st.session_state.barkod_input = ""
+                                    st.session_state.mk_gecici_liste[clean_scan] = {
+                                        "Kod": brn_kod, 
+                                        "Miktar": float(found.iloc[0]['Teslimat Miktarı'])
+                                    }
+                            else: st.sidebar.warning(f"⚠️ Mapping bulunamadı: {m_kod}")
+                    else: st.sidebar.error(f"❌ Excel'de yok: {clean_scan}")
+                else: st.sidebar.error("❌ Excel yüklenmemiş!")
+                
+                st.session_state.barkod_input = "" # Temizle
 
-            scan_code = c_op1.text_input("🔍 Barkod (Parti No) Okutun:", key="barkod_input", on_change=process_scan)
-            undo_mode = c_op2.checkbox("🔄 Geri Al", key="undo_active")
+            st.text_input("🔍 Barkod (Parti No) Okutun:", key="barkod_input", on_change=process_scan)
+            st.checkbox("🔄 Geri Al", key="undo_active")
 
+        # --- CANLI TABLO ---
         df_s = veritabani.get_internal_data("Satin_Alma")
         sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
         sub['Gelen (Yeni)'] = 0.0; sub['Parti No'] = ""; sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ"); sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
         
         active_ids = []
-        for b_code, b_data in st.session_state.mk_gecici_liste.items():
+        gecici_data = st.session_state.mk_gecici_liste.copy()
+        
+        for b_code, b_data in gecici_data.items():
             mask = (sub['Stok Kodu'] == b_data['Kod']) & (sub['Gelen (Yeni)'] == 0)
             if mask.any():
                 idx = sub[mask].index[0]
@@ -175,6 +204,7 @@ def run(conn):
 
         st.dataframe(sub[['Kalem No', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen Miktar', 'Gelen (Yeni)', 'Parti No']], use_container_width=True, hide_index=True)
 
+        # --- KAYIT ---
         if st.session_state.mk_gecici_liste:
             st.divider()
             if st.button("🚀 TESLİMATI TAMAMLA", type="primary", use_container_width=True):
@@ -189,5 +219,5 @@ def run(conn):
                 st.session_state.mk_gecici_liste = {}; st.success("Kayıt Başarılı!"); st.rerun()
 
     st.markdown("---")
-    col_sign1, col_sign2 = st.columns([3, 1])
+    col_sign2 = st.columns([3, 1])[1]
     with col_sign2: st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>Logistics Solutions</small></div>", unsafe_allow_html=True)
