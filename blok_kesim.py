@@ -145,4 +145,4 @@ def run_blok_kesim(conn):
         st.info("İşlem için Excel dosyasını yükleyin.")
 
     st.markdown("---")
-    st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
