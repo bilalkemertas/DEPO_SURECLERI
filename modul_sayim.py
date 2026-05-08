@@ -66,7 +66,7 @@ def goster():
                         zaman = datetime.now().strftime("%d%m_%H%M")
                         yeni_oturum_id = f"{sayim_etiketi}_{zaman}"
                         
-                        # --- KRİTİK EKLEME: SAYIM BAŞLANGIÇ STOĞUNU (SNAPSHOT) KAYDET ---
+                        # --- SNAPSHOT KAYDI ---
                         df_stok_anlik = veritabani.get_internal_data("Stok")
                         if not df_stok_anlik.empty:
                             df_stok_anlik['Oturum_Adi'] = yeni_oturum_id
@@ -90,7 +90,7 @@ def goster():
         else:
             st.success(f"📡 Şuan Çalışılan Oturum: **{st.session_state.aktif_sayim_adi}**")
             with st.container(border=True):
-                if st.button("🛑 OTURUMU SADECE KAPAT (GÜNCELLEME YAPMA)", use_container_width=True):
+                if st.button("🛑 OTURUMU SADECE KAPAT", use_container_width=True):
                     st.session_state.aktif_sayim_adi = None
                     st.session_state['gecici_sayim_listesi'] = []
                     st.rerun()
@@ -119,7 +119,7 @@ def goster():
                         veritabani.update_data("sayim_tamamlanan", pd.concat([df_tamamlanan, log_yeni], ignore_index=True))
                         
                         st.session_state.aktif_sayim_adi = None
-                        st.success("Stoklar güncellendi ve oturum arşivlendi!"); st.cache_data.clear(); st.rerun()
+                        st.success("Stoklar güncellendi!"); st.cache_data.clear(); st.rerun()
 
     # --- 2. SAYIM GİRİŞİ ---
     elif st.session_state.sayim_page == 'giris':
@@ -164,83 +164,53 @@ def goster():
         with c_nav:
             if st.button("⬅️ GERİ"): go_sayim_menu(); st.rerun()
         with c_title:
-            st.subheader("📊Fark Raporu")
+            st.subheader("📊 Fark Raporu")
         st.markdown("---")
         
         df_sayim_ana = veritabani.get_internal_data("sayim")
         df_urun = veritabani.get_internal_data("Urun_Listesi")
-        # --- KRİTİK DEĞİŞİKLİK: CANLI STOK YERİNE SNAPSHOT KULLANIMI ---
         df_snapshot_ana = veritabani.get_internal_data("sayim_snapshot")
 
         if not df_sayim_ana.empty:
-            if 'Oturum_Adi' not in df_sayim_ana.columns: df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
-            
             mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
             v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
             secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx)
-            
             df_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == secilen_oturum].copy()
             
             if not df_sayim.empty:
-                # Sayım verisi işleme
                 df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
                 s_ozet = df_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
                 s_ozet.rename(columns={'Miktar': 'Miktar_Sayilan'}, inplace=True)
                 
-                # Snapshot verisi işleme (Sorgu anındaki canlı stok değil, oturum başındaki stok)
                 st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
-                if not df_snapshot_ana.empty:
-                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana['Oturum_Adi'] == secilen_oturum].copy()
-                    if not df_snapshot_oturum.empty:
-                        df_snapshot_oturum['Miktar'] = pd.to_numeric(df_snapshot_oturum['Miktar'], errors='coerce').fillna(0)
-                        st_ozet = df_snapshot_oturum.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
-                        st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
-                    else:
-                        # Eğer snapshot bulunamazsa (eski oturumlar için) canlı stoğa bak (fail-safe)
-                        df_stok_canli = veritabani.get_internal_data("Stok")
-                        df_stok_canli['Miktar'] = pd.to_numeric(df_stok_canli['Miktar'], errors='coerce').fillna(0)
-                        st_ozet = df_stok_canli.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
-                        st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
+                df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana['Oturum_Adi'] == secilen_oturum].copy()
+                if not df_snapshot_oturum.empty:
+                    df_snapshot_oturum['Miktar'] = pd.to_numeric(df_snapshot_oturum['Miktar'], errors='coerce').fillna(0)
+                    st_ozet = df_snapshot_oturum.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+                    st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
                 
                 rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
                 rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
-                
                 isim_sozlugu = {}
                 if not df_urun.empty: isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
-                # Isim bilgisini snapshot veya urun listesinden al
                 rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
                 rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
 
-                # --- GÜÇLÜ FİLTRELER ---
-                with st.container(border=True):
-                    katalog = veritabani.get_katalog()
-                    f_sec = st.selectbox("🔍 Ürün Filtrele:", ["+ TÜMÜ"] + katalog)
-                    rf1, rf2, rf3 = st.columns(3)
-                    f_adr = rf1.text_input("📍 Adres Filtre:", placeholder="📍 Adres")
-                    o_kod = f_sec.split(" | ")[0] if f_sec != "+ TÜMÜ" else ""
-                    o_isi = f_sec.split(" | ")[1] if f_sec != "+ TÜMÜ" and len(f_sec.split(" | ")) > 1 else ""
-                    f_kod = rf2.text_input("📦 Kod Filtre:", value=o_kod, placeholder="📦 Kod")
-                    f_isi = rf3.text_input("📝 İsim Filtre:", value=o_isi, placeholder="📝 İsim")
-                    
-                    if f_adr: rapor = rapor[rapor['Adres'].str.contains(f_adr, case=False, na=False)]
-                    if f_kod: rapor = rapor[rapor['Kod'].str.contains(f_kod, case=False, na=False)]
-                    if f_isi: rapor = rapor[rapor['İsim'].str.contains(f_isi, case=False, na=False)]
-
-                # --- GÖSTERGELER ---
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
-                m2.metric("Sistem Stoğu (Referans)", f"{int(rapor['Miktar_Sistem'].sum())}")
-                m3.metric("Toplam Fark", f"{int(rapor['FARK'].sum())}", delta=int(rapor['FARK'].sum()))
-                
-                # --- RENKLİ TABLO ---
-                st.dataframe(rapor.style.map(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']).format({
-                    'Miktar_Sayilan': '{:,.0f}', 'Miktar_Sistem': '{:,.0f}', 'FARK': '{:,.0f}'
-                }), use_container_width=True, hide_index=True)
-
+                st.dataframe(rapor.style.map(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']), use_container_width=True, hide_index=True)
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as wr: rapor.to_excel(wr, index=False)
                 st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
-            else:
-                st.info("Oturumda veri yok.")
-        else:
-            st.warning("Veritabanında sayım verisi bulunamadı.")
+
+    # --- SAYFA SONU İMZASI ---
+    st.markdown("---")
+    col_sign1, col_sign2 = st.columns([3, 1])
+    with col_sign2:
+        st.markdown(
+            """
+            <div style='text-align: right;'>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
