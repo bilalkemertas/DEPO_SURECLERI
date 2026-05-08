@@ -205,7 +205,7 @@ else:
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_uretim.run(conn) 
+        modul_uretim.goster() # Hatanın çözüldüğü kısım
 
     elif st.session_state['page'] == 'stok':
         if st.button("⬅️ Ana Menüye Dön"):
