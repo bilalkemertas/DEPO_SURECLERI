@@ -130,7 +130,6 @@ def run(conn):
                     r1, r2, r3 = st.columns([1.5, 1, 1])
                     i_adr = r1.text_input("📍 Adres:", key="mk_adr_input").upper().strip()
                     i_mik = r2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik_input")
-                    # Sayım ve Stok ekranındaki Durum seçenekleri eklendi
                     i_dur = r3.selectbox("🛡️ Durum:", ["Kullanılabilir", "Bloke", "Karantina"], key="mk_dur_input")
 
                     if st.button("➕ EKLE", use_container_width=True, key="btn_mk_ekle"):
@@ -155,34 +154,21 @@ def run(conn):
                     pers = st.session_state.get('kullanici_adi', "Sistem")
                     
                     for item in st.session_state.mk_gecici_liste:
-                        # Stok Güncelleme (Kod, Adres VE Durum bazlı kontrol)
                         m_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres']) & (df_stok['Durum'] == item['Durum'])
                         if m_stok.any(): 
                             df_stok.loc[m_stok, 'Miktar'] += item['Miktar']
                         else: 
                             df_stok = pd.concat([df_stok, pd.DataFrame([{
-                                "Kod": item['Stok Kodu'], 
-                                "İsim": item['Stok Adı'], 
-                                "Adres": item['Adres'], 
-                                "Miktar": item['Miktar'], 
-                                "Durum": item['Durum']
+                                "Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": item['Durum']
                             }])], ignore_index=True)
                         
-                        # SAS Güncelleme
                         m_sas = (df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == item['Kalem No'])
                         df_s.loc[m_sas, 'Gelen Miktar'] += item['Miktar']
                         
-                        # Hareket Kaydı
                         df_har = pd.concat([df_har, pd.DataFrame([{
-                            "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
-                            "İşlem": "GİRİŞ", 
-                            "İş Emri": st.session_state.sel_siparis, 
-                            "Kod": item['Stok Kodu'], 
-                            "İsim": item['Stok Adı'], 
-                            "Adres": item['Adres'], 
-                            "Miktar": item['Miktar'], 
-                            "Personel": pers, 
-                            "Durum": item['Durum'], # Hareketler tablosuna durum eklendi
+                            "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "İşlem": "GİRİŞ", 
+                            "İş Emri": st.session_state.sel_siparis, "Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], 
+                            "Adres": item['Adres'], "Miktar": item['Miktar'], "Personel": pers, "Durum": item['Durum'], 
                             "Lot": st.session_state.irsaliye_no
                         }])], ignore_index=True)
 
@@ -192,17 +178,16 @@ def run(conn):
             st.caption("**Açık SAS Kalemleri**")
             st.dataframe(bekleyenler[["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar"]], use_container_width=True, hide_index=True)
 
-
-    # --- SAYFA SONU İMZASI ---
-st.markdown("---")
-col_sign1, col_sign2 = st.columns([3, 1])
-with col_sign2:
-    st.markdown(
-        """
-        <div style='text-align: right;'>
-            <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-            <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    # --- SAYFA SONU İMZASI (Garantili Yer) ---
+    st.markdown("---")
+    col_sign1, col_sign2 = st.columns([3, 1])
+    with col_sign2:
+        st.markdown(
+            """
+            <div style='text-align: right;'>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
