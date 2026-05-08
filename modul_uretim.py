@@ -18,7 +18,7 @@ def go_uretim_menu():
     init_state(); st.session_state.uretim_page = 'menu'; st.session_state.sel_is_emri = None
     if 'local_emirler' in st.session_state: del st.session_state.local_emirler
 
-def run():
+def goster():
     init_state()
     
     # --- STİL AYARLARI (KÜÇÜK PUNTO) ---
