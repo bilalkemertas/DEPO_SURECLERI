@@ -157,9 +157,9 @@ def run(conn):
 
         # --- BARKOD PANELİ ---
         with st.container(border=True):
-            c_op1, = st.columns([4, 1])
+            c_op1, c_op2 = st.columns([4, 1])
             scan_code = c_op1.text_input("🔍 Barkod (Parti No) Okutun:", key="scan_parti").strip()
-            
+            undo_mode = c_op2.checkbox("🔄 Geri Al", help="Okutulan barkodu listeden siler")
             
             if scan_code and 'last_uploaded_excel' in st.session_state:
                 excel_df = st.session_state['last_uploaded_excel']
