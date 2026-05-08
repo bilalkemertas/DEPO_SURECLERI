@@ -61,5 +61,12 @@ def get_katalog():
     if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
         df_stok['Arama'] = df_stok['Kod'].astype(str) + " | " + df_stok['İsim'].astype(str)
         return sorted(df_stok['Arama'].unique().tolist())
+
+    # --- SAYFA SONU İMZASI ---
+    st.markdown("---")
+    col_sign1, col_sign2 = st.columns([4, 1])
+    with col_sign2:
+        st.caption("🚀 **Bilal Kemertaş**")
+        st.caption("Logistics Solutions")
             
     return []
