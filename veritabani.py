@@ -5,43 +5,50 @@ import requests
 import base64
 import json
 import streamlit as st
+from io import StringIO
 
-# --- AYARLAR ---
-# GitHub Token'ını Streamlit Secrets'a eklemelisin (Setting -> Secrets)
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-REPO_OWNER = "bilalkemertas" # Kendi GitHub kullanıcı adın
-REPO_NAME = "depo_surecleri"  # Repo ismin
-FILE_PATH = "data/hafiza.csv" # GitHub'daki dosya yolu
+# --- 1. GÜVENLİK VE AYARLAR ---
+# GitHub Ayarları
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+REPO_OWNER = "bilalkemertas"
+REPO_NAME = "depo_surecleri"
+GITHUB_FILE_PATH = "data/hafiza.csv"
 
-# --- GOOGLE DRIVE BAĞLANTISI (Mevcut Yapın) ---
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
-client = gspread.authorize(creds)
-sheet = client.open("DEPO_VERITABANI") # Senin ana dosya adın
+# Google Drive Ayarları
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-# --- GITHUB FONKSİYONLARI ---
+# --- 2. BAĞLANTI KURULUMU ---
+try:
+    # Senin paylaştığın secrets formatına ( [connections.gsheets] ) tam uyum:
+    gcp_info = st.secrets["connections"]["gsheets"]
+    creds = Credentials.from_service_account_info(gcp_info, scopes=SCOPE)
+    client = gspread.authorize(creds)
+    # Drive'daki ana dosyanın adı
+    sheet = client.open("Depo_Veritabani")
+except Exception as e:
+    st.error(f"⚠️ Bağlantı Hatası: {e}")
+
+# --- 3. GITHUB (HAFIZA) FONKSİYONLARI ---
 
 def get_github_data():
-    """GitHub'dan CSV dosyasını çeker ve DataFrame döner."""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    """GitHub'daki hafiza.csv dosyasını okur."""
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{GITHUB_FILE_PATH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     response = requests.get(url, headers=headers)
     
     if response.status_code == 200:
         content = response.json()
         decoded_data = base64.b64decode(content['content']).decode('utf-8')
-        from io import StringIO
         return pd.read_csv(StringIO(decoded_data))
     else:
-        # Dosya yoksa veya hata varsa boş şablon dön
+        # Dosya yoksa şablon döner
         return pd.DataFrame(columns=['SAS_No', 'Parti No', 'Malzeme Kodu', 'Teslimat Miktarı'])
 
 def update_github_data(df, commit_message="Veri guncellendi"):
-    """DataFrame'i CSV'ye çevirip GitHub'a commit atar."""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+    """GitHub'daki hafiza.csv dosyasını günceller."""
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{GITHUB_FILE_PATH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     
-    # Önce mevcut dosyanın SHA değerini almamız lazım (GitHub kuralı)
     res = requests.get(url, headers=headers)
     sha = res.json().get('sha') if res.status_code == 200 else None
     
@@ -58,21 +65,33 @@ def update_github_data(df, commit_message="Veri guncellendi"):
     response = requests.put(url, headers=headers, data=json.dumps(payload))
     return response.status_code in [200, 201]
 
-# --- MEVCUT DRIVE FONKSİYONLARI (Kısaltmadan ekliyorum) ---
+# --- 4. GOOGLE DRIVE (ANA VERİ) FONKSİYONLARI ---
 
 def get_internal_data(sheet_name):
-    """Drive'daki diğer tabloları çeker (Stok, Hareketler vb.)"""
-    worksheet = sheet.worksheet(sheet_name)
-    data = worksheet.get_all_records()
-    return pd.DataFrame(data)
+    """Drive üzerindeki herhangi bir sekmeyi (Stok, Satin_Alma vb.) DataFrame olarak çeker."""
+    try:
+        worksheet = sheet.worksheet(sheet_name)
+        data = worksheet.get_all_records()
+        return pd.DataFrame(data)
+    except:
+        return pd.DataFrame()
 
 def update_data(sheet_name, df):
-    """Drive'daki tabloları günceller."""
-    worksheet = sheet.worksheet(sheet_name)
-    worksheet.clear()
-    worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+    """Drive üzerindeki tabloyu tamamen günceller."""
+    try:
+        worksheet = sheet.worksheet(sheet_name)
+        worksheet.clear()
+        # NaN değerleri boş stringe çevir (Google Sheet hatası almamak için)
+        df_filled = df.fillna("")
+        worksheet.update([df_filled.columns.values.tolist()] + df_filled.values.tolist())
+        return True
+    except Exception as e:
+        st.error(f"Güncelleme hatası: {e}")
+        return False
 
 def get_katalog():
-    """Ürün listesini döner."""
+    """Drive'daki Katalog sekmesinden ürün listesini çeker."""
     df = get_internal_data("Katalog")
-    return (df['Kod'] + " | " + df['İsim']).tolist()
+    if not df.empty:
+        return (df['Kod'].astype(str) + " | " + df['İsim'].astype(str)).tolist()
+    return []
