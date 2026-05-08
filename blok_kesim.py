@@ -5,14 +5,16 @@ import re
 def run_blok_kesim(conn):
     st.title("✂️ Blok & Rulo Kesim")
     
-    # --- 1. DRİVE'DAKİ EŞLEŞMELER TABLOSUNU YÜKLE ---
+    # --- 1. DRİVE'DAKİ HAFIZAYI (EŞLEŞMELER) YÜKLE ---
     try:
+        # Drive'daki Excel/Sheets dosyasından "Eşleşmeler" sekmesini oku
         mapping_df = conn.read(worksheet="Eşleşmeler", ttl=0)
+        # Sütun isimlerini standartlaştır
         mapping_df.columns = [str(c).strip().upper() for c in mapping_df.columns]
     except Exception:
         cols = ["FORM SÜNGER KOD", "FORM SÜNGER ÜRÜN ADI", "BRN KOD", "BRN ÜRÜN ADI", "DANSİTE", "ÖZELLİK", "RENK", "KALIP"]
         mapping_df = pd.DataFrame(columns=cols)
-        st.warning("⚠️ Drive'da 'Eşleşmeler' sekmesi okunamadı.")
+        st.warning("⚠️ Drive'daki 'Eşleşmeler' sekmesine ulaşılamadı.")
 
     # --- 2. DOSYA YÜKLEME ALANI ---
     with st.container(border=True):
@@ -21,32 +23,40 @@ def run_blok_kesim(conn):
         
         if uploaded_file:
             try:
-                # Dinamik sekme okuma: İlk sekmeyi 'Main sheet' kabul et
-                excel_obj = pd.ExcelFile(uploaded_file)
-                df_main = pd.read_excel(uploaded_file, sheet_name=excel_obj.sheet_names[0])
+                # TALİMAT: "Main sheet" sekmesindeki verileri oku
+                df_main = pd.read_excel(uploaded_file, sheet_name='Main sheet')
                 
-                # Eğer dosyada 'Sünger' sekmesi varsa oku, yoksa boş DataFrame oluştur (Hata almamak için)
-                if 'Sünger' in excel_obj.sheet_names:
+                # Eğer dosyada 'Sünger' sekmesi varsa oku, yoksa Drive'daki eşleşmeleri baz al
+                try:
                     df_sunger = pd.read_excel(uploaded_file, sheet_name='Sünger')
-                else:
-                    df_sunger = pd.DataFrame(columns=['kod', 'isim'])
+                except:
+                    df_sunger = mapping_df.rename(columns={'BRN KOD': 'kod', 'BRN ÜRÜN ADI': 'isim'})
 
-                # ATOMİK TEMİZLİK (Sayı dışındaki her şeyi siler)
+                # Sınıflandırma Mantığı
+                def classify(tanim):
+                    tanim_up = str(tanim).upper()
+                    if "BLOKCM" in tanim_up: return "Blok"
+                    elif "RULO" in tanim_up: return "Rulo"
+                    elif "DUZ" in tanim_up: return "Plaka"
+                    return "Diğer"
+                
+                df_main['KATEGORİ'] = df_main['Malzeme Tanımı'].apply(classify)
+
+                # ATOMİK TEMİZLİK (Sayı dışındaki karakterleri temizle)
                 def clean_code(val):
                     c = re.sub(r'\D', '', str(val))
                     return c.strip()
 
-                # Excel'deki "Malzeme Kodu" sütununu temizle
-                # Not: Sütun isminin tam "Malzeme Kodu" olduğundan emin ol patron
+                # TALİMAT: "Malzeme Kodu" sütunundaki veriyi al
                 df_main['TEMİZ_KOD'] = df_main['Malzeme Kodu'].apply(clean_code)
                 
-                # Drive'daki "FORM SÜNGER KOD" sütununu temizle
+                # Drive tarafındaki kodları temizle
                 if 'FORM SÜNGER KOD' in mapping_df.columns:
                     mapping_df['FORM_TEMİZ'] = mapping_df['FORM SÜNGER KOD'].apply(clean_code)
                 else:
                     mapping_df['FORM_TEMİZ'] = "YOK"
 
-                # MERGE: Malzeme Kodu (Excel) == FORM SÜNGER KOD (Drive)
+                # TALİMAT: Drive'daki "Eşleşmeler" ile arama yap ve "BRN KOD"u getir
                 df_final = df_main.merge(
                     mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], 
                     left_on='TEMİZ_KOD', 
@@ -56,10 +66,9 @@ def run_blok_kesim(conn):
                 
                 st.session_state['main_data'] = df_final
                 st.session_state['sunger_data'] = df_sunger
-                st.success(f"✅ {excel_obj.sheet_names[0]} sekmesi başarıyla işlendi.")
-                
+                st.success(f"✅ 'Main sheet' başarıyla işlendi. {len(df_main)} satır analiz edildi.")
             except Exception as e:
-                st.error(f"Sistem Hatası: {e}")
+                st.error(f"Hata: {e}")
 
     # --- 3. EKRAN YÖNETİMİ ---
     if 'main_data' in st.session_state:
@@ -68,27 +77,28 @@ def run_blok_kesim(conn):
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Toplam Satır", len(df))
-        c2.metric("Tanınan Ürünler", len(df[df['BRN KOD'].notna() & (df['BRN KOD'].astype(str).str.strip() != "")]))
-        c3.metric("Bekleyen Yeni SKU", len(unmapped))
+        c2.metric("Eşleşen (BRN)", len(df[df['BRN KOD'].notna() & (df['BRN KOD'].astype(str).str.strip() != "")]))
+        c3.metric("Eşleşme Bekleyen", len(unmapped))
 
         if not unmapped.empty:
-            with st.expander("⚠️ Yeni Ürün Tiplerini Tanımla", expanded=True):
+            with st.expander("⚠️ Yeni Eşleşme Tanımla", expanded=True):
                 target_row = unmapped.iloc[0]
-                st.info(f"Bekleyen: **{target_row['Malzeme Tanımı']}**")
+                st.info(f"Form Sünger: **{target_row['Malzeme Tanımı']}** (Kod: {target_row['TEMİZ_KOD']})")
                 
-                search_query = st.text_input("BRN Stok Kartı Ara (Kod/İsim):", key="sku_search")
+                search_query = st.text_input("BRN Stok Kartı Ara:", key="sku_search")
                 
                 if search_query:
-                    # 'Sünger' sekmesi yoksa bu kısım boş gelir, manuel yazman gerekir
-                    filtered_skus = st.session_state['sunger_data'][
-                        st.session_state['sunger_data']['isim'].str.contains(search_query, case=False, na=False) |
-                        st.session_state['sunger_data']['kod'].astype(str).str.contains(search_query, case=False, na=False)
+                    # 'Sünger' sekmesi veya Drive listesi üzerinden ara
+                    s_data = st.session_state['sunger_data']
+                    filtered_skus = s_data[
+                        s_data['isim'].astype(str).str.contains(search_query, case=False, na=False) |
+                        s_data['kod'].astype(str).str.contains(search_query, case=False, na=False)
                     ].head(10)
                     
                     if not filtered_skus.empty:
-                        selected_sku = st.radio("Seçiniz:", filtered_skus['isim'].tolist(), key="sku_radio")
+                        selected_sku = st.radio("Doğru BRN Ürününü Seçin:", filtered_skus['isim'].tolist(), key="sku_radio")
                         
-                        if st.button("🚀 EŞLEŞTİR VE DRİVE'A KAYDET", key="btn_eslestir"):
+                        if st.button("🚀 EŞLEŞTİR VE DRİVE'A YAZ", key="btn_eslestir"):
                             bir_kart = filtered_skus[filtered_skus['isim'] == selected_sku].iloc[0]
                             
                             yeni_kayit = pd.DataFrame([{
@@ -99,17 +109,17 @@ def run_blok_kesim(conn):
                                 "DANSİTE": "-", "ÖZELLİK": "-", "RENK": "-", "KALIP": "-"
                             }])
                             
-                            # Drive güncelleme
+                            # Drive güncelle
                             guncel_df = pd.concat([mapping_df.drop(columns=['FORM_TEMİZ'], errors='ignore'), yeni_kayit], ignore_index=True)
                             conn.update(worksheet="Eşleşmeler", data=guncel_df)
                             
                             if 'main_data' in st.session_state: del st.session_state['main_data']
-                            st.success("Kayıt başarılı! Liste yenileniyor...")
+                            st.success("Hafızaya alındı! Sayfa yenileniyor...")
                             st.rerun()
 
         # --- 4. OPERASYON ---
         st.divider()
-        parti_input = st.text_input("🔍 Parti No (Barkod) Okutun:", key="parti_arama")
+        parti_input = st.text_input("🔍 Parti No Okutun:", key="parti_arama")
         
         if parti_input:
             match = df[df['Parti No'].astype(str) == str(parti_input).strip()]
@@ -117,13 +127,13 @@ def run_blok_kesim(conn):
                 item = match.iloc[0]
                 if pd.notna(item['BRN KOD']) and str(item['BRN KOD']).strip() != "":
                     with st.container(border=True):
-                        st.success(f"Ürün: **{item['BRN Ürün Adı']}**")
-                        st.write(f"BRN Kodu: {item['BRN KOD']}")
+                        st.success(f"Eşleşen Ürün: **{item['BRN Ürün Adı']}**")
+                        st.write(f"BRN Kodu: {item['BRN KOD']} | Kat: {item['KATEGORİ']}")
                         st.info(f"Miktar: {item['Teslimat Miktarı']}")
                         if st.button("🔥 HAREKETİ KAYDET", use_container_width=True):
                             st.balloons()
             else:
-                st.error("Ürün bulunamadı veya eşleşmemiş.")
+                st.error("Okutulan parti listede yok veya eşleşmemiş.")
     else:
         st.info("Lütfen Excel dosyasını yükleyin.")
 
@@ -131,4 +141,11 @@ def run_blok_kesim(conn):
     st.markdown("---")
     _, col_sign = st.columns([3, 1])
     with col_sign:
-        st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>Logistics Solutions</small></div>", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div style='text-align: right;'>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
