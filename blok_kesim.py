@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 def run_blok_kesim(conn):
-    st.title("✂️ Blok & Rulo Kesim (12K SKU Destekli)")
+    st.title("✂️ Blok & Rulo Kesim
     
     # --- 1. HAFIZAYI (MAPPING) YÜKLE ---
     try:
