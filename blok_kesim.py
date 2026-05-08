@@ -4,15 +4,14 @@ import pandas as pd
 def run_blok_kesim(conn):
     st.title("✂️ Blok & Rulo Kesim")
     
-    # --- 1. HAFIZAYI (MAPPING) YÜKLE VE KONTROL ET ---
+    # --- 1. HAFIZAYI (MAPPING) YÜKLE ---
     try:
-        # Sekme varsa oku
         mapping_df = conn.read(worksheet="Eşleşmeler", ttl="0")
     except Exception:
-        # Sekme yoksa veya silindiyse boş bir DataFrame oluştur
-        mapping_df = pd.DataFrame(columns=["Tedarikçi_Kodu", "BRN Kod", "Brn_isim"])
-        # Patron, buraya dikkat: Eğer sekme yoksa ilk eşleştirmede sistem bu tabloyu Sheets'te oluşturacaktır.
-        st.warning("⚠️ 'Eşleşmeler' sekmesi bulunamadı. İlk eşleştirmede otomatik oluşturulacak.")
+        # Belirttiğin sütun isimleriyle boş DataFrame
+        cols = ["Form Sünger Kod", "Form Sünger Ürün Adı", "BRN Kod", "BRN Ürün Adı", "Dansite", "Özellik", "RENK", "KALIP"]
+        mapping_df = pd.DataFrame(columns=cols)
+        st.warning("⚠️ 'Eşleşmeler' sekmesi bulunamadı, ilk kayıtta oluşturulacak.")
 
     # --- 2. DOSYA YÜKLEME ALANI ---
     with st.container(border=True):
@@ -33,23 +32,23 @@ def run_blok_kesim(conn):
 
                 df_main['Kategori'] = df_main['Malzeme Tanımı'].apply(classify)
                 
-                # Sütun tiplerini eşitle (String yaparak eşleşme hatasını önle)
+                # Tip dönüşümleri ve temizlik
                 df_main['Malzeme Kodu'] = df_main['Malzeme Kodu'].astype(str).str.strip()
-                mapping_df['Tedarikçi_Kodu'] = mapping_df['Tedarikçi_Kodu'].astype(str).str.strip()
+                mapping_df['Form Sünger Kod'] = mapping_df['Form Sünger Kod'].astype(str).str.strip()
 
-                # Merge işlemi
+                # Yeni sütun isimlerine göre birleştirme
                 df_final = df_main.merge(
-                    mapping_df[['Tedarikçi_Kodu', 'BRN Kod', 'Brn_isim']], 
+                    mapping_df[['Form Sünger Kod', 'BRN Kod', 'BRN Ürün Adı']], 
                     left_on='Malzeme Kodu', 
-                    right_on='Tedarikçi_Kodu', 
+                    right_on='Form Sünger Kod', 
                     how='left'
                 )
                 
                 st.session_state['main_data'] = df_final
                 st.session_state['sunger_data'] = df_sunger
-                st.success(f"✅ Analiz Tamamlandı! {len(df_main)} sevkiyat satırı işlendi.")
+                st.success(f"✅ Analiz Tamamlandı! {len(df_main)} satır işlendi.")
             except Exception as e:
-                st.error(f"Dosya okuma hatası: {e}")
+                st.error(f"Hata: {e}")
 
     # --- 3. EKRAN YÖNETİMİ ---
     if 'main_data' in st.session_state:
@@ -64,9 +63,9 @@ def run_blok_kesim(conn):
         if not unmapped.empty:
             with st.expander("⚠️ Yeni Ürün Tiplerini Tanımla", expanded=True):
                 target_row = unmapped.iloc[0]
-                st.info(f"Eşleşme Bekleyen: **{target_row['Malzeme Tanımı']}** ({target_row['Malzeme Kodu']})")
+                st.info(f"Bekleyen: **{target_row['Malzeme Tanımı']}** ({target_row['Malzeme Kodu']})")
                 
-                search_query = st.text_input("Stok Kartı Ara (İsim veya Kod):", key="sku_search")
+                search_query = st.text_input("BRN Stok Kartı Ara:", key="sku_search")
                 
                 if search_query:
                     filtered_skus = st.session_state['sunger_data'][
@@ -75,29 +74,30 @@ def run_blok_kesim(conn):
                     ].head(10)
                     
                     if not filtered_skus.empty:
-                        selected_sku = st.radio("En Yakın Sonuçlar:", filtered_skus['isim'].tolist(), key="sku_radio")
+                        selected_sku = st.radio("Sonuçlar:", filtered_skus['isim'].tolist(), key="sku_radio")
                         
-                        if st.button("🚀 BU KARTI EŞLEŞTİR VE KAYDET", key="btn_eslestir"):
+                        if st.button("🚀 EŞLEŞTİR VE KAYDET", key="btn_eslestir"):
                             bir_kart = filtered_skus[filtered_skus['isim'] == selected_sku].iloc[0]
+                            
+                            # Belirttiğin tüm sütunları içeren yeni kayıt
                             yeni_kayit = pd.DataFrame([{
-                                "Tedarikçi_Kodu": str(target_row['Malzeme Kodu']).strip(),
+                                "Form Sünger Kod": str(target_row['Malzeme Kodu']).strip(),
+                                "Form Sünger Ürün Adı": str(target_row['Malzeme Tanımı']).strip(),
                                 "BRN Kod": str(bir_kart['kod']).strip(),
-                                "Brn_isim": str(bir_kart['isim']).strip()
+                                "BRN Ürün Adı": str(bir_kart['isim']).strip(),
+                                "Dansite": "-", "Özellik": "-", "RENK": "-", "KALIP": "-"
                             }])
                             
-                            # Mevcut mapping'e ekle ve Sheets'e yaz
                             guncel_df = pd.concat([mapping_df, yeni_kayit], ignore_index=True)
                             conn.update(worksheet="Eşleşmeler", data=guncel_df)
                             
-                            # Hafızayı temizle ki yeni tabloyla tekrar analiz yapsın
                             if 'main_data' in st.session_state: del st.session_state['main_data']
-                            
                             st.success("Hafızaya alındı!")
                             st.rerun()
 
         # --- 4. OPERASYON: PARTİ SORGULAMA ---
         st.divider()
-        parti_input = st.text_input("🔍 Parti No (Barkod) Okutun:", key="parti_arama")
+        parti_input = st.text_input("🔍 Parti No Okutun:", key="parti_arama")
         
         if parti_input:
             match = df[df['Parti No'].astype(str) == str(parti_input)]
@@ -105,7 +105,7 @@ def run_blok_kesim(conn):
                 item = match.iloc[0]
                 if pd.notna(item['BRN Kod']):
                     with st.container(border=True):
-                        st.success(f"Ürün Tanındı: **{item['Brn_isim']}**")
+                        st.success(f"Ürün: **{item['BRN Ürün Adı']}**")
                         st.caption(f"BRN Kodu: {item['BRN Kod']} | Kategori: {item['Kategori']}")
                         
                         m = item['Teslimat Miktarı']
@@ -116,20 +116,19 @@ def run_blok_kesim(conn):
                         if st.button("🔥 HAREKETİ KAYDET", use_container_width=True):
                             st.balloons()
             else:
-                st.error("Bu ürünün tipi henüz eşleştirilmemiş.")
+                st.error("Ürün eşleşmemiş veya veri setinde yok.")
     else:
-        st.info("İşlem yapmak için lütfen Excel dosyasını yukarıdaki alana yükleyin.")
+        st.info("Lütfen Excel dosyasını yükleyin.")
 
-    # --- SAYFA SONU İMZASI ---
+    # --- İMZA ---
     st.markdown("---")
-    col_sign1, col_sign2 = st.columns([3, 1])
-    with col_sign2:
+    _, col_sign = st.columns([3, 1])
+    with col_sign:
         st.markdown(
             """
             <div style='text-align: right;'>
                 <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
                 <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
             </div>
-            """, 
-            unsafe_allow_html=True
+            """, unsafe_allow_html=True
         )
