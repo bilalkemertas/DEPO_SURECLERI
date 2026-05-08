@@ -198,6 +198,7 @@ def run(conn):
                     st.session_state.sel_tedarikci = nihai_tedarikci
                     st.session_state.sel_siparis = secilen_siparis
                     st.session_state.irsaliye_no = irsaliye
+                    st.session_state.mk_gecici_liste = [] # Mal kabul listesini sıfırla
                     st.session_state.teslim_page = 'kabul'
                     st.rerun()
 
@@ -246,58 +247,99 @@ def run(conn):
             if sel_display != "Malzeme Seçiniz...":
                 row = bekleyenler[bekleyenler['unique_key'] == sel_display].iloc[0]
                 s_kod = str(row['Stok Kodu']).strip().upper()
-                kalan_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'], 3)
+                
+                # Sepette bu üründen varsa kalan miktarı dinamik hesapla
+                sepetteki_miktar = sum([x['Miktar'] for x in st.session_state.mk_gecici_liste if x['Stok Kodu'] == s_kod])
+                kalan_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'] - sepetteki_miktar, 3)
 
                 with st.container(border=True):
                     st.markdown(f"🛠️ **{row['Stok Adı']}** ({s_kod})")
-                    r1c1, r1c2 = st.columns([2, 1])
+                    
+                    if kalan_ih <= 0:
+                        st.success("✅ Bu ürün için sipariş edilen tüm miktar sepete eklendi veya teslim alındı.")
+                    else:
+                        r1c1, r1c2 = st.columns([2, 1])
 
-                    input_adr = r1c1.text_input("📍 Hedef Adres (Nereye Konulacak?):").upper().strip()
-                    input_mik = r1c2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0)
+                        input_adr = r1c1.text_input("📍 Hedef Adres (Nereye Konulacak?):", key="mk_adr").upper().strip()
+                        input_mik = r1c2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0, key="mk_mik")
 
-                    m1, m2 = st.columns(2)
-                    m1.metric("📦 Siparişteki Toplam", f"{row['Sipariş Miktarı']} {row['Birim']}")
-                    m2.metric("🎯 Kalan (Gelecek Olan)", f"{kalan_ih} {row['Birim']}", delta_color="inverse")
+                        m1, m2 = st.columns(2)
+                        m1.metric("📦 Siparişteki Toplam", f"{row['Sipariş Miktarı']} {row['Birim']}")
+                        m2.metric("🎯 Kalan (Sepete Eklenebilecek)", f"{kalan_ih} {row['Birim']}", delta_color="inverse")
 
-                    if st.button("⚡ KABULÜ TAMAMLA VE STOĞA AL", use_container_width=True, type="primary"):
-                        if not input_adr or input_mik <= 0:
-                            st.error("Lütfen geçerli bir adres ve miktar girin!")
-                        else:
-                            # 1. Stok Güncelle
-                            df_stok['Kod'] = df_stok['Kod'].astype(str).str.strip().str.upper()
-                            df_stok['Adres'] = df_stok['Adres'].astype(str).str.strip().str.upper()
-                            mask_stok = (df_stok['Kod'] == s_kod) & (df_stok['Adres'] == input_adr)
-                            
-                            if mask_stok.any():
-                                df_stok.loc[mask_stok, 'Miktar'] = pd.to_numeric(df_stok.loc[mask_stok, 'Miktar']) + input_mik
+                        if st.button("➕ LİSTEYE EKLE", use_container_width=True):
+                            if not input_adr or input_mik <= 0:
+                                st.error("Lütfen geçerli bir adres ve miktar girin!")
                             else:
-                                new_stok = pd.DataFrame([{"Kod": s_kod, "İsim": row['Stok Adı'], "Adres": input_adr, "Miktar": input_mik, "Durum": "Kullanılabilir"}])
-                                df_stok = pd.concat([df_stok, new_stok], ignore_index=True)
+                                kalem = {
+                                    "Stok Kodu": s_kod,
+                                    "Stok Adı": row['Stok Adı'],
+                                    "Adres": input_adr,
+                                    "Miktar": input_mik,
+                                    "Birim": row['Birim']
+                                }
+                                st.session_state.mk_gecici_liste.append(kalem)
+                                clear_form()
+                                st.rerun()
 
-                            # 2. Sipariş Güncelle
-                            mask_emir = (df_siparis['Sipariş No'] == st.session_state.sel_siparis) & (df_siparis['Stok Kodu'] == row['Stok Kodu'])
-                            df_siparis.loc[mask_emir, 'Gelen Miktar'] += input_mik
+            # GEÇİCİ LİSTE GÖRÜNÜMÜ VE KONTROLLÜ SİLME
+            if st.session_state.mk_gecici_liste:
+                st.markdown("### 🛒 Mal Kabul Sepeti (Onay Bekliyor)")
+                
+                for i, item in enumerate(st.session_state.mk_gecici_liste):
+                    with st.expander(f"📦 {item['Stok Kodu']} - {item['Stok Adı']} | {item['Miktar']} {item['Birim']}"):
+                        st.write(f"**Hedef Adres:** {item['Adres']}")
+                        
+                        del_col1, del_col2 = st.columns([1, 1])
+                        with del_col1:
+                            onay = st.checkbox("Silmeyi Onayla", key=f"onay_mk_{i}")
+                        with del_col2:
+                            if st.button("🗑️ Seçili Satırı Sil", key=f"del_mk_btn_{i}", disabled=not onay):
+                                st.session_state.mk_gecici_liste.pop(i)
+                                st.rerun()
+                
+                st.divider()
+                if st.button("🚀 GEÇİCİ LİSTEYİ STOĞA KAYDET", type="primary", use_container_width=True):
+                    islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    personel = st.session_state.kullanici_adi if 'kullanici_adi' in st.session_state else "Sistem"
+                    
+                    df_stok['Kod'] = df_stok['Kod'].astype(str).str.strip().str.upper()
+                    df_stok['Adres'] = df_stok['Adres'].astype(str).str.strip().str.upper()
 
-                            # 3. Hareket Ekle
-                            islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            personel = st.session_state.kullanici_adi if 'kullanici_adi' in st.session_state else "Sistem"
-                            new_hareket = pd.DataFrame([{
-                                "Tarih": islem_zamani, "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis,
-                                "Kod": s_kod, "İsim": row['Stok Adı'], "Adres": input_adr, "Miktar": input_mik,
-                                "Personel": personel, "Durum": "Kullanılabilir", "Lot": st.session_state.irsaliye_no,
-                                "Kaynak_Adres": st.session_state.sel_tedarikci, "Hedef_Adres": input_adr
-                            }])
-                            df_hareket = pd.concat([df_hareket, new_hareket], ignore_index=True)
+                    for item in st.session_state.mk_gecici_liste:
+                        # 1. Stok Güncelle
+                        mask_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres'])
+                        
+                        if mask_stok.any():
+                            df_stok.loc[mask_stok, 'Miktar'] = pd.to_numeric(df_stok.loc[mask_stok, 'Miktar']) + item['Miktar']
+                        else:
+                            new_stok = pd.DataFrame([{"Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])
+                            df_stok = pd.concat([df_stok, new_stok], ignore_index=True)
 
-                            veritabani.update_data("Stok", df_stok)
-                            veritabani.update_data("Hareketler", df_hareket)
-                            veritabani.update_data("Satin_Alma", df_siparis)
+                        # 2. Sipariş Güncelle
+                        mask_emir = (df_siparis['Sipariş No'] == st.session_state.sel_siparis) & (df_siparis['Stok Kodu'] == item['Stok Kodu'])
+                        df_siparis.loc[mask_emir, 'Gelen Miktar'] += item['Miktar']
 
-                            st.success("✅ Mal Kabul Başarıyla Kaydedildi!")
-                            st.rerun()
-            
+                        # 3. Hareket Ekle
+                        new_hareket = pd.DataFrame([{
+                            "Tarih": islem_zamani, "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis,
+                            "Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'],
+                            "Personel": personel, "Durum": "Kullanılabilir", "Lot": st.session_state.irsaliye_no,
+                            "Kaynak_Adres": st.session_state.sel_tedarikci, "Hedef_Adres": item['Adres']
+                        }])
+                        df_hareket = pd.concat([df_hareket, new_hareket], ignore_index=True)
+
+                    # Veritabanına Yaz
+                    veritabani.update_data("Stok", df_stok)
+                    veritabani.update_data("Hareketler", df_hareket)
+                    veritabani.update_data("Satin_Alma", df_siparis)
+
+                    st.session_state.mk_gecici_liste = []
+                    st.success("✅ Mal Kabul Başarıyla Kaydedildi ve Stoklara İşlendi!")
+                    st.rerun()
+
             st.divider()
-            st.write("📝 **Sipariş Detay Listesi (Bekleyenler)**")
+            st.write("📝 **Sipariş Detay Listesi (Tüm Bekleyenler)**")
             if not sub.empty:
                 view_cols = ["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"]
                 st.dataframe(sub[[c for c in view_cols if c in sub.columns]], use_container_width=True, hide_index=True)
