@@ -33,7 +33,7 @@ def run(conn):
         </style>
     """, unsafe_allow_html=True)
 
-    # --- YAN YANA GERİ BUTONLARI (ÜST NAVİGASYON) ---
+    # --- ÜST NAVİGASYON ---
     if st.session_state.teslim_page != 'menu':
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         with c_nav1:
@@ -58,7 +58,7 @@ def run(conn):
         with col2:
             st.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
 
-    # --- 1. SAS OLUŞTURMA (MANUEL + EXCEL) ---
+    # --- 1. SAS OLUŞTURMA (EXCEL + MANUEL) ---
     elif st.session_state.teslim_page == 'olustur':
         if not st.session_state.new_po_no:
             st.session_state.new_po_no = f"SAS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -68,13 +68,15 @@ def run(conn):
             sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
             sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
 
-        # --- EXCEL İLE SAS OLUŞTURMA ALANI ---
         st.write("📂 **Excel ile SAS Oluştur (DataGrid)**")
         up_sas = st.file_uploader("DataGrid Dosyası Yükle", type=['xlsx'], key="sas_excel_up", label_visibility="collapsed")
         
         if up_sas:
             try:
                 df_excel = pd.read_excel(up_sas, sheet_name='Main sheet')
+                # Yüklenen veriyi session_state'e al (Sorgu için sakla)
+                st.session_state['last_uploaded_excel'] = df_excel 
+                
                 mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
                 
                 if not mapping_df.empty:
@@ -82,11 +84,9 @@ def run(conn):
                     mapping_df['FORM_TEMİZ'] = mapping_df['FORM SÜNGER KOD'].apply(clean_code)
                     df_excel['TEMİZ_KOD'] = df_excel['Malzeme Kodu'].apply(clean_code)
                     
-                    # Talimat: "Teslimat No"yu SAS Referansı yap
                     sas_ref = str(df_excel['Teslimat No'].iloc[0]).split(".")[0]
                     st.session_state.new_po_no = f"SAS-{sas_ref}"
                     
-                    # Eşleştirme ve Miktar Çekme
                     df_merged = df_excel.merge(
                         mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], 
                         left_on='TEMİZ_KOD', right_on='FORM_TEMİZ', how='left'
@@ -106,10 +106,8 @@ def run(conn):
                                     "Gelen Miktar": 0.0, 
                                     "Birim": "ADET"
                                 })
-                        st.success("✅ Excel kalemleri başarıyla eklendi.")
+                        st.success("✅ Excel kalemleri aktarıldı.")
                         st.rerun()
-                else:
-                    st.error("Eşleşme hafızası bulunamadı!")
             except Exception as e:
                 st.error(f"Excel hatası: {e}")
 
@@ -117,9 +115,7 @@ def run(conn):
         st.write("➕ **Manuel Kalem Ekle**")
         try: katalog = veritabani.get_katalog() 
         except: katalog = []
-            
         sec_urun = st.selectbox("🎯 Ürün:", ["+ MANUEL GİRİŞ"] + katalog, key="sip_katalog_secim")
-
         c1, c2, c3 = st.columns([2, 1, 1])
         if sec_urun != "+ MANUEL GİRİŞ" and " | " in sec_urun:
             s_kod = sec_urun.split(" | ")[0]; s_isim = sec_urun.split(" | ")[1]
@@ -141,8 +137,6 @@ def run(conn):
                 st.rerun()
 
         if st.session_state.sip_gecici_liste:
-            st.write(f"📋 **SAS Taslağı: {st.session_state.new_po_no}**")
-            st.dataframe(pd.DataFrame(st.session_state.sip_gecici_liste)[["Stok Kodu", "Stok Adı", "Sipariş Miktarı"]], use_container_width=True, hide_index=True)
             if st.button("🚀 SİPARİŞİ KAYDET", type="primary", use_container_width=True):
                 df_m = veritabani.get_internal_data("Satin_Alma")
                 df_son = pd.concat([df_m, pd.DataFrame(st.session_state.sip_gecici_liste)], ignore_index=True)
@@ -177,7 +171,12 @@ def run(conn):
 
         df_s = veritabani.get_internal_data("Satin_Alma")
         sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
-        sub['key'] = sub['Kalem No'].astype(str) + " | " + sub['Stok Adı'] + " (" + sub['Stok Kodu'] + ")"
+        
+        # HATA ÇÖZÜMÜ: NaN değerleri boş stringe çeviriyoruz ki ArrowTypeError vermesin
+        sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ")
+        sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
+        sub['key'] = sub['Kalem No'].astype(str) + " | " + sub['Stok Adı'].astype(str) + " (" + sub['Stok Kodu'].astype(str) + ")"
+        
         bekleyenler = sub[(sub['Sipariş Miktarı'] - sub['Gelen Miktar']) > 0].copy()
 
         if not bekleyenler.empty:
@@ -253,7 +252,7 @@ def run(conn):
             st.caption("**Açık SAS Kalemleri**")
             st.dataframe(bekleyenler[["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar"]], use_container_width=True, hide_index=True)
 
-    # --- SAYFA SONU İMZASI ---
+    # --- İMZA ---
     st.markdown("---")
     col_sign1, col_sign2 = st.columns([3, 1])
     with col_sign2:
