@@ -140,7 +140,11 @@ def run(conn):
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**SAS:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
-        # HATA ÖNLEME: Barkod giriş kutusunu bir container içine alıyoruz
+        # HIZLANDIRMA: Verileri session_state'e bir kez yükleyelim
+        if 'full_stok_data' not in st.session_state: st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
+        if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
+        if 'full_har_data' not in st.session_state: st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
+
         with st.container(border=True):
             c_op1, c_op2 = st.columns([4, 1])
             
@@ -148,6 +152,16 @@ def run(conn):
                 if not code: return
                 if 'last_uploaded_excel' not in st.session_state:
                     st.error("Excel verisi bulunamadı!"); return
+                
+                # MÜKERRER KONTROLÜ 1: Geçici listede var mı?
+                if code in st.session_state.mk_gecici_liste and not st.session_state.get('undo_active', False):
+                    st.warning(f"⚠️ Bu barkod zaten okutuldu: {code}"); return
+
+                # MÜKERRER KONTROLÜ 2: Stokta/Dosyada bu Parti No daha önce işlenmiş mi?
+                df_stok_local = st.session_state.full_stok_data
+                if 'Tedarikçi Barkod' in df_stok_local.columns:
+                    if code in df_stok_local['Tedarikçi Barkod'].astype(str).values and not st.session_state.get('undo_active', False):
+                        st.error(f"❌ Bu barkod daha önce sisteme kaydedilmiş! (Parti No: {code})"); return
                 
                 ex_df = st.session_state['last_uploaded_excel']
                 found = ex_df[ex_df['Parti No'] == code]
@@ -170,21 +184,13 @@ def run(conn):
                             if code in st.session_state.mk_gecici_liste:
                                 del st.session_state.mk_gecici_liste[code]
                         else:
-                            st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(row['Teslimat Miktarı'])}
+                            st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(row['Teslimat Miktarı']), "Ad": match.iloc[0]['BRN ÜRÜN ADI']}
                             st.success(f"Okundu: {brn_kod}")
-                        
-                        # HATA FIX: Widget'ı sıfırlamak için session_state'i elle değiştirmek yerine
-                        # Streamlit rerun mekanizmasını tetikleyip formu temizletiyoruz.
                         st.rerun()
                     else: st.error(f"Mapping yok: {m_kod}")
 
-            # Widget anahtarını her rerun'da değiştirmek input'u temizler
             if 'scan_counter' not in st.session_state: st.session_state.scan_counter = 0
-            
-            scan_code = c_op1.text_input(
-                "🔍 Barkod (Parti No) Okutun:", 
-                key=f"barkod_input_{st.session_state.scan_counter}"
-            )
+            scan_code = c_op1.text_input("🔍 Barkod (Parti No) Okutun:", key=f"barkod_input_{st.session_state.scan_counter}")
             
             if scan_code:
                 st.session_state.scan_counter += 1
@@ -192,9 +198,8 @@ def run(conn):
             
             st.checkbox("🔄 Geri Al", key="undo_active")
 
-        # CANLI TABLO
-        df_s = veritabani.get_internal_data("Satin_Alma")
-        sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
+        # CANLI TABLO (Hafızadaki veriden filtrele)
+        sub = st.session_state.full_sas_data[st.session_state.full_sas_data['Sipariş No'] == st.session_state.sel_siparis].copy()
         sub['Gelen (Yeni)'] = 0.0; sub['Parti No'] = ""; sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ"); sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
         
         active_ids = []
@@ -213,15 +218,30 @@ def run(conn):
         if st.session_state.mk_gecici_liste:
             st.divider()
             if st.button("🚀 TESLİMATI TAMAMLA", type="primary", use_container_width=True):
-                df_stok = veritabani.get_internal_data("Stok"); df_har = veritabani.get_internal_data("Hareketler"); pers = st.session_state.get('kullanici_adi', "Sistem")
+                # TOPLU YAZMA OPERASYONU (DRIVE'A BİR KERE GİDER)
+                df_stok = st.session_state.full_stok_data
+                df_s = st.session_state.full_sas_data
+                df_har = st.session_state.full_har_data
+                pers = st.session_state.get('kullanici_adi', "Sistem")
+                
                 for _, row in sub[sub['Gelen (Yeni)'] > 0].iterrows():
                     m_stok = (df_stok['Kod'] == row['Stok Kodu']) & (df_stok.get('Tedarikçi Barkod', pd.Series()) == row['Parti No'])
-                    if m_stok.any(): df_stok.loc[m_stok, 'Miktar'] += row['Gelen (Yeni)']
-                    else: df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": row['Stok Kodu'], "İsim": row['Stok Adı'], "Adres": "DEPO-1", "Miktar": row['Gelen (Yeni)'], "Durum": "Kullanılabilir", "Tedarikçi Barkod": row['Parti No']}])], ignore_index=True)
+                    if m_stok.any(): 
+                        df_stok.loc[m_stok, 'Miktar'] += row['Gelen (Yeni)']
+                    else: 
+                        df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": row['Stok Kodu'], "İsim": row['Stok Adı'], "Adres": "DEPO-1", "Miktar": row['Gelen (Yeni)'], "Durum": "Kullanılabilir", "Tedarikçi Barkod": row['Parti No']}])], ignore_index=True)
+                    
                     df_s.loc[(df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == row['Kalem No']), 'Gelen Miktar'] += row['Gelen (Yeni)']
                     df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": row['Stok Kodu'], "İsim": row['Stok Adı'], "Miktar": row['Gelen (Yeni)'], "Personel": pers, "Lot": st.session_state.irsaliye_no, "Tedarikçi Barkod": row['Parti No'], "Adres": "DEPO-1", "Durum": "Kullanılabilir"}])], ignore_index=True)
-                veritabani.update_data("Stok", df_stok); veritabani.update_data("Satin_Alma", df_s); veritabani.update_data("Hareketler", df_har)
-                st.session_state.mk_gecici_liste = {}; st.success("Kayıt Başarılı!"); st.rerun()
+                
+                # Tek seferde toplu güncelleme
+                veritabani.update_data("Stok", df_stok)
+                veritabani.update_data("Satin_Alma", df_s)
+                veritabani.update_data("Hareketler", df_har)
+                
+                # Hafızayı temizle ve bitir
+                for k in ['full_stok_data', 'full_sas_data', 'full_har_data']: del st.session_state[k]
+                st.session_state.mk_gecici_liste = {}; st.success("Toplu Kayıt Başarılı!"); st.rerun()
 
     st.markdown("---")
     col_sign2 = st.columns([3, 1])[1]
