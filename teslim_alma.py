@@ -25,9 +25,12 @@ def run(conn):
         st.subheader("📥 Mal Kabul - Sipariş & İrsaliye Seçimi")
         st.markdown("---")
 
-        # Veritabanından satınalma siparişlerini çek (Tablo yoksa boş oluştur)
+        # Veritabanından satınalma siparişlerini güvenli şekilde çek
         try:
             df_siparis = veritabani.get_internal_data("Satin_Alma")
+            # Güvenlik Ağı: Tablo okunsa bile sütunlar yoksa (boş sayfaysa) şablonu oluştur
+            if "Sipariş No" not in df_siparis.columns:
+                df_siparis = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
         except:
             df_siparis = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
 
@@ -86,13 +89,30 @@ def run(conn):
         st.subheader(f"📦 Mal Kabul: {st.session_state.sel_siparis}")
         st.info(f"**🏢 Tedarikçi:** {st.session_state.sel_tedarikci} | **🧾 İrsaliye No:** {st.session_state.irsaliye_no}")
 
+        # Sipariş verisini güvenli çek
         try:
             df_siparis = veritabani.get_internal_data("Satin_Alma")
+            if "Sipariş No" not in df_siparis.columns:
+                df_siparis = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
         except:
             df_siparis = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
             
-        df_stok = veritabani.get_internal_data("Stok")
-        df_hareket = veritabani.get_internal_data("Hareketler")
+        # Stok verisini güvenli çek
+        try:
+            df_stok = veritabani.get_internal_data("Stok")
+            if "Kod" not in df_stok.columns:
+                df_stok = pd.DataFrame(columns=["Kod", "İsim", "Adres", "Miktar", "Durum"])
+        except:
+            df_stok = pd.DataFrame(columns=["Kod", "İsim", "Adres", "Miktar", "Durum"])
+
+        # Hareket verisini güvenli çek
+        try:
+            df_hareket = veritabani.get_internal_data("Hareketler")
+            if "Tarih" not in df_hareket.columns:
+                df_hareket = pd.DataFrame(columns=["Tarih", "İşlem", "İş Emri", "Kod", "İsim", "Adres", "Miktar", "Personel", "Durum", "Lot", "Kaynak_Adres", "Hedef_Adres"])
+        except:
+            df_hareket = pd.DataFrame(columns=["Tarih", "İşlem", "İş Emri", "Kod", "İsim", "Adres", "Miktar", "Personel", "Durum", "Lot", "Kaynak_Adres", "Hedef_Adres"])
+
 
         # Mevcut siparişe ait satırları çek
         sub = df_siparis[df_siparis['Sipariş No'] == st.session_state.sel_siparis].copy()
