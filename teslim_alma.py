@@ -127,22 +127,25 @@ def run(conn):
                     m_col1.metric("📦 Sipariş", f"{row['Sipariş Miktarı']}")
                     m_col2.metric("🎯 Kalan", f"{k_ih}", delta_color="inverse")
                     
-                    r1, r2 = st.columns([2, 1])
+                    r1, r2, r3 = st.columns([1.5, 1, 1])
                     i_adr = r1.text_input("📍 Adres:", key="mk_adr_input").upper().strip()
                     i_mik = r2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik_input")
+                    # Sayım ve Stok ekranındaki Durum seçenekleri eklendi
+                    i_dur = r3.selectbox("🛡️ Durum:", ["Kullanılabilir", "Bloke", "Karantina"], key="mk_dur_input")
 
                     if st.button("➕ EKLE", use_container_width=True, key="btn_mk_ekle"):
                         if i_adr and i_mik > 0:
                             st.session_state.mk_gecici_liste.append({
                                 "Kalem No": row['Kalem No'], "Stok Kodu": row['Stok Kodu'],
-                                "Stok Adı": row['Stok Adı'], "Adres": i_adr, "Miktar": i_mik, "Birim": row['Birim']
+                                "Stok Adı": row['Stok Adı'], "Adres": i_adr, "Miktar": i_mik, 
+                                "Birim": row['Birim'], "Durum": i_dur
                             })
                             st.rerun()
 
             if st.session_state.mk_gecici_liste:
                 st.markdown("🛒 **Sepettekiler**")
                 for i, item in enumerate(st.session_state.mk_gecici_liste):
-                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} ({item['Adres']})", expanded=False):
+                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} ({item['Adres']}) - {item['Durum']}", expanded=False):
                         if st.button(f"🗑️ Sil", key=f"del_mk_{i}"):
                             st.session_state.mk_gecici_liste.pop(i); st.rerun()
                 
@@ -152,27 +155,34 @@ def run(conn):
                     pers = st.session_state.get('kullanici_adi', "Sistem")
                     
                     for item in st.session_state.mk_gecici_liste:
-                        # Stok Güncelleme
-                        m_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres'])
+                        # Stok Güncelleme (Kod, Adres VE Durum bazlı kontrol)
+                        m_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres']) & (df_stok['Durum'] == item['Durum'])
                         if m_stok.any(): 
                             df_stok.loc[m_stok, 'Miktar'] += item['Miktar']
                         else: 
-                            df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])], ignore_index=True)
+                            df_stok = pd.concat([df_stok, pd.DataFrame([{
+                                "Kod": item['Stok Kodu'], 
+                                "İsim": item['Stok Adı'], 
+                                "Adres": item['Adres'], 
+                                "Miktar": item['Miktar'], 
+                                "Durum": item['Durum']
+                            }])], ignore_index=True)
                         
                         # SAS Güncelleme
                         m_sas = (df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == item['Kalem No'])
                         df_s.loc[m_sas, 'Gelen Miktar'] += item['Miktar']
                         
-                        # Hareket Kaydı (İsim sütunu eklendi)
+                        # Hareket Kaydı
                         df_har = pd.concat([df_har, pd.DataFrame([{
                             "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
                             "İşlem": "GİRİŞ", 
                             "İş Emri": st.session_state.sel_siparis, 
                             "Kod": item['Stok Kodu'], 
-                            "İsim": item['Stok Adı'],  # Eksik olan kısım buydu
+                            "İsim": item['Stok Adı'], 
                             "Adres": item['Adres'], 
                             "Miktar": item['Miktar'], 
                             "Personel": pers, 
+                            "Durum": item['Durum'], # Hareketler tablosuna durum eklendi
                             "Lot": st.session_state.irsaliye_no
                         }])], ignore_index=True)
 
