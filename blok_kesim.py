@@ -8,7 +8,7 @@ def run_blok_kesim(conn):
     try:
         mapping_df = conn.read(worksheet="Eşleşmeler", ttl="0")
     except:
-        mapping_df = pd.DataFrame(columns=["Tedarikçi_Kodu", "Bizim_Kod", "Bizim_İsim"])
+        mapping_df = pd.DataFrame(columns=["Tedarikçi_Kodu", "BRN Kod", "Brn_isim"])
 
     with st.sidebar:
         st.header("📁 Veri Kaynağı")
@@ -30,7 +30,7 @@ def run_blok_kesim(conn):
             
             # 12.000 Satırı Hafızadaki Eşleşmelerle Birleştir (Hızlı Merge)
             df_final = df_main.merge(
-                mapping_df[['Tedarikçi_Kodu', 'Bizim_Kod', 'Bizim_İsim']], 
+                mapping_df[['Tedarikçi_Kodu', 'BRN Kod', 'Brn_isim']], 
                 left_on='Malzeme Kodu', 
                 right_on='Tedarikçi_Kodu', 
                 how='left'
@@ -43,12 +43,12 @@ def run_blok_kesim(conn):
     # --- 2. EKRAN YÖNETİMİ ---
     if 'main_data' in st.session_state:
         df = st.session_state['main_data']
-        unmapped = df[df['Bizim_Kod'].isna()][['Malzeme Kodu', 'Malzeme Tanımı']].drop_duplicates()
+        unmapped = df[df['BRN Kod'].isna()][['Malzeme Kodu', 'Malzeme Tanımı']].drop_duplicates()
 
         # Özet Bilgiler
         c1, c2, c3 = st.columns(3)
         with c1: st.metric("Toplam Satır", len(df))
-        with c2: st.metric("Tanınan Ürünler", len(df[df['Bizim_Kod'].notna()]))
+        with c2: st.metric("Tanınan Ürünler", len(df[df['BRN Kod'].notna()]))
         with c3: st.metric("Bekleyen Yeni SKU", len(unmapped))
 
         # --- 3. AKILLI EŞLEŞTİRME (12.000 SKU İÇİNDE ARAMA) ---
@@ -75,8 +75,8 @@ def run_blok_kesim(conn):
                             # Yeni eşleşmeyi listeye ekle
                             yeni_kayit = pd.DataFrame([{
                                 "Tedarikçi_Kodu": target_row['Malzeme Kodu'],
-                                "Bizim_Kod": bizim_kart['kod'],
-                                "Bizim_İsim": bizim_kart['isim']
+                                "BRN Kod": bizim_kart['kod'],
+                                "Brn_isim": bizim_kart['isim']
                             }])
                             # Google Sheets Güncelle - Append hatasını önlemek için concat + update
                             guncel_df = pd.concat([mapping_df, yeni_kayit], ignore_index=True)
@@ -94,9 +94,9 @@ def run_blok_kesim(conn):
             match = df[df['Parti No'].astype(str) == str(parti_input)]
             if not match.empty:
                 item = match.iloc[0]
-                if pd.notna(item['Bizim_Kod']):
+                if pd.notna(item['BRN Kod']):
                     with st.container(border=True):
-                        st.success(f"Ürün Tanındı: **{item['Bizim_İsim']}**")
+                        st.success(f"Ürün Tanındı: **{item['Brn_isim']}**")
                         st.write(f"Tedarikçi Kodu: {item['Malzeme Kodu']} | Kategori: {item['Kategori']}")
                         
                         # Miktar Gösterimi (Senin Kuralların)
@@ -107,7 +107,7 @@ def run_blok_kesim(conn):
                         
                         if st.button("HAREKETİ KAYDET", key="btn_kaydet_blok"):
                             st.balloons()
-                else:
-                    st.error("Bu ürünün tipi henüz eşleştirilmemiş. Lütfen yukarıdaki panelden eşleştirin.")
+            else:
+                st.error("Bu ürünün tipi henüz eşleştirilmemiş. Lütfen yukarıdaki panelden eşleştirin.")
     else:
         st.info("Lütfen sol menüden Excel dosyasını yükleyin.")
