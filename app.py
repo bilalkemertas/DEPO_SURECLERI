@@ -1,68 +1,79 @@
 import streamlit as st
-import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# 1. TÜM MODÜLLERİ AKTİF ŞEKİLDE İÇE AKTARIYORUZ
-import blok_kesim
-import teslim_alma
-import uretim_hazirlik
-import depo_sayim
+# Modülleri içe aktar
+import blok_kesim, teslim_alma
 
 # --- SAYFA AYARLARI VE KURUMSAL TEMA ---
 st.set_page_config(page_title="WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
 
-# Garantili ve Evrensel CSS Tasarımı
 st.markdown("""
     <style>
-        .block-container { padding: 2rem !important; max-width: 900px; margin: 0 auto; }
+        /* Kurumsal ERP (SAP Fiori / Oracle) Hissiyatı İçin CSS */
+        .block-container { padding: 1rem !important; max-width: 800px; margin: 0 auto; }
+        header { visibility: hidden; }
+        footer { visibility: hidden; }
         
-        /* Ana Menü Butonları */
-        div.stButton > button {
-            height: 120px !important;
-            width: 100% !important;
-            border-radius: 12px !important;
-            font-size: 20px !important;
-            font-weight: bold !important;
-            background-color: #ffffff !important;
-            color: #0b3c5d !important;
-            border: 2px solid #0b3c5d !important;
-            transition: all 0.3s ease !important;
-            white-space: pre-wrap !important;
+        /* Genel Font ve Arka Plan */
+        html, body, [class*="css"] {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f5f7;
         }
-        div.stButton > button:hover {
-            background-color: #0b3c5d !important;
-            color: #ffffff !important;
-            border-color: #11caa0 !important;
+        
+        /* Ana Menü Karo (Tile) Tasarımı */
+        button[kind="primary"] {
+            width: 100%;
+            height: 110px;
+            border-radius: 10px;
+            background-color: #ffffff;
+            color: #0b3c5d;
+            border: 1px solid #dcdcdc;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            white-space: pre-wrap;
+        }
+        button[kind="primary"]:hover {
+            border-color: #328cc1;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.1);
             transform: translateY(-2px);
+            color: #328cc1;
+        }
+        button[kind="primary"]:active {
+            transform: translateY(0);
         }
         
         /* Kurumsal Header */
         .erp-header {
             background-color: #0b3c5d;
             color: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        .erp-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 1px; }
+        .erp-title { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: 1px; }
         .erp-user { margin: 0; font-size: 14px; opacity: 0.9; }
+        
+        /* Çıkış Butonu Özel Ayarı */
+        .logout-box {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            height: 100%;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# Google Sheets Bağlantısı (Gizleme Şartları Kaldırıldı)
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except:
-    conn = None 
+# Google Sheets Bağlantısı
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Oturum Yönetimi (Routing)
 if 'page' not in st.session_state:
-    st.session_state['page'] = 'main'
-elif st.session_state['page'] not in ['main', 'mal_kabul', 'blok_kesim', 'uretim_hazirlik', 'depo_sayim']:
     st.session_state['page'] = 'main'
 
 # Kurumsal Üst Bilgi (Header)
@@ -77,56 +88,29 @@ st.markdown("""
 
 if st.session_state['page'] == 'main':
     st.subheader("Uygulama Menüsü")
-    st.write("") 
     
     col1, col2 = st.columns(2)
+    
     with col1:
-        if st.button("📦\nMal Kabul"):
+        if st.button("📦\nMal Kabul", type="primary", use_container_width=True):
             st.session_state['page'] = 'mal_kabul'
             st.rerun()
+            
     with col2:
-        if st.button("✂️\nBlok & Rulo Kesim"):
+        if st.button("✂️\nBlok & Rulo Kesim", type="primary", use_container_width=True):
             st.session_state['page'] = 'blok_kesim'
             st.rerun()
 
-    st.write("") 
-
-    col3, col4 = st.columns(2)
-    with col3:
-        if st.button("🔄\nÜretim Hazırlık (Kitleme)"):
-            st.session_state['page'] = 'uretim_hazirlik'
-            st.rerun()
-    with col4:
-        if st.button("📊\nDepo Sayım & Envanter"):
-            st.session_state['page'] = 'depo_sayim'
-            st.rerun()
-
-# --- MODÜLLERİ ÇAĞIRMA (İçerikler Artık Boş Değil) ---
-
 elif st.session_state['page'] == 'mal_kabul':
-    if st.button("⬅️ Ana Menüye Dön", key="back_mal_kabul_btn"):
+    if st.button("⬅️ Ana Menüye Dön"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
     teslim_alma.run(conn)
 
 elif st.session_state['page'] == 'blok_kesim':
-    if st.button("⬅️ Ana Menüye Dön", key="back_blok_kesim_btn"):
+    if st.button("⬅️ Ana Menüye Dön"):
         st.session_state['page'] = 'main'
         st.rerun()
     st.divider()
     blok_kesim.run_blok_kesim(conn)
-
-elif st.session_state['page'] == 'uretim_hazirlik':
-    if st.button("⬅️ Ana Menüye Dön", key="back_uretim_btn"):
-        st.session_state['page'] = 'main'
-        st.rerun()
-    st.divider()
-    uretim_hazirlik.run(conn) # Eğer dosya içindeki fonksiyon adı farklıysa (örn: run_hazirlik) burayı güncellemelisin
-
-elif st.session_state['page'] == 'depo_sayim':
-    if st.button("⬅️ Ana Menüye Dön", key="back_sayim_btn"):
-        st.session_state['page'] = 'main'
-        st.rerun()
-    st.divider()
-    depo_sayim.run(conn) # Eğer dosya içindeki fonksiyon adı farklıysa burayı güncellemelisin
