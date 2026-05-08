@@ -45,7 +45,7 @@ def goster():
         st.markdown(
             """
             <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş | BRN 2026</p>
                 <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
             </div>
             """, 
