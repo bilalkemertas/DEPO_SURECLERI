@@ -75,18 +75,6 @@ st.markdown("""
         }
         .erp-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 1px; }
         .erp-user { margin: 0; font-size: 14px; opacity: 0.9; }
-        
-        /* Login Ekranı Özel */
-        .login-box {
-            background-color: #ffffff;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            max-width: 400px;
-            margin: 50px auto;
-            text-align: center;
-            border-top: 5px solid #0b3c5d;
-        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -106,27 +94,38 @@ if 'page' not in st.session_state:
 
 # --- 1. KULLANICI GİRİŞ (LOGIN) EKRANI ---
 if not st.session_state['logged_in']:
-    st.markdown('<div class="login-box">', unsafe_allow_html=True)
-    st.markdown("<h2 style='color: #0b3c5d; margin-bottom: 20px;'>BRN WMS Giriş</h2>", unsafe_allow_html=True)
     
-    kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adınızı girin")
-    sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
+    # Ekranı ortalamak için boş sütunlar kullanıyoruz (1 birim sol, 1.5 birim orta, 1 birim sağ)
+    col1, col2, col3 = st.columns([1, 1.5, 1])
     
-    # Giriş butonu standart (secondary) kalıyor
-    if st.button("Sisteme Giriş Yap", use_container_width=True):
-        if "users" in st.secrets:
-            kullanici_listesi = st.secrets["users"]
+    with col2:
+        st.write("")
+        st.write("")
+        st.write("") # Üstten biraz boşluk bırak
+        
+        # Orijinal Streamlit kutusu (border=True)
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align: center; color: #0b3c5d; margin-bottom: 10px;'>🏢 BRN WMS Giriş</h2>", unsafe_allow_html=True)
+            st.divider()
             
-            if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
-                st.session_state['logged_in'] = True
-                st.session_state['kullanici_adi'] = kadi.capitalize() 
-                st.rerun()
-            else:
-                st.error("Hatalı kullanıcı adı veya şifre!")
-        else:
-            st.error("Sistem Hatası: Secrets içinde [users] bloğu bulunamadı.")
+            kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adınızı girin")
+            sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
             
-    st.markdown('</div>', unsafe_allow_html=True)
+            st.write("") # Buton öncesi ufak boşluk
+            
+            # Giriş butonu
+            if st.button("Sisteme Giriş Yap", use_container_width=True):
+                if "users" in st.secrets:
+                    kullanici_listesi = st.secrets["users"]
+                    
+                    if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
+                        st.session_state['logged_in'] = True
+                        st.session_state['kullanici_adi'] = kadi.capitalize() 
+                        st.rerun()
+                    else:
+                        st.error("Hatalı kullanıcı adı veya şifre!")
+                else:
+                    st.error("Sistem Hatası: Secrets içinde [users] bloğu bulunamadı.")
 
 # --- 2. ANA UYGULAMA (GİRİŞ YAPILDIYSA) ---
 else:
@@ -205,25 +204,25 @@ else:
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_uretim.goster() # Hata düzeldi
+        modul_uretim.goster() 
 
     elif st.session_state['page'] == 'stok':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_stok.goster() # Hata düzeldi
+        modul_stok.goster() 
 
     elif st.session_state['page'] == 'sayim':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_sayim.goster() # İleride olası hata ihtimaline karşı düzeltildi
+        modul_sayim.goster() 
 
     elif st.session_state['page'] == 'rapor':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_rapor.goster() # İleride olası hata ihtimaline karşı düzeltildi
+        modul_rapor.goster()
