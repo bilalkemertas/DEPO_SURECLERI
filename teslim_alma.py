@@ -68,7 +68,6 @@ def run(conn):
             sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
             sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
 
-        # --- EXCEL İLE SAS OLUŞTURMA ALANI ---
         st.write("📂 **Excel ile SAS Oluştur (DataGrid)**")
         up_sas = st.file_uploader("DataGrid Dosyası Yükle", type=['xlsx'], key="sas_excel_up", label_visibility="collapsed")
         
@@ -76,7 +75,7 @@ def run(conn):
             try:
                 df_excel = pd.read_excel(up_sas, sheet_name='Main sheet')
                 st.session_state['last_uploaded_excel'] = df_excel 
-                mapping_df = load_mapping_file = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
+                mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
                 
                 if not mapping_df.empty:
                     mapping_df.columns = [str(c).strip().upper() for c in mapping_df.columns]
@@ -107,8 +106,6 @@ def run(conn):
                                 })
                         st.success("✅ Excel kalemleri aktarıldı.")
                         st.rerun()
-                else:
-                    st.error("Eşleşme hafızası bulunamadı!")
             except Exception as e:
                 st.error(f"Excel hatası: {e}")
 
@@ -139,8 +136,6 @@ def run(conn):
                 st.rerun()
 
         if st.session_state.sip_gecici_liste:
-            st.write(f"📋 **SAS Taslağı: {st.session_state.new_po_no}**")
-            st.dataframe(pd.DataFrame(st.session_state.sip_gecici_liste)[["Stok Kodu", "Stok Adı", "Sipariş Miktarı"]], use_container_width=True, hide_index=True)
             if st.button("🚀 SİPARİŞİ KAYDET", type="primary", use_container_width=True):
                 df_m = veritabani.get_internal_data("Satin_Alma")
                 df_son = pd.concat([df_m, pd.DataFrame(st.session_state.sip_gecici_liste)], ignore_index=True)
@@ -169,11 +164,11 @@ def run(conn):
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
                     st.session_state.mk_gecici_liste = []; st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- 3. MAL KABUL GİRİŞ (HIZLI BARKOD SORGULAMALI) ---
+    # --- 3. MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**PO:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
-        # BARKOD SORGULAMA ALANI
+        # --- BARKOD SORGULAMA ---
         with st.container(border=True):
             st.write("🔍 **Excel'deki Parti No ile Malzeme Bul**")
             scan_code = st.text_input("Barkod Okutun (Parti No):", key="scan_parti").strip()
@@ -192,10 +187,9 @@ def run(conn):
                         
                         if not match_brn.empty:
                             target_brn = match_brn.iloc[0]['BRN KOD']
-                            # SAS verilerini tazele
-                            df_s_temp = veritabani.get_internal_data("Satin_Alma")
-                            sub_temp = df_s_temp[df_s_temp['Sipariş No'] == st.session_state.sel_siparis]
-                            found_sas = sub_temp[sub_temp['Stok Kodu'] == target_brn]
+                            df_s_t = veritabani.get_internal_data("Satin_Alma")
+                            sub_t = df_s_t[df_s_t['Sipariş No'] == st.session_state.sel_siparis]
+                            found_sas = sub_t[sub_t['Stok Kodu'] == target_brn]
                             
                             if not found_sas.empty:
                                 st.session_state['mk_select_item'] = f"{found_sas.iloc[0]['Kalem No']} | {found_sas.iloc[0]['Stok Adı']} ({found_sas.iloc[0]['Stok Kodu']})"
@@ -226,9 +220,13 @@ def run(conn):
                     
                     r_barkod = st.text_input("🏷️ Tedarikçi Barkod / Parti No:", value=scan_code if scan_code else "", key="mk_ted_barkod").upper().strip()
                     
+                    # --- HATA ÇÖZÜMÜ: StreamlitValueAboveMaxError Koruması ---
+                    raw_val = st.session_state.get('mk_auto_mik', 1.0)
+                    safe_val = min(float(raw_val), float(k_ih)) # Excel verisi kalan miktardan büyükse k_ih değerine sabitle
+                    
                     r1, r2, r3 = st.columns([1.5, 1, 1])
-                    i_adr = r1.text_input("📍 Adres:", key="mk_adr_input").upper().strip()
-                    i_mik = r2.number_input("🔢 Miktar:", value=st.session_state.get('mk_auto_mik', 1.0), min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik_input")
+                    i_adr = r1.text_input("📍 Adres:", value="DEPO-1", key="mk_adr_input").upper().strip()
+                    i_mik = r2.number_input("🔢 Miktar:", value=safe_val, min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik_input")
                     i_dur = r3.selectbox("🛡️ Durum:", ["Kullanılabilir", "Bloke", "Karantina"], key="mk_dur_input")
 
                     if st.button("➕ EKLE", use_container_width=True, key="btn_mk_ekle"):
@@ -283,7 +281,7 @@ def run(conn):
             st.caption("**Açık SAS Kalemleri**")
             st.dataframe(bekleyenler[["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar"]], use_container_width=True, hide_index=True)
 
-    # --- İMZA ---
+    # --- SAYFA SONU İMZASI ---
     st.markdown("---")
     col_sign1, col_sign2 = st.columns([3, 1])
     with col_sign2:
