@@ -73,4 +73,4 @@ def footer():
     col_sign1, col_sign2 = st.columns([4, 1])
     with col_sign2:
         st.caption("🚀 **Bilal Kemertaş**")
-        st.caption("Logistics Solutions")
+        st.caption("BRN 2026")
