@@ -68,7 +68,6 @@ def run(conn):
         if up_sas:
             try:
                 df_excel = pd.read_excel(up_sas, sheet_name='Main sheet')
-                # VERİ TEMİZLİĞİ: Excel yüklenirken Parti No formatını garantiye alıyoruz
                 df_excel['Parti No'] = df_excel['Parti No'].astype(str).str.strip().str.split(".").str[0]
                 st.session_state['last_uploaded_excel'] = df_excel
                 
@@ -144,36 +143,64 @@ def run(conn):
         with st.container(border=True):
             c_op1, c_op2 = st.columns([4, 1])
             
-            def process_scan():
-                code = st.session_state.barkod_input.strip().split(".")[0]
+            # DETERMINISTIC SCAN FUNCTION
+            def process_scan(code):
                 if not code: return
                 
-                if 'last_uploaded_excel' in st.session_state:
-                    ex_df = st.session_state['last_uploaded_excel']
-                    # GARANTİ EŞLEŞME: Hem Excel'deki hem de okutulan koddaki nokta ve boşlukları atıyoruz
-                    found = ex_df[ex_df['Parti No'] == code]
+                if 'last_uploaded_excel' not in st.session_state:
+                    st.error("Excel verisi bulunamadı!")
+                    return
+                
+                ex_df = st.session_state['last_uploaded_excel']
+                found = ex_df[ex_df['Parti No'] == code]
+                
+                if found.empty:
+                    st.error(f"Excel'de bulunamadı: {code}")
+                    return
+                
+                row = found.iloc[0]
+                m_kod = clean_code(row['Malzeme Kodu'])
+                
+                map_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
+                if map_df.empty:
+                    st.error("Mapping dosyası boş!")
+                    return
                     
-                    if not found.empty:
-                        m_kod = clean_code(found.iloc[0]['Malzeme Kodu'])
-                        map_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
-                        if not map_df.empty:
-                            map_df.columns = [str(c).strip().upper() for c in map_df.columns]
-                            map_df['FORM_TEMİZ'] = map_df['FORM SÜNGER KOD'].apply(clean_code)
-                            match = map_df[map_df['FORM_TEMİZ'] == m_kod]
-                            if not match.empty:
-                                brn_kod = match.iloc[0]['BRN KOD']
-                                if st.session_state.get('undo_active', False):
-                                    if code in st.session_state.mk_gecici_liste: del st.session_state.mk_gecici_liste[code]
-                                else:
-                                    st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(found.iloc[0]['Teslimat Miktarı'])}
-                            else: st.sidebar.warning(f"Mapping Fail: {m_kod}")
-                    else: st.sidebar.error(f"Excel'de Bulunamadı: {code}")
-                st.session_state.barkod_input = ""
+                map_df.columns = [str(c).strip().upper() for c in map_df.columns]
+                map_df['FORM_TEMİZ'] = map_df['FORM SÜNGER KOD'].apply(clean_code)
+                
+                match = map_df[map_df['FORM_TEMİZ'] == m_kod]
+                
+                if match.empty:
+                    st.error(f"Mapping uyuşmazlığı: {m_kod}")
+                    return
+                
+                brn_kod = match.iloc[0]['BRN KOD']
+                
+                # Geri al modu kontrolü
+                if st.session_state.get('undo_active', False):
+                    if code in st.session_state.mk_gecici_liste:
+                        del st.session_state.mk_gecici_liste[code]
+                        st.warning(f"Silindi: {code}")
+                else:
+                    st.session_state.mk_gecici_liste[code] = {
+                        "Kod": brn_kod,
+                        "Miktar": float(row['Teslimat Miktarı'])
+                    }
+                    st.success(f"Eklendi: {brn_kod}")
+                
+                st.session_state.barkod_input = "" # Inputu temizle
+                st.rerun() # UI Güncellemesini garanti et
 
-            st.text_input("🔍 Barkod (Parti No) Okutun:", key="barkod_input", on_change=process_scan)
+            # UI INPUT (on_change KALDIRILDI)
+            scan_code = st.text_input("🔍 Barkod (Parti No) Okutun:", key="barkod_input")
+            
+            if scan_code:
+                process_scan(scan_code.strip().split(".")[0])
+            
             st.checkbox("🔄 Geri Al", key="undo_active")
 
-        # CANLI TABLO GÖSTERİMİ
+        # CANLI TABLO
         df_s = veritabani.get_internal_data("Satin_Alma")
         sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
         sub['Gelen (Yeni)'] = 0.0; sub['Parti No'] = ""; sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ"); sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
