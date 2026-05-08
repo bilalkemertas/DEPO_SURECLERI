@@ -58,7 +58,7 @@ def run(conn):
         with col2:
             st.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
 
-    # --- 1. SAS OLUŞTURMA (EXCEL + MANUEL) ---
+    # --- 1. SAS OLUŞTURMA (MANUEL + EXCEL) ---
     elif st.session_state.teslim_page == 'olustur':
         if not st.session_state.new_po_no:
             st.session_state.new_po_no = f"SAS-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -68,15 +68,14 @@ def run(conn):
             sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
             sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
 
+        # --- EXCEL İLE SAS OLUŞTURMA ---
         st.write("📂 **Excel ile SAS Oluştur (DataGrid)**")
         up_sas = st.file_uploader("DataGrid Dosyası Yükle", type=['xlsx'], key="sas_excel_up", label_visibility="collapsed")
         
         if up_sas:
             try:
                 df_excel = pd.read_excel(up_sas, sheet_name='Main sheet')
-                # Yüklenen veriyi session_state'e al (Sorgu için sakla)
                 st.session_state['last_uploaded_excel'] = df_excel 
-                
                 mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
                 
                 if not mapping_df.empty:
@@ -165,22 +164,46 @@ def run(conn):
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
                     st.session_state.mk_gecici_liste = []; st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- 3. MAL KABUL GİRİŞ ---
+    # --- 3. MAL KABUL GİRİŞ (HIZLI BARKOD + MANUEL) ---
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**PO:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
         df_s = veritabani.get_internal_data("Satin_Alma")
         sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
-        
-        # HATA ÇÖZÜMÜ: NaN değerleri boş stringe çeviriyoruz ki ArrowTypeError vermesin
         sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ")
         sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
         sub['key'] = sub['Kalem No'].astype(str) + " | " + sub['Stok Adı'].astype(str) + " (" + sub['Stok Kodu'].astype(str) + ")"
-        
         bekleyenler = sub[(sub['Sipariş Miktarı'] - sub['Gelen Miktar']) > 0].copy()
 
+        # --- BARKOD İLE HIZLI SEÇİM ALANI ---
+        with st.container(border=True):
+            st.write("🔍 **Barkod ile Malzeme Bul**")
+            scan_code = st.text_input("Tedarikçi Barkodunu Okutun:", key="scan_input").strip()
+            
+            if scan_code:
+                # Hafızadan (Mapping) bu barkodun hangi BRN koduna denk geldiğini bul
+                mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
+                t_code = clean_code(scan_code)
+                
+                if not mapping_df.empty:
+                    mapping_df.columns = [str(c).strip().upper() for c in mapping_df.columns]
+                    mapping_df['FORM_TEMİZ'] = mapping_df['FORM SÜNGER KOD'].apply(clean_code)
+                    match = mapping_df[mapping_df['FORM_TEMİZ'] == t_code]
+                    
+                    if not match.empty:
+                        target_brn = match.iloc[0]['BRN KOD']
+                        # SAS kalemleri içinde bu BRN kodu var mı?
+                        found_sas = bekleyenler[bekleyenler['Stok Kodu'] == target_brn]
+                        if not found_sas.empty:
+                            st.session_state['mk_select_item'] = found_sas.iloc[0]['key']
+                            st.success(f"Ürün Bulundu: {found_sas.iloc[0]['Stok Adı']}")
+                        else:
+                            st.error("Bu ürün bu SAS içerisinde bulunamadı!")
+                    else:
+                        st.warning("Bu barkod eşleşme hafızasında kayıtlı değil!")
+
         if not bekleyenler.empty:
-            sel_d = st.selectbox("🎯 Malzeme:", ["Seçiniz..."] + bekleyenler['key'].tolist(), label_visibility="collapsed", key="mk_select_item")
+            sel_d = st.selectbox("🎯 Malzeme:", ["Seçiniz..."] + bekleyenler['key'].tolist(), key="mk_select_item")
 
             if sel_d != "Seçiniz...":
                 row = bekleyenler[bekleyenler['key'] == sel_d].iloc[0]
@@ -193,7 +216,7 @@ def run(conn):
                     m_col1.metric("📦 Sipariş", f"{row['Sipariş Miktarı']}")
                     m_col2.metric("🎯 Kalan", f"{k_ih}", delta_color="inverse")
                     
-                    r_barkod = st.text_input("🏷️ Tedarikçi Barkod / Parti No:", key="mk_ted_barkod").upper().strip()
+                    r_barkod = st.text_input("🏷️ Tedarikçi Barkod / Parti No:", value=scan_code if scan_code else "", key="mk_ted_barkod").upper().strip()
                     
                     r1, r2, r3 = st.columns([1.5, 1, 1])
                     i_adr = r1.text_input("📍 Adres:", key="mk_adr_input").upper().strip()
@@ -249,10 +272,7 @@ def run(conn):
                     veritabani.update_data("Stok", df_stok); veritabani.update_data("Satin_Alma", df_s); veritabani.update_data("Hareketler", df_har)
                     st.session_state.mk_gecici_liste = []; st.success("Başarılı"); st.rerun()
 
-            st.caption("**Açık SAS Kalemleri**")
-            st.dataframe(bekleyenler[["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar"]], use_container_width=True, hide_index=True)
-
-    # --- İMZA ---
+    # --- SAYFA SONU İMZASI ---
     st.markdown("---")
     col_sign1, col_sign2 = st.columns([3, 1])
     with col_sign2:
