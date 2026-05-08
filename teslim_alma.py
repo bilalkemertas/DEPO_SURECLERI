@@ -33,7 +33,7 @@ def run(conn):
         </style>
     """, unsafe_allow_html=True)
 
-    # --- ÜST NAVİGASYON ---
+    # --- YAN YANA GERİ BUTONLARI (ÜST NAVİGASYON) ---
     if st.session_state.teslim_page != 'menu':
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         with c_nav1:
@@ -68,8 +68,8 @@ def run(conn):
             sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
             sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
 
-        # --- EXCEL İLE HIZLI SAS DOLDURMA ---
-        st.write("📂 **Excel ile SAS Doldur (DataGrid)**")
+        # --- EXCEL İLE SAS OLUŞTURMA ALANI ---
+        st.write("📂 **Excel ile SAS Oluştur (DataGrid)**")
         up_sas = st.file_uploader("DataGrid Dosyası Yükle", type=['xlsx'], key="sas_excel_up", label_visibility="collapsed")
         
         if up_sas:
@@ -78,23 +78,22 @@ def run(conn):
                 mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
                 
                 if not mapping_df.empty:
-                    # Başlıkları standartlaştır
                     mapping_df.columns = [str(c).strip().upper() for c in mapping_df.columns]
                     mapping_df['FORM_TEMİZ'] = mapping_df['FORM SÜNGER KOD'].apply(clean_code)
                     df_excel['TEMİZ_KOD'] = df_excel['Malzeme Kodu'].apply(clean_code)
                     
-                    # Teslimat No'yu SAS No yap
+                    # Talimat: "Teslimat No"yu SAS Referansı yap
                     sas_ref = str(df_excel['Teslimat No'].iloc[0]).split(".")[0]
                     st.session_state.new_po_no = f"SAS-{sas_ref}"
                     
-                    # Eşleştirme yap ve listeye ekle
+                    # Eşleştirme ve Miktar Çekme
                     df_merged = df_excel.merge(
                         mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], 
                         left_on='TEMİZ_KOD', right_on='FORM_TEMİZ', how='left'
                     )
                     
-                    if st.button("🚀 EXCEL VERİLERİNİ TASLAĞA AKTAR", use_container_width=True):
-                        st.session_state.sip_gecici_liste = [] # Mevcut listeyi temizle
+                    if st.button("🚀 EXCEL VERİLERİNİ LİSTEYE AKTAR", use_container_width=True):
+                        st.session_state.sip_gecici_liste = []
                         for i, row in df_merged.iterrows():
                             if pd.notna(row['BRN KOD']):
                                 st.session_state.sip_gecici_liste.append({
@@ -107,12 +106,12 @@ def run(conn):
                                     "Gelen Miktar": 0.0, 
                                     "Birim": "ADET"
                                 })
-                        st.success(f"✅ {len(st.session_state.sip_gecici_liste)} kalem yüklendi.")
+                        st.success("✅ Excel kalemleri başarıyla eklendi.")
                         st.rerun()
                 else:
-                    st.error("Eşleşme hafızası bulunamadı! Önce Blok Kesim ekranında eşleşme yapmalısınız.")
+                    st.error("Eşleşme hafızası bulunamadı!")
             except Exception as e:
-                st.error(f"Excel okuma hatası: {e}")
+                st.error(f"Excel hatası: {e}")
 
         st.divider()
         st.write("➕ **Manuel Kalem Ekle**")
@@ -258,12 +257,4 @@ def run(conn):
     st.markdown("---")
     col_sign1, col_sign2 = st.columns([3, 1])
     with col_sign2:
-        st.markdown(
-            """
-            <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+        st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>Logistics Solutions</small></div>", unsafe_allow_html=True)
