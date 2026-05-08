@@ -23,7 +23,7 @@ def run_blok_kesim(conn):
         
         if uploaded_file:
             try:
-                df_main = pd.read_excel(uploaded_file, sheet_name='Main sheet')
+                df_main = pd.read_excel(uploaded_file, sheet_name='FORM & BRN Eşleştirme')
                 df_sunger = pd.read_excel(uploaded_file, sheet_name='Sünger')
                 
                 # Sınıflandırma
