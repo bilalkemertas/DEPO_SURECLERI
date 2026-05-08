@@ -10,7 +10,27 @@ def go_sayim():
     st.session_state.page = 'sayim'
 
 def goster():
+    # --- İMZAYI SAYFAYA SABİTLEYEN CSS ---
+    st.markdown("""
+        <style>
+        .footer {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background-color: white;
+            color: black;
+            text-align: right;
+            padding: 10px;
+            padding-right: 30px;
+            border-top: 1px solid #eee;
+            z-index: 999;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("<h3 style='text-align:center;'>📦 Depo Kontrol Merkezi</h3>", unsafe_allow_html=True)
+    
     df_ana = veritabani.get_internal_data("Stok")
     m1, m2 = st.columns(2)
     
@@ -31,16 +51,13 @@ def goster():
         st.button("📝 SAYIM SİSTEMİ", use_container_width=True, type="primary", on_click=go_sayim)
         st.button("📈 RAPOR VE ARŞİV", use_container_width=True, type="primary", on_click=go_rapor)
 
-    # --- SAYFA SONU İMZASI ---
-    st.markdown("---")
-    col_sign1, col_sign2 = st.columns([3, 1])
-    with col_sign2:
-        st.markdown(
-            """
-            <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+    # --- SABİT İMZA ALANI ---
+    st.markdown(
+        """
+        <div class="footer">
+            <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+            <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
