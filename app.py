@@ -139,7 +139,6 @@ else:
     """, unsafe_allow_html=True)
 
     # --- ANA MENÜ (TILE EKRANI) ---
-    # MODÜLLERDEN GELEN 'home' KOMUTUNU DA ANA MENÜ OLARAK KABUL EDİYORUZ
     if st.session_state['page'] in ['main', 'home']:
         st.subheader("Uygulama Menüsü")
         st.write("") 
@@ -198,30 +197,15 @@ else:
         st.divider()
         blok_kesim.run_blok_kesim(conn)
 
+    # Bu modüller kendi içlerinde geri dön butonuna sahip oldukları için app.py'deki butonları kaldırıldı.
     elif st.session_state['page'] == 'uretim':
-        if st.button("⬅️ Ana Menüye Dön"):
-            st.session_state['page'] = 'main'
-            st.rerun()
-        st.divider()
         modul_uretim.goster() 
 
     elif st.session_state['page'] == 'stok':
-        if st.button("⬅️ Ana Menüye Dön"):
-            st.session_state['page'] = 'main'
-            st.rerun()
-        st.divider()
         modul_stok.goster() 
 
     elif st.session_state['page'] == 'sayim':
-        if st.button("⬅️ Ana Menüye Dön"):
-            st.session_state['page'] = 'main'
-            st.rerun()
-        st.divider()
         modul_sayim.goster() 
 
     elif st.session_state['page'] == 'rapor':
-        if st.button("⬅️ Ana Menüye Dön"):
-            st.session_state['page'] = 'main'
-            st.rerun()
-        st.divider()
         modul_rapor.goster()
