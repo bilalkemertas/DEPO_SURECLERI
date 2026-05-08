@@ -10,6 +10,7 @@ def init_state():
     if 'irsaliye_no' not in st.session_state: st.session_state.irsaliye_no = ""
     if 'mk_gecici_liste' not in st.session_state: st.session_state.mk_gecici_liste = []
     if 'sip_gecici_liste' not in st.session_state: st.session_state.sip_gecici_liste = []
+    if 'new_po_no' not in st.session_state: st.session_state.new_po_no = None
 
 def clear_form():
     st.session_state.reset_mk_form = True
@@ -25,7 +26,6 @@ def run(conn):
         </style>
     """, unsafe_allow_html=True)
 
-    # Sepete ekle dedikten sonra formdaki miktar ve adresleri sıfırlayan tetikleyici
     if st.session_state.get("reset_mk_form"):
         st.session_state.mk_mik = 0.0
         st.session_state.mk_adr = ""
@@ -36,26 +36,36 @@ def run(conn):
         st.subheader("📦 Mal Kabul & Teslim Alma Modülü")
         st.markdown("---")
         
-        st.button("📝 SATINALMA SİPARİŞİ OLUŞTUR", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
-        st.button("🚛 MAL KABUL İŞLEMİ (GİRİŞ YAP)", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'secim'))
+        col1, col2 = st.columns(2)
+        with col1:
+            st.button("📦\nMAL KABUL\n(Açık Siparişleri Teslim Al)", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'secim'))
+        with col2:
+            st.button("📝\nSATINALMA SİPARİŞİ\n(Yeni Sipariş Oluştur)", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'teslim_page', 'olustur'))
 
-    # --- 0.5 SİPARİŞ OLUŞTURMA EKRANI ---
+    # --- 1. SİPARİŞ OLUŞTURMA EKRANI ---
     elif st.session_state.teslim_page == 'olustur':
-        if st.button("⬅️ MAL KABUL MENÜSÜNE DÖN"): 
-            st.session_state.sip_gecici_liste = [] # Geri dönerken sepeti temizle
+        if st.button("⬅️ ANA MENÜYE DÖN"): 
+            st.session_state.sip_gecici_liste = []
+            st.session_state.new_po_no = None
             st.session_state.teslim_page = 'menu'
             st.rerun()
 
         st.subheader("📝 Yeni Satınalma Siparişi Oluştur")
-        st.info("Tedarikçi ve Sipariş Numarasını girdikten sonra ürünleri listeye ekleyin. Tüm liste bittiğinde kaydedin.")
+        st.info("Sistem bu sipariş için otomatik bir numara atadı. Tedarikçi bilgisini ve ürünleri girerek siparişi kaydedin.")
         
+        # Otomatik Sipariş Numarası Üretme (Sadece sayfaya ilk girildiğinde üretilir)
+        if not st.session_state.new_po_no:
+            zaman_damgasi = datetime.now().strftime("%Y%m%d-%H%M%S")
+            st.session_state.new_po_no = f"SAS-{zaman_damgasi}"
+
         with st.container(border=True):
             st.write("📋 **Sipariş Temel Bilgileri**")
             col1, col2 = st.columns(2)
             with col1:
-                sip_tedarikci = st.text_input("🏢 Tedarikçi Adı:").upper().strip()
+                sip_tedarikci = st.text_input("🏢 Tedarikçi Adı (Zorunlu):").upper().strip()
             with col2:
-                sip_no = st.text_input("📄 Sipariş Numarası:").upper().strip()
+                # Sipariş numarası otomatik ve değiştirilemez
+                sip_no = st.text_input("📄 Sipariş Numarası (Otomatik):", value=st.session_state.new_po_no, disabled=True)
 
         st.markdown("---")
         st.write("🔍 **Siparişe Ürün Ekle**")
@@ -80,15 +90,15 @@ def run(conn):
         with c2:
             s_mik = st.number_input("🔢 Sipariş Miktarı:", min_value=0.0, step=1.0, key="sip_mik_m")
         with c3:
-            s_birim = st.selectbox("📏 Birim:", ["ADET", "KG", "METRE", "LİTRE", "PAKET", "KUTU"], key="sip_birim_m")
+            s_birim = st.selectbox("📏 Birim:", ["ADET", "KG", "METRE", "LİTRE", "PAKET", "KUTU", "RULO"], key="sip_birim_m")
 
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            if not sip_tedarikci or not sip_no or not s_kod or not s_isim or s_mik <= 0:
-                st.error("Lütfen Tedarikçi, Sipariş No ve Ürün bilgilerini eksiksiz doldurun!")
+            if not sip_tedarikci or not s_kod or not s_isim or s_mik <= 0:
+                st.error("Lütfen Tedarikçi Adını ve Ürün bilgilerini eksiksiz doldurun!")
             else:
                 kalem = {
                     "Tedarikçi": sip_tedarikci,
-                    "Sipariş No": sip_no,
+                    "Sipariş No": st.session_state.new_po_no,
                     "Stok Kodu": s_kod,
                     "Stok Adı": s_isim,
                     "Sipariş Miktarı": s_mik,
@@ -121,17 +131,18 @@ def run(conn):
                 veritabani.update_data("Satin_Alma", df_son)
                 
                 st.session_state.sip_gecici_liste = []
+                st.session_state.new_po_no = None # Bir sonraki sipariş için sıfırla
                 st.success("✅ Satınalma siparişi başarıyla veritabanına kaydedildi!")
                 st.session_state.teslim_page = 'menu'
                 st.rerun()
 
-    # --- ADIM 1: FİLTRELEME VE SEÇİM EKRANI (MAL KABUL) ---
+    # --- 2. FİLTRELEME VE SEÇİM EKRANI (MAL KABUL ADIM 1) ---
     elif st.session_state.teslim_page == 'secim':
-        if st.button("⬅️ MAL KABUL MENÜSÜNE DÖN"): 
+        if st.button("⬅️ ANA MENÜYE DÖN"): 
             st.session_state.teslim_page = 'menu'
             st.rerun()
 
-        st.subheader("🔍 Adım 1: Sipariş & İrsaliye Seçimi")
+        st.subheader("🔍 Mal Kabul - Sipariş & İrsaliye Seçimi")
         st.markdown("---")
 
         try:
@@ -141,12 +152,14 @@ def run(conn):
         except:
             df_siparis = pd.DataFrame(columns=["Tedarikçi", "Sipariş No", "Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"])
 
+        # Bekleyen (Açık) Siparişleri Filtrele
         if not df_siparis.empty and "Sipariş Miktarı" in df_siparis.columns and "Gelen Miktar" in df_siparis.columns:
             df_bekleyen = df_siparis[(df_siparis['Sipariş Miktarı'] - df_siparis['Gelen Miktar']) > 0]
-            tedarikci_listesi = sorted(df_bekleyen['Tedarikçi'].dropna().unique().tolist())
+            # Tedarikçi listesine "Tümü" seçeneğini ekliyoruz
+            tedarikci_listesi = ["Tümü"] + sorted(df_bekleyen['Tedarikçi'].dropna().unique().tolist())
         else:
             df_bekleyen = pd.DataFrame()
-            tedarikci_listesi = []
+            tedarikci_listesi = ["Tümü"]
 
         with st.container(border=True):
             st.write("📋 **Evrak ve Cari Bilgileri**")
@@ -154,46 +167,49 @@ def run(conn):
             col1, col2 = st.columns(2)
             
             with col1:
-                tedarikci_secim = st.selectbox("🏢 Tedarikçi:", ["Manuel Giriş..."] + tedarikci_listesi)
-                if tedarikci_secim == "Manuel Giriş...":
-                    tedarikci = st.text_input("Tedarikçi Adını Manuel Girin:")
-                else:
-                    tedarikci = tedarikci_secim
+                # Sadece mevcut açık tedarikçiler
+                secilen_tedarikci = st.selectbox("🏢 Tedarikçi Seç (Opsiyonel):", tedarikci_listesi)
 
             with col2:
-                if tedarikci and tedarikci != "Manuel Giriş..." and not df_bekleyen.empty:
-                    siparis_listesi = sorted(df_bekleyen[df_bekleyen['Tedarikçi'] == tedarikci]['Sipariş No'].dropna().unique().tolist())
+                # Tedarikçi "Tümü" ise tüm açık siparişler listelenir, değilse sadece o tedarikçinin siparişleri listelenir
+                if secilen_tedarikci == "Tümü" and not df_bekleyen.empty:
+                    siparis_listesi = sorted(df_bekleyen['Sipariş No'].dropna().unique().tolist())
+                elif secilen_tedarikci != "Tümü" and not df_bekleyen.empty:
+                    siparis_listesi = sorted(df_bekleyen[df_bekleyen['Tedarikçi'] == secilen_tedarikci]['Sipariş No'].dropna().unique().tolist())
                 else:
                     siparis_listesi = []
 
-                siparis_secim = st.selectbox("📄 Satınalma Sipariş No:", ["Manuel Giriş..."] + siparis_listesi)
-                if siparis_secim == "Manuel Giriş...":
-                    siparis_no = st.text_input("Sipariş Numarasını Manuel Girin:")
-                else:
-                    siparis_no = siparis_secim
+                secilen_siparis = st.selectbox("📄 Satınalma Sipariş No:", ["Seçiniz..."] + siparis_listesi)
 
-            irsaliye = st.text_input("🧾 İrsaliye & Fatura No:")
+            irsaliye = st.text_input("🧾 İrsaliye & Fatura No (Zorunlu):").upper().strip()
 
-            if st.button("🚀 MAL KABUL EKRANINA İLERLE (ÜRÜN GİRİŞİ)", use_container_width=True, type="primary"):
-                if not tedarikci or not siparis_no or not irsaliye:
-                    st.error("Lütfen Tedarikçi, Sipariş No ve İrsaliye bilgilerinin tamamını doldurun!")
+            if st.button("🚀 MAL KABUL EKRANINA İLERLE", use_container_width=True, type="primary"):
+                if secilen_siparis == "Seçiniz...":
+                    st.error("Lütfen listeden bir Satınalma Sipariş Numarası seçin!")
+                elif not irsaliye:
+                    st.error("Lütfen İrsaliye & Fatura Numarasını girin!")
                 else:
-                    st.session_state.sel_tedarikci = tedarikci
-                    st.session_state.sel_siparis = siparis_no
+                    # Eğer tedarikçi "Tümü" bırakılıp sadece Sipariş No seçildiyse, sistem tedarikçiyi otomatik bulur
+                    if secilen_tedarikci == "Tümü":
+                        nihai_tedarikci = df_bekleyen[df_bekleyen['Sipariş No'] == secilen_siparis].iloc[0]['Tedarikçi']
+                    else:
+                        nihai_tedarikci = secilen_tedarikci
+
+                    st.session_state.sel_tedarikci = nihai_tedarikci
+                    st.session_state.sel_siparis = secilen_siparis
                     st.session_state.irsaliye_no = irsaliye
                     st.session_state.teslim_page = 'kabul'
                     st.rerun()
 
-    # --- ADIM 2: MAL KABUL İŞLEM EKRANI (ÜRÜN GİRİŞİ) ---
+    # --- 3. MAL KABUL İŞLEM EKRANI (ÜRÜN GİRİŞİ ADIM 2) ---
     elif st.session_state.teslim_page == 'kabul':
-        if st.button("⬅️ GİRİŞ BİLGİLERİNE DÖN (Adım 1)"): 
+        if st.button("⬅️ SİPARİŞ SEÇİMİNE DÖN"): 
             st.session_state.teslim_page = 'secim'
             st.rerun()
 
-        st.subheader(f"📦 Adım 2: Ürün Girişi - Sipariş: {st.session_state.sel_siparis}")
+        st.subheader(f"📦 Mal Kabul: Sipariş {st.session_state.sel_siparis}")
         st.info(f"**🏢 Tedarikçi:** {st.session_state.sel_tedarikci} | **🧾 İrsaliye No:** {st.session_state.irsaliye_no}")
 
-        # Veritabanı çekimleri
         try:
             df_siparis = veritabani.get_internal_data("Satin_Alma")
             if "Sipariş No" not in df_siparis.columns:
@@ -222,7 +238,7 @@ def run(conn):
         else:
             bekleyenler = pd.DataFrame()
 
-        # SENARYO A: SİPARİŞ EXCEL'DEN VEYA SİSTEMDEN OLUŞTURULMUŞSA (Kayıtlı Sipariş)
+        # Sipariş Sistemde Kayıtlıysa
         if not bekleyenler.empty:
             bekleyenler['unique_key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu']
             sel_display = st.selectbox("🎯 Kabul Edilecek Malzemeyi Seç:", ["Malzeme Seçiniz..."] + bekleyenler['unique_key'].tolist())
@@ -240,8 +256,8 @@ def run(conn):
                     input_mik = r1c2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0)
 
                     m1, m2 = st.columns(2)
-                    m1.metric("📦 Siparişteki Toplam", f"{row['Sipariş Miktarı']}")
-                    m2.metric("🎯 Kalan (Gelecek Olan)", f"{kalan_ih}", delta_color="inverse")
+                    m1.metric("📦 Siparişteki Toplam", f"{row['Sipariş Miktarı']} {row['Birim']}")
+                    m2.metric("🎯 Kalan (Gelecek Olan)", f"{kalan_ih} {row['Birim']}", delta_color="inverse")
 
                     if st.button("⚡ KABULÜ TAMAMLA VE STOĞA AL", use_container_width=True, type="primary"):
                         if not input_adr or input_mik <= 0:
@@ -286,86 +302,8 @@ def run(conn):
                 view_cols = ["Stok Kodu", "Stok Adı", "Sipariş Miktarı", "Gelen Miktar", "Birim"]
                 st.dataframe(sub[[c for c in view_cols if c in sub.columns]], use_container_width=True, hide_index=True)
 
-        # SENARYO B: SİPARİŞ KAYITLI DEĞİLSE (Serbest/Manuel Kabul) Toplu Liste Mantığı
         else:
-            st.warning("⚠️ Bu sipariş sisteme önceden yüklenmemiş. Aşağıdan ürünleri tek tek ekleyip toplu olarak kaydedebilirsiniz.")
-            
-            try:
-                katalog = veritabani.get_katalog() 
-            except:
-                katalog = []
-                
-            sec_urun = st.selectbox("🔍 Ürün Seç:", ["+ MANUEL GİRİŞ"] + katalog)
-
-            c1, c2 = st.columns(2)
-            with c1:
-                if sec_urun != "+ MANUEL GİRİŞ" and " | " in sec_urun:
-                    s_kod = sec_urun.split(" | ")[0]
-                    s_isim = sec_urun.split(" | ")[1]
-                    st.text_input("📦 Malzeme Kodu:", value=s_kod, disabled=True)
-                else:
-                    s_kod = st.text_input("📦 Malzeme Kodu:").upper().strip()
-                    s_isim = st.text_input("📝 Malzeme Adı:").upper().strip()
-
-            with c2:
-                s_mik = st.number_input("🔢 Miktar:", min_value=0.0, step=1.0, key="mk_mik")
-                s_adr = st.text_input("📍 Hedef Adres (Nereye Konulacak?):", key="mk_adr").upper().strip()
-
-            # LİSTEYE EKLEME
-            if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-                if not s_kod or not s_isim or s_mik <= 0 or not s_adr:
-                    st.error("Lütfen tüm alanları eksiksiz doldurun!")
-                else:
-                    kalem = {
-                        "Kod": s_kod,
-                        "İsim": s_isim,
-                        "Miktar": s_mik,
-                        "Adres": s_adr
-                    }
-                    st.session_state.mk_gecici_liste.append(kalem)
-                    clear_form() # Eklenen miktarı formdan temizle
-                    st.rerun()
-
-            # LİSTEYİ GÖSTER VE KAYDET
-            if st.session_state.mk_gecici_liste:
-                st.markdown("### 📋 İrsaliyedeki Kalemler (Henüz Kaydedilmedi)")
-                for i, item in enumerate(st.session_state.mk_gecici_liste):
-                    with st.expander(f"{i+1}. {item['Kod']} | {item['İsim']} - {item['Miktar']} Adet"):
-                        st.write(f"**Hedef Adres:** {item['Adres']}")
-                        if st.button(f"🗑️ Bu Satırı Sil", key=f"del_mk_{i}"):
-                            st.session_state.mk_gecici_liste.pop(i)
-                            st.rerun()
-
-                st.divider()
-                if st.button("🚀 LİSTEDEKİ TÜM ÜRÜNLERİ STOĞA KAYDET", type="primary", use_container_width=True):
-                    df_stok['Kod'] = df_stok['Kod'].astype(str).str.strip().str.upper()
-                    df_stok['Adres'] = df_stok['Adres'].astype(str).str.strip().str.upper()
-                    
-                    islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    personel = st.session_state.kullanici_adi if 'kullanici_adi' in st.session_state else "Sistem"
-                    
-                    for item in st.session_state.mk_gecici_liste:
-                        # 1. Stok Güncelle
-                        mask_stok = (df_stok['Kod'] == item['Kod']) & (df_stok['Adres'] == item['Adres'])
-                        if mask_stok.any():
-                            df_stok.loc[mask_stok, 'Miktar'] = pd.to_numeric(df_stok.loc[mask_stok, 'Miktar']) + item['Miktar']
-                        else:
-                            new_stok = pd.DataFrame([{"Kod": item['Kod'], "İsim": item['İsim'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])
-                            df_stok = pd.concat([df_stok, new_stok], ignore_index=True)
-
-                        # 2. Hareket Ekle
-                        new_hareket = pd.DataFrame([{
-                            "Tarih": islem_zamani, "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis,
-                            "Kod": item['Kod'], "İsim": item['İsim'], "Adres": item['Adres'], "Miktar": item['Miktar'],
-                            "Personel": personel, "Durum": "Kullanılabilir", "Lot": st.session_state.irsaliye_no,
-                            "Kaynak_Adres": st.session_state.sel_tedarikci, "Hedef_Adres": item['Adres']
-                        }])
-                        df_hareket = pd.concat([df_hareket, new_hareket], ignore_index=True)
-
-                    veritabani.update_data("Stok", df_stok)
-                    veritabani.update_data("Hareketler", df_hareket)
-                    
-                    st.session_state.mk_gecici_liste = []
-                    st.success("✅ Tüm ürünler başarıyla stoğa eklendi!")
-                    st.session_state.teslim_page = 'menu'
-                    st.rerun()
+            if not sub.empty:
+                st.success("✅ Bu siparişe ait tüm malzemeler eksiksiz teslim alınmıştır. İşlem tamamlandı.")
+            else:
+                st.error("Sistemde bu sipariş numarasına ait geçerli bir kayıt bulunamadı.")
