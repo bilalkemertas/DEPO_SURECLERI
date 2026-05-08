@@ -38,3 +38,19 @@ def guvenlik_duvari():
                         st.rerun()
                     else: st.error("Hatalı Giriş Bilgisi!")
         st.stop()
+import streamlit as st
+
+def imza_yazdir():
+    """Tüm sayfalarda standart imza ve reklam alanını basar."""
+    st.markdown("---")
+    col_left, col_right = st.columns([3, 1])
+    with col_right:
+        st.markdown(
+            """
+            <div style='text-align: right;'>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
