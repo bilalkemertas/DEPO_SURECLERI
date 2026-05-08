@@ -18,14 +18,14 @@ def clear_form():
 def run(conn):
     init_state()
 
-    # Ekranı yukarı çekmek ve boşlukları öldürmek için CSS
+    # Üst üste binmeyi engelleyen ama boşlukları daraltan yeni CSS
     st.markdown("""
         <style>
-        [data-testid="stMetricValue"] { font-size: 16px !important; }
-        [data-testid="stMetricLabel"] { font-size: 11px !important; }
-        .stVerticalBlock { gap: 0.2rem !important; }
-        .stMarkdown { margin-bottom: -15px !important; }
-        div[data-testid="stExpander"] { margin-top: -10px !important; }
+        [data-testid="stMetricValue"] { font-size: 15px !important; line-height: 1 !important; }
+        [data-testid="stMetricLabel"] { font-size: 10px !important; line-height: 1 !important; }
+        .stVerticalBlock { gap: 0.6rem !important; }
+        .stMetric { padding: 0px !important; }
+        div[data-testid="stExpander"] { margin-top: 0px !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -139,11 +139,11 @@ def run(conn):
                 k_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'] - sep, 3)
 
                 with st.container(border=True):
-                    # Malzeme adı ve metrikler aynı satırda (TASARRUF)
-                    h1, h2, h3 = st.columns([2, 1, 1])
-                    h1.markdown(f"**{row['Stok Adı']}**")
-                    h2.metric("📦 Sipariş", f"{row['Sipariş Miktarı']}")
-                    h3.metric("🎯 Kalan", f"{k_ih}", delta_color="inverse")
+                    # Malzeme adı üstte, metrikler hemen altında (BİNME ENGELLENDİ)
+                    st.markdown(f"**{row['Stok Adı']}**")
+                    m_col1, m_col2 = st.columns(2)
+                    m_col1.metric("📦 Sipariş", f"{row['Sipariş Miktarı']} {row['Birim']}")
+                    m_col2.metric("🎯 Kalan", f"{k_ih} {row['Birim']}", delta_color="inverse")
                     
                     r1, r2 = st.columns([2, 1])
                     i_adr = r1.text_input("📍 Adres:", key="mk_adr").upper().strip()
@@ -157,7 +157,6 @@ def run(conn):
                             })
                             clear_form(); st.rerun()
 
-            # SEPET LİSTESİ (UNUTULAN KISIM)
             if st.session_state.mk_gecici_liste:
                 st.markdown("🛒 **Sepettekiler**")
                 for i, item in enumerate(st.session_state.mk_gecici_liste):
