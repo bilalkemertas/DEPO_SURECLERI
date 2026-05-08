@@ -18,13 +18,14 @@ def clear_form():
 def run(conn):
     init_state()
 
-    # Ekran alanını maksimize etmek için kompakt stil ayarları
+    # Ekranı yukarı çekmek ve boşlukları öldürmek için CSS
     st.markdown("""
         <style>
         [data-testid="stMetricValue"] { font-size: 16px !important; }
         [data-testid="stMetricLabel"] { font-size: 11px !important; }
-        .stVerticalBlock { gap: 0.5rem !important; }
-        .stMarkdown { margin-bottom: -10px !important; }
+        .stVerticalBlock { gap: 0.2rem !important; }
+        .stMarkdown { margin-bottom: -15px !important; }
+        div[data-testid="stExpander"] { margin-top: -10px !important; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -116,11 +117,11 @@ def run(conn):
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
                     st.session_state.mk_gecici_liste = []; st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- 3. MAL KABUL GİRİŞ (KOMPAKT TASARIM) ---
+    # --- 3. MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         c1, c2 = st.columns([1, 4])
-        if c1.button("⬅️ GERİ"): st.session_state.teslim_page = 'secim'; st.rerun()
-        c2.caption(f"**Sipariş:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
+        if c1.button("⬅️"): st.session_state.teslim_page = 'secim'; st.rerun()
+        c2.caption(f"**Sipariş:** {st.session_state.sel_siparis}")
 
         df_s = veritabani.get_internal_data("Satin_Alma")
         sub = df_s[df_s['Sipariş No'] == st.session_state.sel_siparis].copy()
@@ -138,17 +139,17 @@ def run(conn):
                 k_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'] - sep, 3)
 
                 with st.container(border=True):
-                    # TASARIM TASARRUFU: Malzeme adı ve metrikler yan yana
+                    # Malzeme adı ve metrikler aynı satırda (TASARRUF)
                     h1, h2, h3 = st.columns([2, 1, 1])
                     h1.markdown(f"**{row['Stok Adı']}**")
-                    h2.metric("📦 Sipariş", f"{row['Sipariş Miktarı']} {row['Birim']}")
-                    h3.metric("🎯 Kalan", f"{k_ih} {row['Birim']}", delta_color="inverse")
+                    h2.metric("📦 Sipariş", f"{row['Sipariş Miktarı']}")
+                    h3.metric("🎯 Kalan", f"{k_ih}", delta_color="inverse")
                     
                     r1, r2 = st.columns([2, 1])
-                    i_adr = r1.text_input("📍 Adres:", key="mk_adr", placeholder="Örn: A-01").upper().strip()
+                    i_adr = r1.text_input("📍 Adres:", key="mk_adr").upper().strip()
                     i_mik = r2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(k_ih), step=1.0, key="mk_mik")
 
-                    if st.button("➕ LİSTEYE EKLE", use_container_width=True):
+                    if st.button("➕ EKLE", use_container_width=True):
                         if i_adr and i_mik > 0:
                             st.session_state.mk_gecici_liste.append({
                                 "Kalem No": row['Kalem No'], "Stok Kodu": row['Stok Kodu'],
@@ -156,8 +157,14 @@ def run(conn):
                             })
                             clear_form(); st.rerun()
 
+            # SEPET LİSTESİ (UNUTULAN KISIM)
             if st.session_state.mk_gecici_liste:
-                st.markdown("---")
+                st.markdown("🛒 **Sepettekiler**")
+                for i, item in enumerate(st.session_state.mk_gecici_liste):
+                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} {item['Birim']} ({item['Adres']})"):
+                        if st.button(f"🗑️ Kaldır", key=f"del_mk_{i}"):
+                            st.session_state.mk_gecici_liste.pop(i); st.rerun()
+                
                 if st.button("🚀 STOĞA KAYDET", type="primary", use_container_width=True):
                     df_stok = veritabani.get_internal_data("Stok")
                     df_har = veritabani.get_internal_data("Hareketler")
