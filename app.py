@@ -94,16 +94,19 @@ if not st.session_state['logged_in']:
     sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
     
     if st.button("Sisteme Giriş Yap", use_container_width=True):
-        # Şifre kontrolünü secrets üzerinden yapıyoruz
-        if "kullanici_adi" in st.secrets and "sifre" in st.secrets:
-            if kadi == st.secrets["kullanici_adi"] and sifre == st.secrets["sifre"]: 
+        # Şifre kontrolünü secrets içindeki [users] bloğundan yapıyoruz
+        if "users" in st.secrets:
+            kullanici_listesi = st.secrets["users"]
+            
+            if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
                 st.session_state['logged_in'] = True
-                st.session_state['kullanici_adi'] = "Depo Yöneticisi"
+                # Kullanıcı adının ilk harfini büyük yaparak ekrana yansıtıyoruz
+                st.session_state['kullanici_adi'] = kadi.capitalize() 
                 st.rerun()
             else:
                 st.error("Hatalı kullanıcı adı veya şifre!")
         else:
-            st.error("Sistem Hatası: Secrets yapılandırması bulunamadı. Lütfen ayarları kontrol edin.")
+            st.error("Sistem Hatası: Secrets içinde [users] bloğu bulunamadı.")
             
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -182,25 +185,25 @@ else:
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_uretim.run(conn) # Modülündeki fonksiyon adı farklıysa düzelt
+        modul_uretim.run(conn) 
 
     elif st.session_state['page'] == 'stok':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_stok.run(conn) # Modülündeki fonksiyon adı farklıysa düzelt
+        modul_stok.run(conn) 
 
     elif st.session_state['page'] == 'sayim':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_sayim.run(conn) # Modülündeki fonksiyon adı farklıysa düzelt
+        modul_sayim.run(conn) 
 
     elif st.session_state['page'] == 'rapor':
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             st.rerun()
         st.divider()
-        modul_rapor.run(conn) # Modülündeki fonksiyon adı farklıysa düzelt
+        modul_rapor.run(conn)
