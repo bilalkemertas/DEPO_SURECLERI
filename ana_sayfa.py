@@ -31,4 +31,16 @@ def goster():
         st.button("📝 SAYIM SİSTEMİ", use_container_width=True, type="primary", on_click=go_sayim)
         st.button("📈 RAPOR VE ARŞİV", use_container_width=True, type="primary", on_click=go_rapor)
 
-veritabani.footer()
+    # --- SAYFA SONU İMZASI ---
+    st.markdown("---")
+    col_sign1, col_sign2 = st.columns([3, 1])
+    with col_sign2:
+        st.markdown(
+            """
+            <div style='text-align: right;'>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 12px; color: gray;'>Logistics Solutions</p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
