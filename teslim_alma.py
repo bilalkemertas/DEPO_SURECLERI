@@ -20,6 +20,12 @@ def clean_code(val):
     val = str(val).split(".")[0].strip()
     return re.sub(r'\D', '', val)
 
+def fix_columns(df):
+    """Sütun isimlerindeki boşlukları ve karakter hatalarını temizler."""
+    if df is None or df.empty: return df
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
 def run(conn):
     init_state()
     LOCAL_MAPPING_FILE = "eslesme_hafizasi.csv"
@@ -69,7 +75,7 @@ def run(conn):
         up_sas = st.file_uploader("DataGrid Dosyası Yükle", type=['xlsx'], key="sas_excel_up", label_visibility="collapsed")
         if up_sas:
             try:
-                df_excel = pd.read_excel(up_sas, sheet_name='Main sheet')
+                df_excel = fix_columns(pd.read_excel(up_sas, sheet_name='Main sheet'))
                 df_excel['Parti No'] = df_excel['Parti No'].astype(str).str.strip().str.split(".").str[0]
                 
                 mapping_df = pd.read_csv(LOCAL_MAPPING_FILE) if os.path.exists(LOCAL_MAPPING_FILE) else pd.DataFrame()
@@ -82,13 +88,12 @@ def run(conn):
                     
                     df_merged = df_excel.merge(mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], left_on='TEMİZ_KOD', right_on='FORM_TEMİZ', how='left')
                     
-                    if st.button("🚀 EXCEL VERİLERİNİ AKTAR VE DRİVE'A KAYDET", use_container_width=True):
-                        # Kalıcı Excel Hafızasını Güncelle
-                        db_excel = veritabani.get_internal_data("Excel_Hafizasi")
+                    if st.button("🚀 EXCEL VERİLERİNİ AKTAR VE HAFIZAYA AL", use_container_width=True):
+                        db_excel = fix_columns(veritabani.get_github_data())
                         new_records = df_excel[['Parti No', 'Malzeme Kodu', 'Teslimat Miktarı']].copy()
                         new_records['SAS_No'] = st.session_state.new_po_no
                         db_excel = pd.concat([db_excel, new_records], ignore_index=True).drop_duplicates(subset=['Parti No', 'SAS_No'])
-                        veritabani.update_data("Excel_Hafizasi", db_excel)
+                        veritabani.update_github_data(db_excel)
                         
                         st.session_state.sip_gecici_liste = []
                         for i, row in df_merged.iterrows():
@@ -102,37 +107,20 @@ def run(conn):
             except Exception as e: st.error(f"Excel hatası: {e}")
         
         st.divider()
-        st.write("➕ **Manuel Kalem Ekle**")
-        try: katalog = veritabani.get_katalog()
-        except: katalog = []
-        sec_urun = st.selectbox("🎯 Ürün:", ["+ MANUEL GİRİŞ"] + katalog, key="sip_katalog_secim")
-        c1, c2, c3 = st.columns([2, 1, 1])
-        if sec_urun != "+ MANUEL GİRİŞ" and " | " in sec_urun:
-            s_kod = sec_urun.split(" | ")[0]; s_isim = sec_urun.split(" | ")[1]
-            c1.text_input("📦 Kod:", value=s_kod, disabled=True, key="fixed_kod_view")
-        else:
-            s_kod = c1.text_input("📦 Kod:", key="sip_kod_m").upper().strip()
-            s_isim = st.text_input("📝 Ad:", key="sip_isim_m").upper().strip()
-        s_mik = c2.number_input("🔢 Miktar:", min_value=0.0, step=1.0, key="sip_mik_input")
-        s_birim = c3.selectbox("📏 Birim:", ["ADET", "KG", "METRE", "PAKET", "RULO"], key="sip_birim_input")
-        if st.button("➕ EKLE", use_container_width=True, key="btn_sas_ekle"):
-            if sip_tedarikci and s_kod and s_mik > 0:
-                next_kalem = (len(st.session_state.sip_gecici_liste) + 1) * 10
-                st.session_state.sip_gecici_liste.append({
-                    "Tedarikçi": sip_tedarikci, "Sipariş No": st.session_state.new_po_no, "Kalem No": next_kalem,
-                    "Stok Kodu": s_kod, "Stok Adı": s_isim, "Sipariş Miktarı": s_mik, "Gelen Miktar": 0.0, "Birim": s_birim
-                }); st.rerun()
         if st.session_state.sip_gecici_liste:
             if st.button("🚀 SİPARİŞİ KAYDET", type="primary", use_container_width=True):
-                df_m = veritabani.get_internal_data("Satin_Alma")
+                df_m = fix_columns(veritabani.get_internal_data("Satin_Alma"))
                 df_son = pd.concat([df_m, pd.DataFrame(st.session_state.sip_gecici_liste)], ignore_index=True)
                 veritabani.update_data("Satin_Alma", df_son)
                 st.session_state.sip_gecici_liste = []; st.session_state.new_po_no = None; st.session_state.teslim_page = 'menu'; st.rerun()
 
     # --- 2. MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
-        df_s = veritabani.get_internal_data("Satin_Alma")
-        df_b = df_s[(df_s['Sipariş Miktarı'] - df_s['Gelen Miktar']) > 0]
+        df_s = fix_columns(veritabani.get_internal_data("Satin_Alma"))
+        # Boş satırları ve hatalı verileri filtrelemek için fillna ekledik
+        df_b = df_s[(df_s['Sipariş Miktarı'].apply(pd.to_numeric, errors='coerce').fillna(0) - 
+                     df_s['Gelen Miktar'].apply(pd.to_numeric, errors='coerce').fillna(0)) > 0]
+        
         t_list = ["Tümü"] + sorted(df_b['Tedarikçi'].dropna().unique().tolist())
         with st.container(border=True):
             c1, c2 = st.columns(2)
@@ -145,42 +133,39 @@ def run(conn):
                     st.session_state.sel_tedarikci = df_b[df_b['Sipariş No'] == sec_sip].iloc[0]['Tedarikçi']
                     st.session_state.sel_siparis = sec_sip; st.session_state.irsaliye_no = irs
                     st.session_state.mk_gecici_liste = {}
-                    # Kalıcı verileri her girişte taze çek
-                    st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
-                    st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
-                    st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
-                    st.session_state.db_excel_data = veritabani.get_internal_data("Excel_Hafizasi")
+                    st.session_state.full_stok_data = fix_columns(veritabani.get_internal_data("Stok"))
+                    st.session_state.full_sas_data = df_s # Normalize edilmiş ana veri
+                    st.session_state.full_har_data = fix_columns(veritabani.get_internal_data("Hareketler"))
+                    st.session_state.db_excel_data = fix_columns(veritabani.get_github_data())
                     st.session_state.teslim_page = 'kabul'; st.rerun()
 
     # --- 3. MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.caption(f"**SAS:** {st.session_state.sel_siparis} | **Tedarikçi:** {st.session_state.sel_tedarikci}")
 
-        if 'db_excel_data' not in st.session_state: st.session_state.db_excel_data = veritabani.get_internal_data("Excel_Hafizasi")
-        if 'full_stok_data' not in st.session_state: st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
-        if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = veritabani.get_internal_data("Satin_Alma")
-        if 'full_har_data' not in st.session_state: st.session_state.full_har_data = veritabani.get_internal_data("Hareketler")
+        if 'db_excel_data' not in st.session_state: st.session_state.db_excel_data = fix_columns(veritabani.get_github_data())
+        if 'full_stok_data' not in st.session_state: st.session_state.full_stok_data = fix_columns(veritabani.get_internal_data("Stok"))
+        if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = fix_columns(veritabani.get_internal_data("Satin_Alma"))
+        if 'full_har_data' not in st.session_state: st.session_state.full_har_data = fix_columns(veritabani.get_internal_data("Hareketler"))
 
         with st.container(border=True):
             c_op1, c_op2 = st.columns([4, 1])
             
             def process_scan(code):
                 if not code: return
-                
-                # Excel Hafızasını kullan (Drive'dan gelen kalıcı veri)
                 ex_df = st.session_state.db_excel_data
-                found = ex_df[(ex_df['Parti No'] == code) & (ex_df['SAS_No'] == st.session_state.sel_siparis)]
+                found = ex_df[(ex_df['Parti No'].astype(str) == code) & (ex_df['SAS_No'] == st.session_state.sel_siparis)]
                 
                 if found.empty:
-                    st.error(f"❌ Excel verisi bulunamadı! (Parti No: {code} / SAS: {st.session_state.sel_siparis})"); return
+                    st.error(f"❌ Kayıt bulunamadı: {code}"); return
                 
                 if code in st.session_state.mk_gecici_liste and not st.session_state.get('undo_active', False):
-                    st.warning(f"⚠️ Bu barkod zaten okutuldu: {code}"); return
+                    st.warning(f"⚠️ Zaten okutuldu: {code}"); return
 
                 df_stok_local = st.session_state.full_stok_data
                 if 'Tedarikçi Barkod' in df_stok_local.columns:
                     if code in df_stok_local['Tedarikçi Barkod'].astype(str).values and not st.session_state.get('undo_active', False):
-                        st.error(f"❌ Bu barkod daha önce sisteme kaydedilmiş! (Parti No: {code})"); return
+                        st.error(f"❌ Bu barkod daha önce kaydedilmiş!"); return
                 
                 row = found.iloc[0]
                 m_kod = clean_code(row['Malzeme Kodu'])
@@ -194,32 +179,31 @@ def run(conn):
                     if not match.empty:
                         brn_kod = match.iloc[0]['BRN KOD']
                         if st.session_state.get('undo_active', False):
-                            if code in st.session_state.mk_gecici_liste:
-                                del st.session_state.mk_gecici_liste[code]
+                            if code in st.session_state.mk_gecici_liste: del st.session_state.mk_gecici_liste[code]
                         else:
                             st.session_state.mk_gecici_liste[code] = {"Kod": brn_kod, "Miktar": float(row['Teslimat Miktarı']), "Ad": match.iloc[0]['BRN ÜRÜN ADI']}
                             st.success(f"✅ Okundu: {brn_kod}")
                         st.rerun()
-                    else: st.error(f"⚠️ Mapping yok: {m_kod}")
 
             if 'scan_counter' not in st.session_state: st.session_state.scan_counter = 0
-            scan_code = c_op1.text_input("🔍 Barkod (Parti No) Okutun:", key=f"barkod_input_{st.session_state.scan_counter}")
+            scan_code = c_op1.text_input("🔍 Barkod Okutun:", key=f"barkod_input_{st.session_state.scan_counter}")
             
             if scan_code:
                 st.session_state.scan_counter += 1
                 process_scan(scan_code.strip().split(".")[0])
-            
             st.checkbox("🔄 Geri Al", key="undo_active")
 
+        # CANLI TABLO
         sub = st.session_state.full_sas_data[st.session_state.full_sas_data['Sipariş No'] == st.session_state.sel_siparis].copy()
-        sub['Gelen (Yeni)'] = 0.0; sub['Parti No'] = ""; sub['Stok Adı'] = sub['Stok Adı'].fillna("İSİMSİZ"); sub['Stok Kodu'] = sub['Stok Kodu'].fillna("KODSUZ")
+        sub['Gelen (Yeni)'] = 0.0; sub['Parti No'] = ""
         
         active_ids = []
         for b_code, b_data in st.session_state.mk_gecici_liste.items():
             mask = (sub['Stok Kodu'] == b_data['Kod']) & (sub['Gelen (Yeni)'] == 0)
             if mask.any():
                 idx = sub[mask].index[0]
-                sub.at[idx, 'Gelen (Yeni)'] = b_data['Miktar']; sub.at[idx, 'Parti No'] = b_code
+                sub.at[idx, 'Gelen (Yeni)'] = b_data['Miktar']
+                sub.at[idx, 'Parti No'] = b_code
                 active_ids.append(idx)
 
         sub['highlight'] = sub.index.isin(active_ids)
@@ -242,7 +226,9 @@ def run(conn):
                     else: 
                         df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": row['Stok Kodu'], "İsim": row['Stok Adı'], "Adres": "DEPO-1", "Miktar": row['Gelen (Yeni)'], "Durum": "Kullanılabilir", "Tedarikçi Barkod": row['Parti No']}])], ignore_index=True)
                     
-                    df_s.loc[(df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == row['Kalem No']), 'Gelen Miktar'] += row['Gelen (Yeni)']
+                    df_s.loc[(df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == row['Kalem No']), 'Gelen Miktar'] = \
+                        df_s.loc[(df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == row['Kalem No']), 'Gelen Miktar'].fillna(0) + row['Gelen (Yeni)']
+                    
                     df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": row['Stok Kodu'], "İsim": row['Stok Adı'], "Miktar": row['Gelen (Yeni)'], "Personel": pers, "Lot": st.session_state.irsaliye_no, "Tedarikçi Barkod": row['Parti No'], "Adres": "DEPO-1", "Durum": "Kullanılabilir"}])], ignore_index=True)
                 
                 veritabani.update_data("Stok", df_stok)
@@ -252,7 +238,7 @@ def run(conn):
                 for k in ['full_stok_data', 'full_sas_data', 'full_har_data', 'db_excel_data']: 
                     if k in st.session_state: del st.session_state[k]
                     
-                st.session_state.mk_gecici_liste = {}; st.success("✅ Toplu Kayıt Başarılı!"); st.rerun()
+                st.session_state.mk_gecici_liste = {}; st.success("✅ Kayıt Tamamlandı!"); st.rerun()
 
     st.markdown("---")
     col_sign2 = st.columns([3, 1])[1]
