@@ -12,27 +12,18 @@ def init_state():
     if 'sip_gecici_liste' not in st.session_state: st.session_state.sip_gecici_liste = []
     if 'new_po_no' not in st.session_state: st.session_state.new_po_no = None
 
-def clear_form():
-    st.session_state.reset_mk_form = True
-
 def run(conn):
     init_state()
 
-    # Üst üste binmeyi engelleyen, dengeli kompakt CSS
+    # Kompakt tasarım CSS
     st.markdown("""
         <style>
         [data-testid="stMetricValue"] { font-size: 15px !important; }
         [data-testid="stMetricLabel"] { font-size: 10px !important; }
         .stVerticalBlock { gap: 0.8rem !important; }
         .stButton button { height: 2.5rem !important; }
-        div[data-testid="stExpander"] { margin-top: 0px !important; }
         </style>
     """, unsafe_allow_html=True)
-
-    if st.session_state.get("reset_mk_form"):
-        st.session_state.mk_mik = 0.0
-        st.session_state.mk_adr = ""
-        st.session_state.reset_mk_form = False
 
     # --- 0. ANA MENÜ ---
     if st.session_state.teslim_page == 'menu':
@@ -56,10 +47,8 @@ def run(conn):
             sip_tedarikci = c1.text_input("🏢 Tedarikçi:", placeholder="Zorunlu").upper().strip()
             sip_no = c2.text_input("📄 SAS No:", value=st.session_state.new_po_no, disabled=True)
 
-        try:
-            katalog = veritabani.get_katalog() 
-        except:
-            katalog = []
+        try: katalog = veritabani.get_katalog() 
+        except: katalog = []
             
         sec_urun = st.selectbox("🎯 Ürün:", ["+ MANUEL GİRİŞ"] + katalog, key="sip_katalog_secim")
 
@@ -153,25 +142,39 @@ def run(conn):
             if st.session_state.mk_gecici_liste:
                 st.markdown("🛒 **Sepettekiler**")
                 for i, item in enumerate(st.session_state.mk_gecici_liste):
-                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} {item['Birim']} ({item['Adres']})", expanded=False):
+                    with st.expander(f"{item['Stok Adı']} | {item['Miktar']} ({item['Adres']})", expanded=False):
                         if st.button(f"🗑️ Sil", key=f"del_mk_{i}"):
                             st.session_state.mk_gecici_liste.pop(i); st.rerun()
                 
-                # Tek satırlık buton tasarımı
                 if st.button("🚀 TÜMÜNÜ STOĞA KAYDET", type="primary", use_container_width=True, key="btn_final_save"):
                     df_stok = veritabani.get_internal_data("Stok")
                     df_har = veritabani.get_internal_data("Hareketler")
-                    pers = st.session_state.kullanici_adi if 'kullanici_adi' in st.session_state else "Sistem"
+                    pers = st.session_state.get('kullanici_adi', "Sistem")
                     
                     for item in st.session_state.mk_gecici_liste:
+                        # Stok Güncelleme
                         m_stok = (df_stok['Kod'] == item['Stok Kodu']) & (df_stok['Adres'] == item['Adres'])
-                        if m_stok.any(): df_stok.loc[m_stok, 'Miktar'] += item['Miktar']
-                        else: df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])], ignore_index=True)
+                        if m_stok.any(): 
+                            df_stok.loc[m_stok, 'Miktar'] += item['Miktar']
+                        else: 
+                            df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": item['Stok Kodu'], "İsim": item['Stok Adı'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Durum": "Kullanılabilir"}])], ignore_index=True)
                         
+                        # SAS Güncelleme
                         m_sas = (df_s['Sipariş No'] == st.session_state.sel_siparis) & (df_s['Kalem No'] == item['Kalem No'])
                         df_s.loc[m_sas, 'Gelen Miktar'] += item['Miktar']
                         
-                        df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": item['Stok Kodu'], "Adres": item['Adres'], "Miktar": item['Miktar'], "Personel": pers, "Lot": st.session_state.irsaliye_no}])], ignore_index=True)
+                        # Hareket Kaydı (İsim sütunu eklendi)
+                        df_har = pd.concat([df_har, pd.DataFrame([{
+                            "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                            "İşlem": "GİRİŞ", 
+                            "İş Emri": st.session_state.sel_siparis, 
+                            "Kod": item['Stok Kodu'], 
+                            "İsim": item['Stok Adı'],  # Eksik olan kısım buydu
+                            "Adres": item['Adres'], 
+                            "Miktar": item['Miktar'], 
+                            "Personel": pers, 
+                            "Lot": st.session_state.irsaliye_no
+                        }])], ignore_index=True)
 
                     veritabani.update_data("Stok", df_stok); veritabani.update_data("Satin_Alma", df_s); veritabani.update_data("Hareketler", df_har)
                     st.session_state.mk_gecici_liste = []; st.success("Başarılı"); st.rerun()
