@@ -18,13 +18,13 @@ def clear_form():
 def run(conn):
     init_state()
 
-    # Tasarruf odaklı CSS
+    # Üst üste binmeyi engelleyen, dengeli kompakt CSS
     st.markdown("""
         <style>
-        [data-testid="stMetricValue"] { font-size: 15px !important; line-height: 1 !important; }
-        [data-testid="stMetricLabel"] { font-size: 10px !important; line-height: 1 !important; }
-        .stVerticalBlock { gap: 0.4rem !important; }
-        .stButton button { padding-top: 0.2rem !important; padding-bottom: 0.2rem !important; }
+        [data-testid="stMetricValue"] { font-size: 15px !important; }
+        [data-testid="stMetricLabel"] { font-size: 10px !important; }
+        .stVerticalBlock { gap: 0.8rem !important; }
+        .stButton button { height: 2.5rem !important; }
         div[data-testid="stExpander"] { margin-top: 0px !important; }
         </style>
     """, unsafe_allow_html=True)
@@ -133,7 +133,7 @@ def run(conn):
                 k_ih = round(row['Sipariş Miktarı'] - row['Gelen Miktar'] - sep, 3)
 
                 with st.container(border=True):
-                    st.markdown(f"**{row['Stok Adı']}**")
+                    st.write(f"**{row['Stok Adı']}**")
                     m_col1, m_col2 = st.columns(2)
                     m_col1.metric("📦 Sipariş", f"{row['Sipariş Miktarı']}")
                     m_col2.metric("🎯 Kalan", f"{k_ih}", delta_color="inverse")
@@ -157,7 +157,7 @@ def run(conn):
                         if st.button(f"🗑️ Sil", key=f"del_mk_{i}"):
                             st.session_state.mk_gecici_liste.pop(i); st.rerun()
                 
-                # Tek satırlık daraltılmış buton
+                # Tek satırlık buton tasarımı
                 if st.button("🚀 TÜMÜNÜ STOĞA KAYDET", type="primary", use_container_width=True, key="btn_final_save"):
                     df_stok = veritabani.get_internal_data("Stok")
                     df_har = veritabani.get_internal_data("Hareketler")
