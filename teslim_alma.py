@@ -31,7 +31,7 @@ def load_safe_mapping():
         except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- BARKOD İŞLEME (MÜKERRER KONTROLLÜ) ---
+# --- BARKOD İŞLEME (MÜKERRER KONTROLLÜ VE SIRALAMA DESTEKLİ) ---
 def handle_barcode():
     if 'scan_counter' not in st.session_state:
         st.session_state.scan_counter = 0
@@ -39,24 +39,22 @@ def handle_barcode():
     code = st.session_state.get(input_key, "").strip().split(".")[0]
     if not code: return
 
-    # 🛡️ 1. KATMAN: MEVCUT STOK VE HAREKETLERİ ÇEK
+    # 🛡️ STOK VE HAREKET KONTROLÜ
     df_stok_check = veritabani.get_internal_data("Stok")
     df_har_check = veritabani.get_internal_data("Hareketler")
     
-    # Stokta bu barkod var mı?
     if 'Tedarikçi Barkod' in df_stok_check.columns:
         if code in df_stok_check['Tedarikçi Barkod'].astype(str).values:
             st.toast(f"🚨 HATA: {code} zaten stokta mevcut!", icon="🛑")
             return
 
-    # Hareketlerde bu barkodla daha önce giriş yapılmış mı?
     if 'Tedarikçi Barkod' in df_har_check.columns:
         gecmis_giris = df_har_check[(df_har_check['Tedarikçi Barkod'].astype(str) == code) & (df_har_check['İşlem'] == "GİRİŞ")]
         if not gecmis_giris.empty:
             st.toast(f"🚨 HATA: {code} daha önce teslim alınmış!", icon="🛑")
             return
 
-    # 2. KATMAN: SAS KONTROLÜ
+    # SAS KONTROLÜ
     map_df = load_safe_mapping()
     sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
     
@@ -86,6 +84,7 @@ def handle_barcode():
                 final_kod, final_ad = match.iloc[0][brn_k_col], match.iloc[0][brn_a_col]
                 st.toast(f"✅ {final_kod} listeye girdi.", icon="📥")
 
+    # Geçici listeye ekle
     st.session_state.mk_gecici_liste[code] = {"Kod": final_kod, "Ad": final_ad, "Miktar": float(row['Sipariş Miktarı'])}
     st.session_state.scan_counter += 1
 
@@ -158,7 +157,7 @@ def run(conn):
                 st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
                 st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- MAL KABUL GİRİŞ ---
+    # --- MAL KABUL GİRİŞ (OTOMATİK SIRALAMALI TABLO) ---
     elif st.session_state.teslim_page == 'kabul':
         st.info(f"📍 SAS: {st.session_state.sel_siparis} | Tedarikçi: {st.session_state.get('sel_tedarikci', '')}")
         with st.container(border=True):
@@ -166,11 +165,31 @@ def run(conn):
         
         sas_filter = st.session_state.full_sas_data.copy()
         sas_filter['Gelen (Yeni)'] = 0.0
+        
+        # 🚀 KRİTİK GÜNCELLEME: Okutulan barkodları al ve tabloyu sırala
+        scanned_codes = list(st.session_state.mk_gecici_liste.keys())
+        
         for b_code, b_data in st.session_state.mk_gecici_liste.items():
             mask = (sas_filter['Tedarikçi Barkodu'].astype(str) == str(b_code))
             if mask.any(): sas_filter.loc[mask, 'Gelen (Yeni)'] = b_data['Miktar']
-        
-        st.dataframe(sas_filter[['Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']], use_container_width=True, hide_index=True)
+
+        # Son okutulan en üstte olacak şekilde tabloyu yeniden düzenle
+        if scanned_codes:
+            # Okutulanları ayır
+            okutulanlar = sas_filter[sas_filter['Tedarikçi Barkodu'].astype(str).isin(scanned_codes)].copy()
+            # Son okutulan barkoda göre sırala (Listeye eklenme sırasının tersi)
+            okutulanlar['sort_order'] = okutulanlar['Tedarikçi Barkodu'].astype(str).apply(lambda x: scanned_codes.index(x))
+            okutulanlar = okutulanlar.sort_values(by='sort_order', ascending=False).drop(columns=['sort_order'])
+            
+            # Okutulmayanları ayır
+            bekleyenler = sas_filter[~sas_filter['Tedarikçi Barkodu'].astype(str).isin(scanned_codes)].copy()
+            
+            # Birleştir (Okutulanlar üstte)
+            final_df = pd.concat([okutulanlar, bekleyenler], ignore_index=True)
+        else:
+            final_df = sas_filter
+
+        st.dataframe(final_df[['Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']], use_container_width=True, hide_index=True)
 
         if st.session_state.mk_gecici_liste:
             if st.button("🚀 STOĞA AKTARIMI TAMAMLA", type="primary", use_container_width=True):
