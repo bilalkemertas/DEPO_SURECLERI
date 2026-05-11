@@ -35,10 +35,8 @@ def load_safe_mapping():
 def handle_barcode():
     if 'scan_counter' not in st.session_state:
         st.session_state.scan_counter = 0
-    
     input_key = f"barkod_input_{st.session_state.scan_counter}"
     code = st.session_state.get(input_key, "").strip().split(".")[0]
-    
     if not code: return
 
     map_df = load_safe_mapping()
@@ -119,28 +117,41 @@ def run(conn):
                     veritabani.update_data("Satin_Alma", pd.concat([veritabani.get_internal_data("Satin_Alma"), pd.DataFrame(sip_liste)], ignore_index=True))
                     st.success(f"✅ {yeni_sas} Oluşturuldu!"); st.session_state.teslim_page = 'menu'; st.rerun()
 
-    # --- MAL KABUL SEÇİM (Tedarikçi Alanı Eklendi) ---
+    # --- MAL KABUL SEÇİM (Tedarikçi Filtreli) ---
     elif st.session_state.teslim_page == 'secim':
         st.subheader("🔎 SAS Seçimi")
         df_s = veritabani.get_internal_data("Satin_Alma")
+        
+        # Sayısal sütunları temizle
+        df_s['Sipariş Miktarı'] = pd.to_numeric(df_s['Sipariş Miktarı'], errors='coerce').fillna(0)
+        df_s['Gelen Miktar'] = pd.to_numeric(df_s['Gelen Miktar'], errors='coerce').fillna(0)
+        
+        # Sadece eksik teslimatı olan SAS'ları baz al
+        df_incomplete = df_s[df_s['Sipariş Miktarı'] > df_s['Gelen Miktar']]
+        
         with st.container(border=True):
-            sip_list = sorted(df_s['Sipariş No'].unique().tolist()) if not df_s.empty else []
-            sec_sip = st.selectbox("📄 SAS No Seçin:", ["Seçiniz..."] + sip_list)
+            # 1. Tedarikçi Seçimi (Arama/Filtre)
+            ted_list = ["Tümü"] + sorted(df_incomplete['Tedarikçi'].unique().tolist())
+            sec_ted = st.selectbox("🏢 Tedarikçi Filtrele:", ted_list)
             
-            # Seçilen SAS'a göre tedarikçiyi otomatik bul
-            ted_adi = ""
-            if sec_sip != "Seçiniz...":
-                ted_adi = df_s[df_s['Sipariş No'] == sec_sip]['Tedarikçi'].iloc[0]
+            # 2. SAS Listesini Filtreye Göre Daralt
+            if sec_ted != "Tümü":
+                filtered_sas = df_incomplete[df_incomplete['Tedarikçi'] == sec_ted]
+            else:
+                filtered_sas = df_incomplete
             
-            st.text_input("🏢 Tedarikçi:", value=ted_adi, disabled=True)
+            sip_options = sorted(filtered_sas['Sipariş No'].unique().tolist())
+            sec_sip = st.selectbox("📄 SAS No Seçin:", ["Seçiniz..."] + sip_options)
+            
             irs = st.text_input("🧾 İrsaliye No:").upper().strip()
             
-            if st.button("🚀 DEVAM", use_container_width=True, type="primary") and sec_sip != "Seçiniz..." and irs:
-                st.session_state.sel_siparis = sec_sip
-                st.session_state.sel_tedarikci = ted_adi
-                st.session_state.irsaliye_no = irs
-                st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
-                st.session_state.teslim_page = 'kabul'; st.rerun()
+            if st.button("🚀 DEVAM", use_container_width=True, type="primary"):
+                if sec_sip != "Seçiniz..." and irs:
+                    st.session_state.sel_siparis = sec_sip
+                    st.session_state.sel_tedarikci = df_s[df_s['Sipariş No'] == sec_sip]['Tedarikçi'].iloc[0]
+                    st.session_state.irsaliye_no = irs
+                    st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
+                    st.session_state.teslim_page = 'kabul'; st.rerun()
 
     # --- MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
