@@ -97,7 +97,7 @@ def run(conn):
     # --- SAS OLUŞTURMA ---
     elif st.session_state.teslim_page == 'olustur':
         st.subheader("📝 Yeni SAS Oluştur")
-        tab1, tab2 = st.tabs(["📄 Manuel Kalem Ekle", "📂 Excel'den Yükle"])
+        tab1, tab2 = st.tabs(["📄 Manuel Oluşturma", "📂 Excel'den Yükleme"])
         
         with tab1:
             with st.container(border=True):
