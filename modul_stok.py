@@ -2,6 +2,7 @@ import streamlit as st
 import veritabani
 import pandas as pd
 from datetime import datetime
+import re
 
 def go_home(): 
     st.session_state.page = 'home'
@@ -12,9 +13,12 @@ def clear_form():
 
 # --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
 def urun_secildi():
-    sec = st.session_state.get("sec")
-    if sec and sec != "+ MANUEL GİRİŞ":
-        st.session_state.s_kod = sec.split(" | ")[0]
+    sec_val = st.session_state.get("sec")
+    if sec_val and sec_val != "+ MANUEL GİRİŞ":
+        # Katalogdan gelen "KOD | İSİM" yapısını ayırıp koda yazıyoruz
+        st.session_state.s_kod = sec_val.split(" | ")[0]
+    elif sec_val == "+ MANUEL GİRİŞ":
+        st.session_state.s_kod = ""
 
 def goster():
     # --- TOPLU LİSTE İÇİN SESSION STATE BAŞLATMA ---
@@ -25,14 +29,16 @@ def goster():
     if st.session_state.get("reset_form"):
         for k in ["s_kod", "s_lot", "s_mik", "sec", "src_adr", "dst_adr"]:
             if k in st.session_state:
-                st.session_state[k] = 0.0 if k == "s_mik" else ""
+                if k == "s_mik": st.session_state[k] = 0.0
+                elif k == "sec": st.session_state[k] = "+ MANUEL GİRİŞ"
+                else: st.session_state[k] = ""
         st.session_state.reset_form = False
 
     # --- KAYIT SONRASI MESAJ ---
     if st.session_state.get("islem_basarili"):
         st.success(st.session_state.get("mesaj", "İşlem başarılı"))
         del st.session_state["islem_basarili"]
-        del st.session_state["mesaj"]
+        if "mesaj" in st.session_state: del st.session_state["mesaj"]
 
     if st.button("⬅️ ANA MENÜ"): 
         go_home()
@@ -47,8 +53,14 @@ def goster():
             key="move_type"
         )
         
-        katalog = veritabani.get_katalog()
-        sec = st.selectbox(
+        # KATALOG VERİSİNİ ÇEK
+        try:
+            katalog = veritabani.get_katalog()
+        except:
+            katalog = []
+
+        # ÜRÜN SEÇİM LİSTESİ
+        st.selectbox(
             "🔍 Ürün Seç:", 
             ["+ MANUEL GİRİŞ"] + katalog, 
             key="sec",
@@ -57,8 +69,8 @@ def goster():
         
         c1, c2 = st.columns(2)
         with c1:
-            s_kod = st.text_input("📦 Malzeme Kodu:", key="s_kod").upper().strip()
-            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
+            st.text_input("📦 Malzeme Kodu:", key="s_kod").upper().strip()
+            st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
         with c2:
             s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
@@ -85,13 +97,22 @@ def goster():
             with a2: dst_adr = st.text_input("📍 Hedef Adres:", key="dst_adr").upper().strip()
 
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            if not s_kod or s_mik <= 0:
+            # State'den güncel değerleri al
+            cur_kod = st.session_state.get("s_kod", "")
+            cur_sec = st.session_state.get("sec", "+ MANUEL GİRİŞ")
+            
+            if not cur_kod or s_mik <= 0:
                 st.error("Eksik bilgi!")
             else:
                 kalem = {
-                    "İşlem": move_type, "Kod": s_kod,
-                    "İsim": sec.split(" | ")[1] if sec != "+ MANUEL GİRİŞ" and len(sec.split(" | ")) > 1 else "MANUEL ÜRÜN",
-                    "Miktar": s_mik, "Lot": s_lot, "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
+                    "İşlem": move_type, 
+                    "Kod": cur_kod,
+                    "İsim": cur_sec.split(" | ")[1] if cur_sec != "+ MANUEL GİRİŞ" and " | " in cur_sec else "MANUEL ÜRÜN",
+                    "Miktar": s_mik, 
+                    "Lot": st.session_state.get("s_lot", ""), 
+                    "Durum": s_dur, 
+                    "Kaynak": st.session_state.get("src_adr", "-") if move_type != "GİRİŞ" else "-", 
+                    "Hedef": st.session_state.get("dst_adr", "-") if move_type != "ÇIKIŞ" else "-"
                 }
                 st.session_state.gecici_liste.append(kalem)
                 clear_form()
@@ -102,7 +123,7 @@ def goster():
         st.markdown("### 📋 İşlem Bekleyen Kalemler")
         for i, item in enumerate(st.session_state.gecici_liste):
             with st.expander(f"{i+1}. {item['İşlem']} | {item['Kod']} | {item['Miktar']} Adet"):
-                st.write(f"**Ürün:** {item['İsim']} | **Adres:** {item['Kaynak']} ➡️ {item['Hedef']}")
+                st.write(f"**Ürün:** {item['İsim']} | **Adres:** {item['Kaynak']} ➡️ {item['Hedef']} | **Lot:** {item['Lot']} | **Durum:** {item['Durum']}")
                 if st.button(f"🗑️ Satırı Sil", key=f"del_{i}"):
                     st.session_state.gecici_liste.pop(i)
                     st.rerun()
@@ -114,7 +135,6 @@ def goster():
             personel = st.session_state.user if 'user' in st.session_state else "Sistem"
             
             for satir in st.session_state.gecici_liste:
-                # Stok Güncelleme Mantığı (Giriş/Çıkış/Transfer)
                 if satir["İşlem"] == "GİRİŞ":
                     mask = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
                     if mask.any(): df_stok.loc[mask, 'Miktar'] += satir["Miktar"]
@@ -132,7 +152,6 @@ def goster():
                         if dst_mask.any(): df_stok.loc[dst_mask, 'Miktar'] += satir["Miktar"]
                         else: df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])], ignore_index=True)
 
-                # Hareket Kaydı
                 df_hareketler = pd.concat([df_hareketler, pd.DataFrame([{
                     "Tarih": islem_zamani, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
                     "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
