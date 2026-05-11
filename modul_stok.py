@@ -6,39 +6,60 @@ from datetime import datetime
 def go_home(): 
     st.session_state.page = 'home'
 
-# --- ÜRÜN SEÇİLİNCE KODU OTOMATİK GÜNCELLE ---
+# --- KATALOG YÜKLEME FONKSİYONU (HER SEFERİNDE TAZE) ---
+def load_katalog():
+    try:
+        # Veriyi çek
+        df_k = veritabani.get_internal_data("Urun_Listesi")
+        if df_k.empty:
+            df_k = veritabani.get_internal_data("Katalog")
+
+        if df_k.empty:
+            return []
+
+        # Kolon isimlerini temizle (Boşlukları sil)
+        df_k.columns = [str(c).strip() for c in df_k.columns]
+
+        # Kolon kontrolü
+        if 'Kod' not in df_k.columns or 'İsim' not in df_k.columns:
+            st.error(f"⚠️ Katalog Kolon Hatası! Mevcutlar: {list(df_k.columns)}")
+            return []
+
+        # Listeyi oluştur
+        return (df_k['Kod'].astype(str) + " | " + df_k['İsim'].astype(str)).tolist()
+
+    except Exception as e:
+        st.error(f"❌ Katalog yüklenirken hata oluştu: {e}")
+        return []
+
+# --- ÜRÜN SEÇİLDİĞİNDE KODU DOLDUR ---
 def urun_secildi():
     sec_val = st.session_state.get("sec_box")
     if sec_val and sec_val != "+ MANUEL GİRİŞ":
-        # Katalogdan gelen "KOD | İSİM" yapısını parçalayıp s_kod'a mühürle
         st.session_state["s_kod"] = sec_val.split(" | ")[0]
     else:
         st.session_state["s_kod"] = ""
 
 def goster():
-    # --- 1. VERİLERİ İLK GİRİŞTE ÇEK ---
+    # --- 1. VERİLERİ HER RENDER'DA TAZELE (CACHE'İ KIR) ---
     if "full_stok_data" not in st.session_state:
         st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
     
     if "full_hareketler_data" not in st.session_state:
         st.session_state.full_hareketler_data = veritabani.get_internal_data("Hareketler")
     
-    if "katalog_verisi" not in st.session_state:
-        try:
-            # Urun_Listesi sekmesini hedef alıyoruz
-            df_k = veritabani.get_internal_data("Urun_Listesi")
-            if not df_k.empty:
-                st.session_state.katalog_verisi = (df_k['Kod'].astype(str) + " | " + df_k['İsim'].astype(str)).tolist()
-            else:
-                st.session_state.katalog_verisi = []
-        except:
-            st.session_state.katalog_verisi = []
+    # Kataloğu her seferinde yükle (Cache Bug Fix)
+    katalog = load_katalog()
 
+    # DEBUG: Kataloğu ekranda gizlice gör (Geliştirme sonrası silebilirsin)
+    if not katalog:
+        st.warning("⚠️ Katalog şu an boş veya çekilemedi!")
+    
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
 
     if st.button("⬅️ ANA MENÜ"): 
-        for k in ["full_stok_data", "full_hareketler_data", "katalog_verisi"]:
+        for k in ["full_stok_data", "full_hareketler_data"]:
             if k in st.session_state: del st.session_state[k]
         go_home(); st.rerun()
         
@@ -48,25 +69,22 @@ def goster():
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], key="move_type")
         
         # --- ÜRÜN SEÇİM ALANI ---
-        katalog = st.session_state.get("katalog_verisi", [])
         st.selectbox(
             "🔍 Ürün Seç:", 
             ["+ MANUEL GİRİŞ"] + katalog, 
             key="sec_box",
-            on_change=urun_secildi # Bu fonksiyon s_kod'u günceller
+            on_change=urun_secildi
         )
         
         c1, c2 = st.columns(2)
         with c1:
-            # KRİTİK NOKTA: value parametresini session_state'e bağladık
+            # Otomatik dolum için value parametresi state'e bağlı
             s_kod = st.text_input(
                 "📦 Malzeme Kodu:", 
-                value=st.session_state.get("s_kod", ""), # Otomatik dolumu bu sağlar
-                key="manual_s_kod" # Key'i değiştirdik ki çakışmasın
+                value=st.session_state.get("s_kod", ""),
+                key="manual_input_kod"
             ).upper().strip()
-            
-            # Kod değiştikçe state'i güncelle (Manuel girişi korumak için)
-            st.session_state["s_kod"] = s_kod
+            st.session_state["s_kod"] = s_kod # Manuel girişi de yakala
             
             s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
@@ -76,7 +94,7 @@ def goster():
 
         st.markdown("---")
         
-        # --- ADRES ALANLARI ---
+        # --- ADRES YÖNETİMİ ---
         src_adr, dst_adr = "-", "-"
         a1, a2 = st.columns(2)
 
@@ -89,8 +107,8 @@ def goster():
             with a2: dst_adr = st.text_input("📍 Hedef Adres:", key="dst_adr").upper().strip()
 
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            if not st.session_state["s_kod"] or s_mik <= 0:
-                st.error("Eksik bilgi!")
+            if not st.session_state.get("s_kod") or s_mik <= 0:
+                st.error("Eksik bilgi veya miktar!")
             else:
                 sec_v = st.session_state.get("sec_box", "")
                 isim = sec_v.split(" | ")[1] if " | " in sec_v else "MANUEL ÜRÜN"
@@ -99,14 +117,14 @@ def goster():
                     "İşlem": move_type, "Kod": st.session_state["s_kod"], "İsim": isim,
                     "Miktar": s_mik, "Lot": s_lot, "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
                 })
-                # Formu temizle
+                # State temizliği
                 st.session_state["s_kod"] = ""
                 st.session_state["s_lot"] = ""
                 st.session_state["s_mik"] = 0.0
                 st.session_state["sec_box"] = "+ MANUEL GİRİŞ"
                 st.rerun()
 
-    # --- BEKLEYEN LİSTE VE KAYIT MANTIĞI ---
+    # --- LİSTE GÖRÜNÜMÜ VE KAYIT ---
     if st.session_state.gecici_liste:
         st.markdown("### 📋 İşlem Bekleyen Kalemler")
         for i, item in enumerate(st.session_state.gecici_liste):
@@ -147,8 +165,9 @@ def goster():
             veritabani.update_data("Stok", df_st)
             veritabani.update_data("Hareketler", df_hr)
             st.session_state.gecici_liste = []
-            del st.session_state.full_stok_data; del st.session_state.full_hareketler_data
-            st.success("✅ İşlemler başarıyla kaydedildi!"); st.rerun()
+            if "full_stok_data" in st.session_state: del st.session_state.full_stok_data
+            if "full_hareketler_data" in st.session_state: del st.session_state.full_hareketler_data
+            st.success("✅ Tüm işlemler başarıyla kaydedildi!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
