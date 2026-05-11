@@ -140,7 +140,7 @@ def run(conn):
 
             if st.session_state.manuel_sas_liste:
                 st.dataframe(pd.DataFrame(st.session_state.manuel_sas_liste), use_container_width=True, hide_index=True)
-                if st.button("🚀 SAS'I KAYDET VE MÜHÜRLE", use_container_width=True, type="primary"):
+                if st.button("🚀 SAS'I KAYDET", use_container_width=True, type="primary"):
                     yeni_no = f"SAS-M{datetime.now().strftime('%m%d%H%M')}"
                     sas_data = pd.DataFrame(st.session_state.manuel_sas_liste)
                     sas_data["Sipariş No"] = yeni_no
