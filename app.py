@@ -99,27 +99,20 @@ if st.session_state['page'] not in gecerli_sayfalar:
 
 # --- 1. KULLANICI GİRİŞ (LOGIN) EKRANI ---
 if not st.session_state['logged_in']:
-    
     col1, col2, col3 = st.columns([1, 1.5, 1])
-    
     with col2:
         st.write("")
         st.write("")
         st.write("") 
-        
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center; color: #0b3c5d; margin-bottom: 10px;'>🏢 BRN WMS Giriş</h2>", unsafe_allow_html=True)
             st.divider()
-            
             kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adınızı girin")
             sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
-            
             st.write("") 
-            
             if st.button("Sisteme Giriş Yap", use_container_width=True):
                 if "users" in st.secrets:
                     kullanici_listesi = st.secrets["users"]
-                    
                     if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize() 
@@ -184,20 +177,13 @@ else:
     # --- MODÜL SAYFALARI YÖNLENDİRMELERİ ---
 
     elif st.session_state['page'] == 'mal_kabul':
-        if st.button("⬅️ Ana Menüye Dön"):
-            st.session_state['page'] = 'main'
-            st.rerun()
-        st.divider()
+        # MODÜL İÇİNDEKİ BUTON YETERLİ, BURADAKİ KALDIRILDI
         teslim_alma.run(conn)
 
     elif st.session_state['page'] == 'blok_kesim':
-        if st.button("⬅️ Ana Menüye Dön"):
-            st.session_state['page'] = 'main'
-            st.rerun()
-        st.divider()
+        # MODÜL İÇİNDEKİ BUTON YETERLİ, BURADAKİ KALDIRILDI
         blok_kesim.run_blok_kesim(conn)
 
-    # Bu modüller kendi içlerinde geri dön butonuna sahip oldukları için app.py'deki butonları kaldırıldı.
     elif st.session_state['page'] == 'uretim':
         modul_uretim.goster() 
 
