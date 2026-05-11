@@ -18,32 +18,28 @@ def clean_code(val):
     val = str(val).split(".")[0].strip()
     return re.sub(r'\D', '', val)
 
-# --- 🛠️ OTOMATİK HAFIZA TAMİR VE SENKRONİZASYON ---
+# --- 🛠️ ZORLAMALI HAFIZA YAZICI (SENSÖRÜN KALBİ) ---
 def load_safe_mapping():
-    """Lokal CSV boşsa veya yoksa Drive'dan çeker ve dosyayı otomatik doldurur."""
-    df_final = pd.DataFrame()
+    """Drive'daki veriyi alır ve her durumda hafiza.csv dosyasına zorla yazar."""
+    df_drive = pd.DataFrame()
     
-    # 1. Adım: Yerel dosyayı kontrol et
-    if os.path.exists(LOCAL_MAPPING_FILE):
-        try:
-            df_final = pd.read_csv(LOCAL_MAPPING_FILE)
-            if not df_final.empty:
-                return df_final
-        except Exception:
-            pass # Okuma hatası veya boş dosya durumunda 2. adıma geç
-
-    # 2. Adım: Yerel dosya boşsa veya yoksa Drive'dan çek
     try:
+        # 1. Drive'daki "Eşleşmeler" sekmesini zorla oku
         df_drive = veritabani.get_internal_data("Eşleşmeler")
+        
         if df_drive is not None and not df_drive.empty:
-            # Sütunları standartlaştır ve mühürle
+            # 2. Sütun temizliğini yap ve fiziksel dosyaya mühürle
             df_drive.to_csv(LOCAL_MAPPING_FILE, index=False)
-            st.toast("🔄 Hafıza dosyası Drive'dan otomatik güncellendi.", icon="ℹ️")
-            return df_drive
+            # Dosyanın yazıldığını teyit etmek için boyutunu kontrol et
+            if os.path.getsize(LOCAL_MAPPING_FILE) > 0:
+                return df_drive
     except Exception as e:
-        st.error(f"🚨 Drive'dan hafıza çekilemedi: {e}")
+        # Eğer Drive hatası varsa ve lokalde eski bir dosya varsa onu kullan
+        if os.path.exists(LOCAL_MAPPING_FILE) and os.path.getsize(LOCAL_MAPPING_FILE) > 0:
+            return pd.read_csv(LOCAL_MAPPING_FILE)
+        st.error(f"🚨 Kritik Hata: Ne Drive'dan veri çekilebildi ne de yerel dosya bulundu! Hata: {e}")
     
-    return df_final
+    return df_drive
 
 # --- BARKOD İŞLEME ---
 def handle_barcode():
@@ -51,12 +47,14 @@ def handle_barcode():
     code = st.session_state.get(input_key, "").strip().split(".")[0]
     if not code: return
 
-    # Hafızayı yükle (Boşsa otomatik tamir eder)
+    # Hafızayı yükle (Boşsa Drive'dan zorla çeker)
     map_df = load_safe_mapping()
+    
     if map_df.empty:
-        st.toast("🚨 Hafıza (hafiza.csv) hala boş! Drive 'Eşleşmeler' sekmesini kontrol et.", icon="🚨")
+        st.toast("🚨 Eşleşme verisi boş! Drive 'Eşleşmeler' sekmesine veri girin.", icon="🚨")
         return
 
+    # Sütunları standartlaştır
     map_df.columns = [str(c).strip().upper() for c in map_df.columns]
     sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
     
@@ -71,7 +69,7 @@ def handle_barcode():
     row = found.iloc[0]
     m_kod = clean_code(row['Stok Kodu'])
     
-    # Dinamik Sütun Bulma
+    # Dinamik Sütun Bulma (FORM ve KOD içeren sütun)
     form_col = next((c for c in map_df.columns if "FORM" in c and "KOD" in c), None)
     
     if form_col:
@@ -79,8 +77,9 @@ def handle_barcode():
         match = map_df[map_df['FORM_TEMİZ'] == m_kod]
         
         if not match.empty:
+            # BRN Karşılıklarını al
             brn_k_col = next((c for c in map_df.columns if "BRN" in c and "KOD" in c), "BRN KOD")
-            brn_a_col = next((c for c in map_df.columns if "BRN" in c and "AD" in c), "BRN ÜRÜN ADI")
+            brn_a_col = next((c for c in map_df.columns if "BRN" in c and "AD" in c or "ÜRÜN" in c), "BRN ÜRÜN ADI")
             
             st.session_state.mk_gecici_liste[code] = {
                 "Kod": match.iloc[0][brn_k_col], 
@@ -90,9 +89,9 @@ def handle_barcode():
             st.toast(f"✅ Okundu: {match.iloc[0][brn_k_col]}", icon="📥")
             st.session_state.scan_counter += 1
         else:
-            st.toast(f"❓ Eşleşme yok: {m_kod}", icon="🔍")
+            st.toast(f"❓ Eşleşme yok (Hafızada Karşılığı Yok): {m_kod}", icon="🔍")
     else:
-        st.toast("🚨 Hafıza dosyasında 'FORM KOD' sütunu bulunamadı!", icon="🚨")
+        st.toast("🚨 Hafıza dosyasında sütun isimleri uyuşmuyor!", icon="🚨")
 
 def run(conn):
     init_state()
@@ -106,7 +105,7 @@ def run(conn):
             st.session_state.teslim_page = 'menu'; st.rerun()
         st.divider()
 
-    # --- 0. MENÜ ---
+    # --- MENÜ ---
     if st.session_state.teslim_page == 'menu':
         st.subheader("📦 Mal Kabul & Teslim Alma")
         c1, c2 = st.columns(2)
@@ -115,7 +114,7 @@ def run(conn):
         if c2.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary"):
             st.session_state.teslim_page = 'olustur'; st.rerun()
 
-    # --- 1. SAS OLUŞTURMA (PARTİ NO -> TEDARİKÇİ BARKODU) ---
+    # --- SAS OLUŞTURMA ---
     elif st.session_state.teslim_page == 'olustur':
         st.subheader("📝 Yeni SAS Oluştur")
         with st.container(border=True):
@@ -146,7 +145,7 @@ def run(conn):
                         veritabani.update_data("Satin_Alma", df_final)
                         st.success(f"✅ {yeni_sas_no} oluşturuldu!"); st.session_state.teslim_page = 'menu'; st.rerun()
 
-    # --- 2. MAL KABUL SEÇİM ---
+    # --- MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
         st.subheader("🔎 Kabul Edilecek SAS")
         df_s = veritabani.get_internal_data("Satin_Alma")
@@ -164,7 +163,7 @@ def run(conn):
                     st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
                     st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- 3. MAL KABUL GİRİŞ ---
+    # --- MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.info(f"📍 {st.session_state.sel_siparis} | {st.session_state.irsaliye_no}")
         with st.container(border=True):
