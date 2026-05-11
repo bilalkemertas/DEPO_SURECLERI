@@ -30,7 +30,7 @@ def load_safe_mapping():
         except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- BARKOD İŞLEME (CANLI TABLO) ---
+# --- BARKOD İŞLEME (STANDART ANAHTARLAR) ---
 def handle_barcode():
     input_key = f"barkod_input_{st.session_state.scan_counter}"
     code = st.session_state.get(input_key, "").strip().split(".")[0]
@@ -49,7 +49,11 @@ def handle_barcode():
     row = found.iloc[0]
     m_kod = clean_code(row['Stok Kodu'])
     
-    # Hafıza kontrolü
+    # Varsayılan değerler (Eşleşme bulunamazsa kullanılacak)
+    final_kod = row['Stok Kodu']
+    final_ad = row['Stok Adı']
+    
+    # Hafıza kontrolü ve eşleşme
     if not map_df.empty:
         map_df.columns = [str(c).strip().upper() for c in map_df.columns]
         form_col = next((c for c in map_df.columns if "FORM" in c and "KOD" in c), None)
@@ -60,26 +64,24 @@ def handle_barcode():
                 brn_k_col = next((c for c in map_df.columns if "BRN" in c and "KOD" in c), "BRN KOD")
                 brn_a_col = next((c for c in map_df.columns if "BRN" in c and "AD" in c or "ÜRÜN" in c), "BRN ÜRÜN ADI")
                 
-                st.session_state.mk_gecici_liste[code] = {
-                    "Kod": match.iloc[0][brn_k_col], 
-                    "Miktar": float(row['Sipariş Miktarı']), 
-                    "Ad": match.iloc[0][brn_a_col]
-                }
-                st.toast(f"✅ {match.iloc[0][brn_k_col]} eklendi.", icon="📥")
-                st.session_state.scan_counter += 1
-                return
+                final_kod = match.iloc[0][brn_k_col]
+                final_ad = match.iloc[0][brn_a_col]
+                st.toast(f"✅ {final_kod} eklendi.", icon="📥")
+            else:
+                st.toast(f"⚠️ Eşleşme yok, orijinal kodla eklendi.")
 
-    # Hafızada yoksa orijinal kodla ekle
+    # KRİTİK: Anahtarlar 'Kod' ve 'Ad' olarak sabitlendi
     st.session_state.mk_gecici_liste[code] = {
-        "Kod": row['Stok Kodu'], "Miktar": float(row['Sipariş Miktarı']), "Ad": row['Stok Adı']
+        "Kod": final_kod, 
+        "Miktar": float(row['Sipariş Miktarı']), 
+        "Ad": final_ad
     }
-    st.toast(f"⚠️ Eşleşme yok, orijinal kodla eklendi.")
     st.session_state.scan_counter += 1
 
 def run(conn):
     init_state()
 
-    # --- ÜST NAVİGASYON (Geri butonu buraya sabitlendi) ---
+    # --- ÜST NAVİGASYON ---
     if st.session_state.teslim_page != 'menu':
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         if c_nav1.button("⬅️ ANA MENÜ", use_container_width=True):
@@ -155,17 +157,41 @@ def run(conn):
                 df_sas_up = veritabani.get_internal_data("Satin_Alma")
                 
                 for b_code, b_data in st.session_state.mk_gecici_liste.items():
-                    # Stok ve Hareket Kaydı
-                    new_stok = pd.DataFrame([{"Kod": b_data['Kod'], "İsim": b_data['Ad'], "Adres": "DEPO-1", "Miktar": b_data['Miktar'], "Durum": "Kullanılabilir", "Tedarikçi Barkod": b_code}])
+                    # 1. Stok Kaydı
+                    new_stok = pd.DataFrame([{
+                        "Kod": b_data['Kod'], 
+                        "İsim": b_data['Ad'], 
+                        "Adres": "DEPO-1", 
+                        "Miktar": b_data['Miktar'], 
+                        "Durum": "Kullanılabilir", 
+                        "Tedarikçi Barkod": b_code
+                    }])
                     df_stok = pd.concat([df_stok, new_stok], ignore_index=True)
-                    new_har = pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": b_data['Kod'], "İsim": b_data['Ad'], "Miktar": b_data['Miktar'], "Personel": "Bilal", "Adres": "DEPO-1", "Tedarikçi Barkod": b_code}])
+
+                    # 2. Hareket Kaydı
+                    new_har = pd.DataFrame([{
+                        "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                        "İşlem": "GİRİŞ", 
+                        "İş Emri": st.session_state.sel_siparis, 
+                        "Kod": b_data['Kod'], 
+                        "İsim": b_data['Ad'], 
+                        "Miktar": b_data['Miktar'], 
+                        "Personel": "Bilal", 
+                        "Adres": "DEPO-1", 
+                        "Tedarikçi Barkod": b_code
+                    }])
                     df_har = pd.concat([df_har, new_har], ignore_index=True)
-                    df_sas_up.loc[(df_sas_up['Sipariş No'] == st.session_state.sel_siparis) & (df_sas_up['Tedarikçi Barkodu'].astype(str) == b_code), 'Gelen Miktar'] = b_data['Miktar']
+
+                    # 3. SAS Güncelleme
+                    df_sas_up.loc[(df_sas_up['Sipariş No'] == st.session_state.sel_siparis) & 
+                                  (df_sas_up['Tedarikçi Barkodu'].astype(str) == b_code), 'Gelen Miktar'] = b_data['Miktar']
                 
                 veritabani.update_data("Stok", df_stok)
                 veritabani.update_data("Hareketler", df_har)
                 veritabani.update_data("Satin_Alma", df_sas_up)
-                st.session_state.mk_gecici_liste = {}; st.success("✅ Depoya işlendi!"); st.rerun()
+                
+                st.session_state.mk_gecici_liste = {}
+                st.success("✅ Depoya işlendi!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
