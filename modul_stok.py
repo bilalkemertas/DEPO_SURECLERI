@@ -12,7 +12,6 @@ def clear_form():
 
 # --- ÜRÜN SEÇİLİNCE KODU OTOMATİK DOLDUR ---
 def urun_secildi():
-    # Callback içinde session_state'e doğrudan müdahale
     val = st.session_state.get("sec_box")
     if val and val != "+ MANUEL GİRİŞ":
         st.session_state.s_kod = val.split(" | ")[0]
@@ -20,20 +19,29 @@ def urun_secildi():
         st.session_state.s_kod = ""
 
 def goster():
+    # --- İLK GİRİŞTE VERİTABANINDAN VERİ ÇEKME (KRİTİK) ---
+    if "full_stok_data" not in st.session_state:
+        st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
+    if "full_hareketler_data" not in st.session_state:
+        st.session_state.full_hareketler_data = veritabani.get_internal_data("Hareketler")
+    
     # --- TOPLU LİSTE BAŞLATMA ---
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
 
     # --- FORM SIFIRLAMA ---
     if st.session_state.get("reset_form"):
-        # Selectbox'ı sıfırlamak için index kullanmak en garantisidir
         for k in ["s_kod", "s_lot", "s_mik", "src_adr", "dst_adr", "sec_box"]:
             if k in st.session_state:
                 if k == "s_mik": st.session_state[k] = 0.0
+                elif k == "sec_box": st.session_state[k] = "+ MANUEL GİRİŞ"
                 else: st.session_state[k] = ""
         st.session_state.reset_form = False
 
     if st.button("⬅️ ANA MENÜ"): 
+        # Ana menüye dönerken veriyi temizle ki tekrar girince taze çeksin
+        for k in ["full_stok_data", "full_hareketler_data"]:
+            if k in st.session_state: del st.session_state[k]
         go_home()
         st.rerun()
         
@@ -46,21 +54,22 @@ def goster():
             key="move_type"
         )
         
-        katalog = veritabani.get_katalog()
+        try:
+            katalog_listesi = veritabani.get_katalog()
+        except:
+            katalog_listesi = []
         
-        # KEY ÇAKIŞMASINI ÖNLEMEK İÇİN YENİ YAPI
-        sec = st.selectbox(
+        st.selectbox(
             "🔍 Ürün Seç:", 
-            ["+ MANUEL GİRİŞ"] + katalog, 
+            ["+ MANUEL GİRİŞ"] + katalog_listesi, 
             key="sec_box",
             on_change=urun_secildi
         )
         
         c1, c2 = st.columns(2)
         with c1:
-            # value parametresini session_state'e bağladık
-            s_kod = st.text_input("📦 Malzeme Kodu:", key="s_kod").upper().strip()
-            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
+            st.text_input("📦 Malzeme Kodu:", key="s_kod").upper().strip()
+            st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
         with c2:
             s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
@@ -85,19 +94,20 @@ def goster():
             with a2: dst_adr = st.text_input("📍 Hedef Adres:", key="dst_adr").upper().strip()
 
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            if not s_kod or s_mik <= 0:
+            current_kod = st.session_state.get("s_kod", "")
+            if not current_kod or s_mik <= 0:
                 st.error("Eksik bilgi!")
             else:
-                # İsim belirleme
                 urun_ismi = "MANUEL ÜRÜN"
                 current_sec = st.session_state.get("sec_box")
                 if current_sec and current_sec != "+ MANUEL GİRİŞ" and " | " in current_sec:
                     urun_ismi = current_sec.split(" | ")[1]
 
                 kalem = {
-                    "İşlem": move_type, "Kod": s_kod,
+                    "İşlem": move_type, "Kod": current_kod,
                     "İsim": urun_ismi,
-                    "Miktar": s_mik, "Lot": s_lot, "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
+                    "Miktar": s_mik, "Lot": st.session_state.get("s_lot", ""), 
+                    "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
                 }
                 st.session_state.gecici_liste.append(kalem)
                 clear_form()
@@ -114,8 +124,9 @@ def goster():
                     st.rerun()
 
         if st.button("🚀 TÜM HAREKETLERİ VERİTABANINA İŞLE", use_container_width=True, type="primary"):
-            df_stok = veritabani.get_internal_data("Stok")
-            df_hareketler = veritabani.get_internal_data("Hareketler")
+            # Hafızadaki (açılışta çekilen) veriyi kullan
+            df_stok = st.session_state.full_stok_data
+            df_hareketler = st.session_state.full_hareketler_data
             islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             personel = st.session_state.user if 'user' in st.session_state else "Sistem"
             
@@ -143,22 +154,19 @@ def goster():
                     "Miktar": satir["Miktar"], "Personel": personel, "Durum": satir["Durum"], "Lot": satir["Lot"]
                 }])], ignore_index=True)
 
+            # Drive'a toplu bas
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_hareketler)
+            
+            # İşlem bitince hafızayı temizle ki bir sonraki işlemde güncel veriyi çeksin
+            for k in ["full_stok_data", "full_hareketler_data"]:
+                if k in st.session_state: del st.session_state[k]
+                
             st.session_state.gecici_liste = []
             st.success("✅ Tüm işlemler başarıyla kaydedildi!")
             st.rerun()
 
-    # --- SAYFA SONU İMZASI ---
     st.markdown("---")
-    col_sign1, col_sign2 = st.columns([3, 1])
+    col_sign2 = st.columns([3, 1])[1]
     with col_sign2:
-        st.markdown(
-            f"""
-            <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-                <p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+        st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
