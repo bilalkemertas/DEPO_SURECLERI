@@ -9,16 +9,17 @@ from datetime import datetime
 LOCAL_MAPPING_FILE = "hafiza.csv"
 
 def init_state():
+    """Hafızayı zırhlı hale getirir, yoksa oluşturur."""
     if 'teslim_page' not in st.session_state: st.session_state.teslim_page = 'menu'
     if 'mk_gecici_liste' not in st.session_state: st.session_state.mk_gecici_liste = {}
     if 'scan_counter' not in st.session_state: st.session_state.scan_counter = 0
+    if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = pd.DataFrame()
 
 def clean_code(val):
     if pd.isna(val): return ""
     return str(val).split(".")[0].strip().upper()
 
 def load_safe_mapping():
-    """Hafıza dosyasını hem Drive'dan günceller hem de lokalden okur."""
     try:
         df_drive = veritabani.get_internal_data("Eşleşmeler")
         if df_drive is not None and not df_drive.empty:
@@ -26,22 +27,28 @@ def load_safe_mapping():
             return df_drive
     except: pass
     if os.path.exists(LOCAL_MAPPING_FILE):
-        try:
-            return pd.read_csv(LOCAL_MAPPING_FILE)
+        try: return pd.read_csv(LOCAL_MAPPING_FILE)
         except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- BARKOD İŞLEME (STANDART ANAHTARLARLA) ---
+# --- BARKOD İŞLEME (ZIRHLI VE HATASIZ) ---
 def handle_barcode():
+    # HATA ÖNLEYİCİ: Counter yoksa hemen oluştur
+    if 'scan_counter' not in st.session_state:
+        st.session_state.scan_counter = 0
+    
     input_key = f"barkod_input_{st.session_state.scan_counter}"
     code = st.session_state.get(input_key, "").strip().split(".")[0]
+    
     if not code: return
 
-    # Hafızayı yükle (Eşleşme tablosu)
     map_df = load_safe_mapping()
-    # Mevcut SAS verisini al
     sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
     
+    if sas_df.empty:
+        st.toast("⚠️ Önce bir SAS seçmelisin patron!", icon="👀")
+        return
+
     # Barkodu SAS içinde ara
     target_col = 'Tedarikçi Barkodu'
     found = sas_df[sas_df[target_col].astype(str) == code]
@@ -53,11 +60,9 @@ def handle_barcode():
     row = found.iloc[0]
     m_kod = clean_code(row['Stok Kodu'])
     
-    # Varsayılan değerler (Hafızada karşılık bulunamazsa SAS'taki veriyi kullan)
     final_kod = row['Stok Kodu']
     final_ad = row['Stok Adı']
     
-    # Hafıza kontrolü
     if not map_df.empty:
         map_df.columns = [str(c).strip().upper() for c in map_df.columns]
         form_col = next((c for c in map_df.columns if "FORM" in c and "KOD" in c), None)
@@ -70,11 +75,9 @@ def handle_barcode():
                 
                 final_kod = match.iloc[0][brn_k_col]
                 final_ad = match.iloc[0][brn_a_col]
-                st.toast(f"✅ {final_kod} mühürlendi.", icon="📥")
-            else:
-                st.toast(f"⚠️ Eşleşme yok, orijinal kodla eklendi.")
+                st.toast(f"✅ {final_kod} listeye girdi.", icon="📥")
 
-    # SÖZLÜK ANAHTARLARINI SABİTLEDİK: 'Kod', 'Ad', 'Miktar'
+    # STANDART ANAHTARLARLA KAYDET (KeyError Önleyici)
     st.session_state.mk_gecici_liste[code] = {
         "Kod": final_kod, 
         "Ad": final_ad, 
@@ -83,7 +86,7 @@ def handle_barcode():
     st.session_state.scan_counter += 1
 
 def run(conn):
-    init_state()
+    init_state() # En başta her şeyi kur
 
     # --- ÜST NAVİGASYON ---
     if st.session_state.teslim_page != 'menu':
@@ -91,7 +94,7 @@ def run(conn):
         if c_nav1.button("⬅️ ANA MENÜ", use_container_width=True):
             st.session_state.teslim_page = 'menu'; st.rerun()
         if c_nav2.button("⬅️ GERİ", use_container_width=True):
-            st.session_state.teslim_page = 'menu' if st.session_state.teslim_page in ['olustur', 'secim'] else 'secim'
+            st.session_state.teslim_page = 'menu' if st.session_state.teslim_page != 'kabul' else 'secim'
             st.rerun()
         st.divider()
 
@@ -104,11 +107,11 @@ def run(conn):
         if c2.button("📝 SAS OLUŞTUR (EXCEL)", use_container_width=True):
             st.session_state.teslim_page = 'olustur'; st.rerun()
 
-    # --- SAS OLUŞTURMA (PARTİ NO -> TEDARİKÇİ BARKODU) ---
+    # --- SAS OLUŞTURMA ---
     elif st.session_state.teslim_page == 'olustur':
         st.subheader("📝 Excel'den SAS Oluştur")
         with st.container(border=True):
-            ted = st.text_input("🏢 Tedarikçi Adı:").upper()
+            ted = st.text_input("🏢 Tedarikçi Adı:").upper().strip()
             up = st.file_uploader("Excel Yükle (Main sheet)", type=['xlsx'])
             if up and ted:
                 df_ex = pd.read_excel(up, sheet_name='Main sheet')
@@ -130,22 +133,23 @@ def run(conn):
 
     # --- MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
-        st.subheader("🔎 Kabul Edilecek SAS")
+        st.subheader("🔎 SAS Seçimi")
         df_s = veritabani.get_internal_data("Satin_Alma")
         with st.container(border=True):
-            sec_sip = st.selectbox("📄 SAS Seçin:", ["Seçiniz..."] + sorted(df_s['Sipariş No'].unique().tolist()))
+            sec_sip = st.selectbox("📄 SAS Seçin:", ["Seçiniz..."] + sorted(df_s['Sipariş No'].unique().tolist()) if not df_s.empty else ["Boş"])
             if st.button("🚀 DEVAM", use_container_width=True, type="primary") and sec_sip != "Seçiniz...":
                 st.session_state.sel_siparis = sec_sip
                 st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
                 st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- MAL KABUL GİRİŞ (CANLI TABLO) ---
+    # --- MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.info(f"📍 SAS: {st.session_state.sel_siparis}")
         with st.container(border=True):
+            # Key hatasını önlemek için dinamik key kullanımı
             st.text_input("🔍 Barkod Okutun:", key=f"barkod_input_{st.session_state.scan_counter}", on_change=handle_barcode)
         
-        # CANLI TABLO GÖSTERİMİ
+        # CANLI TABLO
         sas_filter = st.session_state.full_sas_data.copy()
         sas_filter['Gelen (Yeni)'] = 0.0
         for b_code, b_data in st.session_state.mk_gecici_liste.items():
@@ -184,7 +188,9 @@ def run(conn):
                 veritabani.update_data("Stok", df_stok)
                 veritabani.update_data("Hareketler", df_har)
                 veritabani.update_data("Satin_Alma", df_sas_up)
-                st.session_state.mk_gecici_liste = {}; st.success("✅ Depoya işlendi!"); st.rerun()
+                
+                st.session_state.mk_gecici_liste = {}
+                st.success("✅ Depoya başarıyla işlendi patron!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
