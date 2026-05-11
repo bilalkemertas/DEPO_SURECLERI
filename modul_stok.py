@@ -6,32 +6,27 @@ from datetime import datetime
 def go_home(): 
     st.session_state.page = 'home'
 
+# --- ÜRÜN SEÇİLDİĞİNDE KODU DOLDUR (GÜNCELLENDİ) ---
 def urun_secildi():
     sec_val = st.session_state.get("sec_box")
     if sec_val:
-        st.session_state["s_kod"] = str(sec_val).split(" | ")[0]
-    else:
-        st.session_state["s_kod"] = ""
+        # Seçilen "KOD | İSİM" metninden sadece KOD kısmını alıp state'e mühürle
+        st.session_state["s_kod_state"] = str(sec_val).split(" | ")[0]
 
 def goster():
-    # --- VERİ ÇEKME VE STANDARTLAŞTIRMA ---
+    # --- VERİ ÇEKME ---
     df_stok = veritabani.get_internal_data("Stok")
     df_har = veritabani.get_internal_data("Hareketler")
     
-    # Katalog verisini çek (Önce Urun_Listesi, olmazsa Katalog)
+    # Katalog verisini çek (Urun_Listesi öncelikli)
     df_k = veritabani.get_internal_data("Urun_Listesi")
     if df_k is None or df_k.empty:
         df_k = veritabani.get_internal_data("Katalog")
 
-    # EĞER VERİ HALA BOŞSA (Görseldeki "No Results" Sebebi)
     if df_k is None or df_k.empty:
         katalog = []
-        # KRİTİK: Eğer liste boşsa kullanıcıya nedenini gösteriyoruz (Tahmin değil, veri sonucu)
-        st.warning("⚠️ Veritabanındaki 'Urun_Listesi' veya 'Katalog' sekmesi boş görünüyor. Lütfen Drive dosyanı kontrol et patron.")
     else:
-        # Sütun isimlerini zorla temizle
         df_k.columns = [str(c).strip() for c in df_k.columns]
-        # Kod ve İsim kolonlarının varlığını kontrol et, yoksa ilk iki kolonu al
         k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
         n_col = 'İsim' if 'İsim' in df_k.columns else df_k.columns[1]
         katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
@@ -48,22 +43,27 @@ def goster():
     with st.container(border=True):
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], key="move_type")
         
-        # DROPDOWN (Görseldeki boş alan)
+        # ÜRÜN SEÇİMİ (LİSTE BURADAN GELİYOR)
         st.selectbox(
             "🔍 Ürün Seç:", 
             options=katalog,
             index=None,
             placeholder="Ürün seçmek için tıklayın...",
             key="sec_box",
-            on_change=urun_secildi
+            on_change=urun_secildi # Seçim yapıldığı an kodu hazırlar
         )
         
         c1, c2 = st.columns(2)
         with c1:
-            # Manuel girişe de izin veren yapı
-            s_kod_val = st.text_input("📦 Malzeme Kodu:", key="s_kod_input", value=st.session_state.get("s_kod", "")).upper().strip()
-            # State güncellemesi
-            st.session_state["s_kod"] = s_kod_val
+            # OTOMATİK DOLUMUN SIRRI: value=st.session_state.get("s_kod_state", "")
+            s_kod = st.text_input(
+                "📦 Malzeme Kodu:", 
+                value=st.session_state.get("s_kod_state", ""), # Dropdown seçilince burası dolar
+                key="manual_s_kod"
+            ).upper().strip()
+            
+            # Manuel girişi de desteklemek için state'i güncelliyoruz
+            st.session_state["s_kod_state"] = s_kod
             
             s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
@@ -85,21 +85,21 @@ def goster():
             with a2: dst_adr = st.text_input("📍 Hedef Adres:", key="dst_adr").upper().strip()
 
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            current_kod = st.session_state.get("s_kod", "")
-            if current_kod and s_mik > 0:
+            kod_final = st.session_state.get("s_kod_state", "")
+            if kod_final and s_mik > 0:
                 sec_v = st.session_state.get("sec_box")
                 isim = str(sec_v).split(" | ")[1] if sec_v and " | " in str(sec_v) else "MANUEL ÜRÜN"
                 
                 st.session_state.gecici_liste.append({
-                    "İşlem": move_type, "Kod": current_kod, "İsim": isim,
+                    "İşlem": move_type, "Kod": kod_final, "İsim": isim,
                     "Miktar": s_mik, "Lot": s_lot, "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
                 })
-                # Sıfırlama
-                st.session_state["s_kod"] = ""
+                # Ekleme sonrası formu temizle
+                st.session_state["s_kod_state"] = ""
                 st.session_state["sec_box"] = None
                 st.rerun()
 
-    # BEKLEYEN LİSTE VE KAYIT (Aynı Stabiliteyle Devam)
+    # BEKLEYEN LİSTE GÖRÜNÜMÜ
     if st.session_state.gecici_liste:
         st.markdown("### 📋 Bekleyen Hareketler")
         for i, item in enumerate(st.session_state.gecici_liste):
@@ -135,7 +135,7 @@ def goster():
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_har)
             st.session_state.gecici_liste = []
-            st.success("✅ Kayıt tamamlandı!"); st.rerun()
+            st.success("✅ Tüm işlemler veritabanına mühürlendi patron!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
