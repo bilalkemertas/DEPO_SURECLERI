@@ -6,11 +6,10 @@ from datetime import datetime
 def go_home(): 
     st.session_state.page = 'home'
 
-# --- ÜRÜN SEÇİLDİĞİNDE KODU DOLDUR (STATE-ZORLAMALI) ---
+# --- ÜRÜN SEÇİLDİĞİNDE KODU DOLDUR ---
 def urun_secildi():
     sec_val = st.session_state.get("sec_box")
     if sec_val:
-        # Seçilen "KOD | İSİM" metninden KOD'u al ve doğrudan inputun KEY'ine yaz
         kod = str(sec_val).split(" | ")[0]
         st.session_state["manual_s_kod"] = kod
 
@@ -19,7 +18,6 @@ def goster():
     df_stok = veritabani.get_internal_data("Stok")
     df_har = veritabani.get_internal_data("Hareketler")
     
-    # Katalog verisini çek (Urun_Listesi öncelikli)
     df_k = veritabani.get_internal_data("Urun_Listesi")
     if df_k is None or df_k.empty:
         df_k = veritabani.get_internal_data("Katalog")
@@ -51,18 +49,14 @@ def goster():
             index=None,
             placeholder="Ürün seçmek için tıklayın...",
             key="sec_box",
-            on_change=urun_secildi # Bu fonksiyon manual_s_kod'u günceller
+            on_change=urun_secildi
         )
         
         c1, c2 = st.columns(2)
         with c1:
-            # KRİTİK: Burada value kullanmıyoruz. st.session_state["manual_s_kod"] üzerinden yürüyoruz.
-            st.text_input(
-                "📦 Malzeme Kodu:", 
-                key="manual_s_kod"
-            ).upper().strip()
-            
-            s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
+            # HATASIZ YAPI: Değeri doğrudan session_state'den okur
+            st.text_input("📦 Malzeme Kodu:", key="manual_s_kod").upper().strip()
+            st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
         with c2:
             s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
@@ -89,14 +83,18 @@ def goster():
                 
                 st.session_state.gecici_liste.append({
                     "İşlem": move_type, "Kod": kod_final, "İsim": isim,
-                    "Miktar": s_mik, "Lot": s_lot, "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
+                    "Miktar": s_mik, "Lot": st.session_state.get("s_lot", ""), "Durum": s_dur, 
+                    "Kaynak": src_adr, "Hedef": dst_adr
                 })
-                # Formu temizle
+                
+                # FORM SIFIRLAMA (PATLATMAYAN YÖNTEM)
+                # Widgetlar zaten ekranda olduğu için burada silmek güvenlidir
                 st.session_state["manual_s_kod"] = ""
+                st.session_state["s_lot"] = ""
+                st.session_state["s_mik"] = 0.0
                 st.session_state["sec_box"] = None
                 st.rerun()
 
-    # BEKLEYEN LİSTE GÖRÜNÜMÜ
     if st.session_state.gecici_liste:
         st.markdown("### 📋 Bekleyen Hareketler")
         for i, item in enumerate(st.session_state.gecici_liste):
@@ -132,7 +130,7 @@ def goster():
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_har)
             st.session_state.gecici_liste = []
-            st.success("✅ Tüm işlemler başarıyla kaydedildi!"); st.rerun()
+            st.success("✅ Kayıt Tamamlandı!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
