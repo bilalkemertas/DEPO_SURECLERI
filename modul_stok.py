@@ -14,17 +14,32 @@ def clear_form():
 def urun_secildi():
     val = st.session_state.get("sec_box")
     if val and val != "+ MANUEL GİRİŞ":
+        # Katalog formatı: "KOD | İSİM" ise ilk parçayı al
         st.session_state.s_kod = val.split(" | ")[0]
     else:
         st.session_state.s_kod = ""
 
 def goster():
-    # --- İLK GİRİŞTE VERİTABANINDAN VERİ ÇEKME (KRİTİK) ---
+    # --- 1. SAYFA AÇILIR AÇILMAZ VERİLERİ MÜHÜRLE (KRİTİK) ---
     if "full_stok_data" not in st.session_state:
         st.session_state.full_stok_data = veritabani.get_internal_data("Stok")
+    
     if "full_hareketler_data" not in st.session_state:
         st.session_state.full_hareketler_data = veritabani.get_internal_data("Hareketler")
     
+    # "Urun_Listesi" sekmesindeki taze veriyi çekip session_state'e alıyoruz
+    if "katalog_verisi" not in st.session_state:
+        try:
+            # Urun_Listesi sekmesinden Kod ve İsimleri çekip liste yapıyoruz
+            df_katalog = veritabani.get_internal_data("Urun_Listesi")
+            if not df_katalog.empty:
+                # Kod | İsim formatında birleştiriyoruz
+                st.session_state.katalog_verisi = (df_katalog['Kod'].astype(str) + " | " + df_katalog['İsim'].astype(str)).tolist()
+            else:
+                st.session_state.katalog_verisi = []
+        except:
+            st.session_state.katalog_verisi = []
+
     # --- TOPLU LİSTE BAŞLATMA ---
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
@@ -39,8 +54,8 @@ def goster():
         st.session_state.reset_form = False
 
     if st.button("⬅️ ANA MENÜ"): 
-        # Ana menüye dönerken veriyi temizle ki tekrar girince taze çeksin
-        for k in ["full_stok_data", "full_hareketler_data"]:
+        # Belleği temizleyerek çık ki bir sonraki girişte taze veri çeksin
+        for k in ["full_stok_data", "full_hareketler_data", "katalog_verisi"]:
             if k in st.session_state: del st.session_state[k]
         go_home()
         st.rerun()
@@ -54,10 +69,8 @@ def goster():
             key="move_type"
         )
         
-        try:
-            katalog_listesi = veritabani.get_katalog()
-        except:
-            katalog_listesi = []
+        # --- LİSTEYİ SESSION STATE'DEN ÇEK (ANINDA GELİR) ---
+        katalog_listesi = st.session_state.get("katalog_verisi", [])
         
         st.selectbox(
             "🔍 Ürün Seç:", 
@@ -113,7 +126,7 @@ def goster():
                 clear_form()
                 st.rerun()
 
-    # --- GEÇİCİ LİSTE GÖRÜNÜMÜ ---
+    # --- GEÇİCİ LİSTE VE VERİTABANI İŞLEME AYNI KALDI ---
     if st.session_state.gecici_liste:
         st.markdown("### 📋 İşlem Bekleyen Kalemler")
         for i, item in enumerate(st.session_state.gecici_liste):
@@ -124,11 +137,10 @@ def goster():
                     st.rerun()
 
         if st.button("🚀 TÜM HAREKETLERİ VERİTABANINA İŞLE", use_container_width=True, type="primary"):
-            # Hafızadaki (açılışta çekilen) veriyi kullan
             df_stok = st.session_state.full_stok_data
             df_hareketler = st.session_state.full_hareketler_data
             islem_zamani = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            personel = st.session_state.user if 'user' in st.session_state else "Sistem"
+            personel = st.session_state.user if 'user' in st.session_state else "Bilal"
             
             for satir in st.session_state.gecici_liste:
                 if satir["İşlem"] == "GİRİŞ":
@@ -154,19 +166,17 @@ def goster():
                     "Miktar": satir["Miktar"], "Personel": personel, "Durum": satir["Durum"], "Lot": satir["Lot"]
                 }])], ignore_index=True)
 
-            # Drive'a toplu bas
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_hareketler)
             
-            # İşlem bitince hafızayı temizle ki bir sonraki işlemde güncel veriyi çeksin
-            for k in ["full_stok_data", "full_hareketler_data"]:
+            for k in ["full_stok_data", "full_hareketler_data", "katalog_verisi"]:
                 if k in st.session_state: del st.session_state[k]
                 
             st.session_state.gecici_liste = []
-            st.success("✅ Tüm işlemler başarıyla kaydedildi!")
+            st.success("✅ İşlemler başarıyla kaydedildi!")
             st.rerun()
 
     st.markdown("---")
     col_sign2 = st.columns([3, 1])[1]
     with col_sign2:
-        st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
