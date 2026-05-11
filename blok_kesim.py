@@ -1,148 +1,141 @@
 import streamlit as st
 import pandas as pd
+import veritabani
 import re
 import os
+from datetime import datetime
 
 def run_blok_kesim(conn):
-    # --- AYARLAR ---
-    LOCAL_MAPPING_FILE = "eslesme_hafizasi.csv"
+    # --- 1. AYIKLAMA MOTORU (Regex - Geliştirilmiş) ---
+    def ayikla_malzeme_detay(tanim):
+        if pd.isna(tanim): return None
+        text = str(tanim).upper()
+        # 188X158X1 veya 188X158 formatını yakala
+        olcu = re.search(r'(\d+)\s*[Xx]\s*(\d+)(?:\s*[Xx]\s*(\d+))?', text)
+        
+        if not olcu: return None
 
-    # --- 1. ATOMİK TEMİZLİK (PATRONUN ÇÖZÜMÜ) ---
-    def clean_code(val):
-        if pd.isna(val):
-            return ""
-        # 12345.0 -> 12345 yap ve rakam dışındakileri at
-        val = str(val).split(".")[0].strip()
-        return re.sub(r'\D', '', val)
+        boy, en, yuk = olcu.groups()
+        return {
+            "boy": float(boy),
+            "en": float(en),
+            "kalinlik": float(yuk) if yuk else None, # Kalınlık yoksa None (hata için)
+            "ozellik": text[:olcu.start()].strip()
+        }
 
-    # --- YAN YANA GERİ BUTONLARI ---
+    # --- NAVİGASYON ---
     c_back1, c_back2, _ = st.columns([1.5, 1.5, 4])
     with c_back1:
         if st.button("⬅️ ANA MENÜ", use_container_width=True):
-            st.session_state.page = 'home'
-            st.rerun()
+            st.session_state.page = 'home'; st.rerun()
     with c_back2:
         if st.session_state.get('main_data') is not None:
             if st.button("⬅️ TEMİZLE", use_container_width=True):
-                if 'main_data' in st.session_state: del st.session_state['main_data']
+                for k in ['main_data', 'stok_data']: 
+                    if k in st.session_state: del st.session_state[k]
                 st.rerun()
-    
-    st.title("✂️ Blok & Rulo Kesim")
-    
-    # --- 2. HAFIZAYI YÜKLE ---
-    def load_mapping():
-        if os.path.exists(LOCAL_MAPPING_FILE):
-            df = pd.read_csv(LOCAL_MAPPING_FILE)
-        else:
-            try:
-                df = conn.read(worksheet="Eşleşmeler", ttl=0)
-                df.to_csv(LOCAL_MAPPING_FILE, index=False)
-            except:
-                cols = ["FORM SÜNGER KOD", "FORM SÜNGER ÜRÜN ADI", "BRN KOD", "BRN ÜRÜN ADI", "DANSİTE", "ÖZELLİK", "RENK", "KALIP"]
-                df = pd.DataFrame(columns=cols)
-        
-        df.columns = [str(c).strip().upper() for c in df.columns]
-        return df
 
-    # --- 3. DOSYA YÜKLEME ---
+    st.title("✂️ Blok & Rulo Kesim Operasyonu")
+
+    # --- 2. VERİ YÜKLEME ---
     with st.container(border=True):
-        st.write("📁 **Veri Kaynağı (Main sheet)**")
-        uploaded_file = st.file_uploader("Excel Yükle", type=['xlsx'], key="bk_uploader", label_visibility="collapsed")
-        
-        if uploaded_file:
+        uploaded_file = st.file_uploader("Kesim Listesi Yükle (Excel)", type=['xlsx'], key="bk_uploader")
+        if uploaded_file and 'main_data' not in st.session_state:
             try:
-                df_main = pd.read_excel(uploaded_file, sheet_name='Main sheet')
-                mapping_df = load_mapping()
+                st.session_state['main_data'] = pd.read_excel(uploaded_file)
+                st.session_state['stok_data'] = veritabani.get_internal_data("Stok")
+                st.success("✅ Kesim listesi ve güncel stok yüklendi.")
+            except Exception as e: st.error(f"Hata: {e}")
 
-                # Excel kodlarını senin temizlik mantığınla temizle
-                df_main['TEMİZ_KOD'] = df_main['Malzeme Kodu'].apply(clean_code)
-                
-                # Hafıza kodlarını da aynı mantıkla temizle
-                if 'FORM SÜNGER KOD' in mapping_df.columns:
-                    mapping_df['FORM_TEMİZ'] = mapping_df['FORM SÜNGER KOD'].apply(clean_code)
-                else:
-                    mapping_df['FORM_TEMİZ'] = "YOK"
-
-                # MERGE: Artık 12345 == 12345
-                df_final = df_main.merge(
-                    mapping_df[['FORM_TEMİZ', 'BRN KOD', 'BRN ÜRÜN ADI']], 
-                    left_on='TEMİZ_KOD', 
-                    right_on='FORM_TEMİZ', 
-                    how='left'
-                )
-                
-                st.session_state['main_data'] = df_final
-                st.session_state['current_mapping'] = mapping_df
-                st.success("✅ Eşleşme kontrolü başarıyla tamamlandı.")
-                
-            except Exception as e:
-                st.error(f"Hata: {e}")
-
-    # --- 4. EKRAN YÖNETİMİ ---
+    # --- 3. OPERASYON EKRANI ---
     if 'main_data' in st.session_state:
         df = st.session_state['main_data']
-        mapping_df = st.session_state['current_mapping']
+        df.columns = [str(c).strip() for c in df.columns]
         
-        # Eşleşmeyenleri bul (BRN KOD sütunu NaN veya boş olanlar)
-        unmapped = df[df['BRN KOD'].isna() | (df['BRN KOD'].astype(str).str.strip() == "")][['Malzeme Kodu', 'Malzeme Tanımı', 'TEMİZ_KOD']].drop_duplicates()
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Toplam Satır", len(df))
-        c2.metric("Eşleşen", len(df[df['BRN KOD'].notna() & (df['BRN KOD'].astype(str) != "")] ))
-        c3.metric("Bekleyen", len(unmapped))
-
-        if not unmapped.empty:
-            with st.expander("⚠️ Yeni Eşleşme Tanımla", expanded=True):
-                target_row = unmapped.iloc[0]
-                st.info(f"Form Sünger: {target_row['Malzeme Tanımı']} (Kod: {target_row['TEMİZ_KOD']})")
-                
-                n_kod = st.text_input("BRN Kodu:")
-                n_ad = st.text_input("BRN Ürün Adı:")
-                
-                if st.button("🚀 HAFIZAYA GÖM VE DRIVE'A KAYDET"):
-                    if n_kod and n_ad:
-                        # MÜKERRER KAYIT KONTROLÜ (Senin uyardığın nokta)
-                        if not ((mapping_df['FORM_TEMİZ'] == target_row['TEMİZ_KOD']).any()):
-                            yeni_kayit = pd.DataFrame([{
-                                "FORM SÜNGER KOD": str(target_row['TEMİZ_KOD']),
-                                "FORM SÜNGER ÜRÜN ADI": str(target_row['Malzeme Tanımı']).strip(),
-                                "BRN KOD": str(n_kod).strip(),
-                                "BRN ÜRÜN ADI": str(n_ad).strip(),
-                                "DANSİTE": "-", "ÖZELLİK": "-", "RENK": "-", "KALIP": "-"
-                            }])
-                            
-                            guncel_df = pd.concat([mapping_df.drop(columns=['FORM_TEMİZ'], errors='ignore'), yeni_kayit], ignore_index=True)
-                            
-                            # Lokal Kayıt
-                            guncel_df.to_csv(LOCAL_MAPPING_FILE, index=False)
-                            # Drive Güncelleme
-                            try: conn.update(worksheet="Eşleşmeler", data=guncel_df)
-                            except: pass
-                            
-                            if 'main_data' in st.session_state: del st.session_state['main_data']
-                            st.success("Hafıza güncellendi! Kodu şimdi tanıyacak.")
-                            st.rerun()
-                        else:
-                            st.warning("Bu kod zaten hafızada var, eşleşme tipinde bir uyuşmazlık olabilir.")
-
-        # --- 5. OPERASYON ---
         st.divider()
-        parti_input = st.text_input("🔍 Parti No Okutun:", key="parti_arama")
-        
-        if parti_input:
-            match = df[df['Parti No'].astype(str) == str(parti_input).strip()]
+        parti_no = st.text_input("🔍 Kesilecek Parti No Okutun:").strip()
+
+        if parti_no:
+            match = df[df['Parti No'].astype(str) == parti_no]
+            
             if not match.empty:
                 item = match.iloc[0]
-                # KeyError Riski Çözüldü: Büyük harf kullanımı
-                if pd.notna(item['BRN KOD']) and str(item['BRN KOD']) != "":
-                    st.success(f"Ürün: {item['BRN ÜRÜN ADI']}")
-                    st.info(f"BRN Kodu: {item['BRN KOD']}")
-                    if st.button("🔥 HAREKETİ KAYDET", use_container_width=True):
-                        st.balloons()
-            else:
-                st.error("Parti bulunamadı veya henüz eşleşmemiş.")
-    else:
-        st.info("İşlem için Excel dosyasını yükleyin.")
+                detay = ayikla_malzeme_detay(item['Malzeme Tanımı'])
+                
+                # KRİTİK KALINLIK KONTROLÜ
+                if not detay or detay['kalinlik'] is None:
+                    st.error("❌ Hata: Malzeme adında kalınlık bilgisi bulunamadı! (Örn: 188X158X1 olmalı)"); st.stop()
+
+                with st.container(border=True):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.info(f"**Üretilecek:** {detay['ozellik']}\n\n**Ölçü:** {detay['boy']}x{detay['en']} cm | **Kalınlık:** {detay['kalinlik']} cm")
+                    with c2:
+                        adet = float(item.get('Miktar', 0))
+                        net_tuketim = adet * detay['kalinlik']
+                        st.warning(f"**Net Kesim:** {net_tuketim} cm\n\n**Planlanan Blok:** {item.get('Kullanılacak BlokCM', 'Belirtilmemiş')}")
+
+                    st.divider()
+                    st.write("📍 **Gerçek Stoktan Blok Seçimi**")
+                    
+                    # STOKTAN UYGUN BLOKLARI BUL (Boy ve En eşleşen, Miktarı (Yüksekliği) olanlar)
+                    stok_df = st.session_state['stok_data']
+                    # Stoktaki blokların ölçülerini ayıkla ve filtrele
+                    stok_df['detay'] = stok_df['İsim'].apply(ayikla_malzeme_detay)
+                    
+                    def uygun_mu(s_detay):
+                        if not s_detay: return False
+                        return s_detay['boy'] == detay['boy'] and s_detay['en'] == detay['en']
+
+                    uygun_bloklar = stok_df[stok_df['detay'].apply(uygun_mu) & (stok_df['Miktar'] > 0)]
+
+                    if not uygun_bloklar.empty:
+                        # Blok seçimi için liste hazırla
+                        blok_options = [f"{row['Kod']} | {row['İsim']} | Kalan: {row['Miktar']} cm" for _, row in uygun_bloklar.iterrows()]
+                        secilen_blok_str = st.selectbox("Kesilecek Bloğu Seçin:", blok_options)
+                        
+                        secilen_kod = secilen_blok_str.split(" | ")[0]
+                        secilen_row = uygun_bloklar[uygun_bloklar['Kod'] == secilen_kod].iloc[0]
+                        
+                        # FIRE MANTIĞI: Blok daha önce kesildi mi?
+                        # Hareketler tablosuna bakarak bu blok kodunun daha önce "GİRİŞ" harici bir işlemi var mı kontrol edilebilir.
+                        # Şimdilik kullanıcıya soralım veya ilk kesim olup olmadığını miktarından tahmin edelim.
+                        is_first_cut = st.toggle("🚨 Blok İlk Kez mi Kesiliyor? (2 cm Kapak Firesi Eklensin mi?)", value=False)
+                        fire = 2.0 if is_first_cut else 0.0
+                        toplam_dusulecek = net_tuketim + fire
+
+                        st.metric("Bloktan Düşecek Toplam", f"{toplam_dusulecek} cm", delta=f"Fire: {fire} cm", delta_color="inverse")
+
+                        if st.button("🔥 KESİMİ ONAYLA VE STOKTAN DÜŞ", use_container_width=True, type="primary"):
+                            if secilen_row['Miktar'] < toplam_dusulecek:
+                                st.error("❌ Hata: Blok yüksekliği yetersiz!"); st.stop()
+                            
+                            # 1. Stok Güncelle (Yükseklik Düş)
+                            stok_df.loc[stok_df['Kod'] == secilen_kod, 'Miktar'] -= toplam_dusulecek
+                            
+                            # 2. Hareket Kaydı At
+                            df_har = veritabani.get_internal_data("Hareketler")
+                            yeni_har = pd.DataFrame([{
+                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "İşlem": "KESİM/SARF",
+                                "İş Emri": parti_no,
+                                "Kod": secilen_kod,
+                                "İsim": secilen_row['İsim'],
+                                "Miktar": toplam_dusulecek,
+                                "Personel": "Bilal",
+                                "Lot": "-", "Adres": secilen_row['Adres'], "Durum": "Kullanıldı"
+                            }])
+                            df_har = pd.concat([df_hr, yeni_har] if 'df_hr' in locals() else [df_har, yeni_har], ignore_index=True)
+
+                            # Veritabanını Güncelle
+                            veritabani.update_data("Stok", stok_df.drop(columns=['detay']))
+                            veritabani.update_data("Hareketler", df_har)
+                            
+                            st.balloons(); st.success(f"✅ {parti_no} kaydedildi. Blok kalan: {secilen_row['Miktar'] - toplam_dusulecek} cm")
+                            del st.session_state['stok_data']; st.rerun()
+                    else:
+                        st.error("❌ Stokta uygun ölçülerde (Boy x En) blok bulunamadı!")
+            else: st.error("Parti No bulunamadı.")
 
     st.markdown("---")
     st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
