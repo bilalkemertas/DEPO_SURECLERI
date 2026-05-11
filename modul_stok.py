@@ -6,12 +6,13 @@ from datetime import datetime
 def go_home(): 
     st.session_state.page = 'home'
 
-# --- ÜRÜN SEÇİLDİĞİNDE KODU DOLDUR (GÜNCELLENDİ) ---
+# --- ÜRÜN SEÇİLDİĞİNDE KODU DOLDUR (STATE-ZORLAMALI) ---
 def urun_secildi():
     sec_val = st.session_state.get("sec_box")
     if sec_val:
-        # Seçilen "KOD | İSİM" metninden sadece KOD kısmını alıp state'e mühürle
-        st.session_state["s_kod_state"] = str(sec_val).split(" | ")[0]
+        # Seçilen "KOD | İSİM" metninden KOD'u al ve doğrudan inputun KEY'ine yaz
+        kod = str(sec_val).split(" | ")[0]
+        st.session_state["manual_s_kod"] = kod
 
 def goster():
     # --- VERİ ÇEKME ---
@@ -43,27 +44,23 @@ def goster():
     with st.container(border=True):
         move_type = st.selectbox("İşlem Tipi:", ["GİRİŞ", "ÇIKIŞ", "İÇ TRANSFER"], key="move_type")
         
-        # ÜRÜN SEÇİMİ (LİSTE BURADAN GELİYOR)
+        # ÜRÜN SEÇİMİ
         st.selectbox(
             "🔍 Ürün Seç:", 
             options=katalog,
             index=None,
             placeholder="Ürün seçmek için tıklayın...",
             key="sec_box",
-            on_change=urun_secildi # Seçim yapıldığı an kodu hazırlar
+            on_change=urun_secildi # Bu fonksiyon manual_s_kod'u günceller
         )
         
         c1, c2 = st.columns(2)
         with c1:
-            # OTOMATİK DOLUMUN SIRRI: value=st.session_state.get("s_kod_state", "")
-            s_kod = st.text_input(
+            # KRİTİK: Burada value kullanmıyoruz. st.session_state["manual_s_kod"] üzerinden yürüyoruz.
+            st.text_input(
                 "📦 Malzeme Kodu:", 
-                value=st.session_state.get("s_kod_state", ""), # Dropdown seçilince burası dolar
                 key="manual_s_kod"
             ).upper().strip()
-            
-            # Manuel girişi de desteklemek için state'i güncelliyoruz
-            st.session_state["s_kod_state"] = s_kod
             
             s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
@@ -85,7 +82,7 @@ def goster():
             with a2: dst_adr = st.text_input("📍 Hedef Adres:", key="dst_adr").upper().strip()
 
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
-            kod_final = st.session_state.get("s_kod_state", "")
+            kod_final = st.session_state.get("manual_s_kod", "")
             if kod_final and s_mik > 0:
                 sec_v = st.session_state.get("sec_box")
                 isim = str(sec_v).split(" | ")[1] if sec_v and " | " in str(sec_v) else "MANUEL ÜRÜN"
@@ -94,8 +91,8 @@ def goster():
                     "İşlem": move_type, "Kod": kod_final, "İsim": isim,
                     "Miktar": s_mik, "Lot": s_lot, "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
                 })
-                # Ekleme sonrası formu temizle
-                st.session_state["s_kod_state"] = ""
+                # Formu temizle
+                st.session_state["manual_s_kod"] = ""
                 st.session_state["sec_box"] = None
                 st.rerun()
 
@@ -135,7 +132,7 @@ def goster():
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_har)
             st.session_state.gecici_liste = []
-            st.success("✅ Tüm işlemler veritabanına mühürlendi patron!"); st.rerun()
+            st.success("✅ Tüm işlemler başarıyla kaydedildi!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
