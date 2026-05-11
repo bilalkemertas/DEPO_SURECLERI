@@ -99,7 +99,7 @@ def goster():
         st.markdown("### 📋 Bekleyen Hareketler")
         for i, item in enumerate(st.session_state.gecici_liste):
             with st.expander(f"{i+1}. {item['İşlem']} | {item['Kod']} | {item['Miktar']} Adet"):
-                st.write(f"**Yol:** {item['Kaynak']} ➡️ {item['Hedef']}")
+                st.write(f"**Adres:** {item['Kaynak']} ➡️ {item['Hedef']}")
                 if st.button(f"🗑️ Sil", key=f"del_{i}"):
                     st.session_state.gecici_liste.pop(i); st.rerun()
 
