@@ -14,7 +14,7 @@ def urun_secildi():
         st.session_state["manual_s_kod"] = kod
 
 def goster():
-    # --- VERİ ÇEKME ---
+    # --- VERİ ÇEKME VE HAZIRLIK ---
     df_stok = veritabani.get_internal_data("Stok")
     df_har = veritabani.get_internal_data("Hareketler")
     
@@ -54,7 +54,7 @@ def goster():
         
         c1, c2 = st.columns(2)
         with c1:
-            # HATASIZ YAPI: Değeri doğrudan session_state'den okur
+            # Widget KEY üzerinden state'e bağlanır
             st.text_input("📦 Malzeme Kodu:", key="manual_s_kod").upper().strip()
             st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
             
@@ -75,6 +75,7 @@ def goster():
             with a1: src_adr = st.text_input("📍 Kaynak Adres:", key="src_adr").upper().strip()
             with a2: dst_adr = st.text_input("📍 Hedef Adres:", key="dst_adr").upper().strip()
 
+        # --- LİSTEYE EKLEME VE HATASIZ SIFIRLAMA ---
         if st.button("➕ LİSTEYE EKLE", use_container_width=True):
             kod_final = st.session_state.get("manual_s_kod", "")
             if kod_final and s_mik > 0:
@@ -83,23 +84,24 @@ def goster():
                 
                 st.session_state.gecici_liste.append({
                     "İşlem": move_type, "Kod": kod_final, "İsim": isim,
-                    "Miktar": s_mik, "Lot": st.session_state.get("s_lot", ""), "Durum": s_dur, 
-                    "Kaynak": src_adr, "Hedef": dst_adr
+                    "Miktar": s_mik, "Lot": st.session_state.get("s_lot", ""), 
+                    "Durum": s_dur, "Kaynak": src_adr, "Hedef": dst_adr
                 })
                 
-                # FORM SIFIRLAMA (PATLATMAYAN YÖNTEM)
-                # Widgetlar zaten ekranda olduğu için burada silmek güvenlidir
+                # KRİTİK FİX: st.rerun() öncesi sadece mevcut olan state'leri temizliyoruz.
+                # Widgetlar bu scope'ta (goster fonksiyonu içinde) zaten tanımlı olduğu için hata vermez.
                 st.session_state["manual_s_kod"] = ""
                 st.session_state["s_lot"] = ""
                 st.session_state["s_mik"] = 0.0
                 st.session_state["sec_box"] = None
                 st.rerun()
 
+    # --- BEKLEYEN LİSTE VE VERİTABANI İŞLEMLERİ ---
     if st.session_state.gecici_liste:
         st.markdown("### 📋 Bekleyen Hareketler")
         for i, item in enumerate(st.session_state.gecici_liste):
             with st.expander(f"{i+1}. {item['İşlem']} | {item['Kod']} | {item['Miktar']} Adet"):
-                st.write(f"**Adres:** {item['Kaynak']} ➡️ {item['Hedef']}")
+                st.write(f"**Yol:** {item['Kaynak']} ➡️ {item['Hedef']}")
                 if st.button(f"🗑️ Sil", key=f"del_{i}"):
                     st.session_state.gecici_liste.pop(i); st.rerun()
 
@@ -130,7 +132,7 @@ def goster():
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_har)
             st.session_state.gecici_liste = []
-            st.success("✅ Kayıt Tamamlandı!"); st.rerun()
+            st.success("✅ Tüm işlemler başarıyla kaydedildi!"); st.rerun()
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş</b><br><small>BRN 2026</small></div>", unsafe_allow_html=True)
