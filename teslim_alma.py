@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # --- 1. AYARLAR VE YARDIMCI FONKSİYONLAR ---
-LOCAL_MAPPING_FILE = "eslesme_hafizasi.csv"
+LOCAL_MAPPING_FILE = "hafiza.csv"
 
 def init_state():
     if 'teslim_page' not in st.session_state: st.session_state.teslim_page = 'menu'
