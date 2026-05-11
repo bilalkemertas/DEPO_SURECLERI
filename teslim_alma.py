@@ -14,6 +14,9 @@ def init_state():
     if 'mk_gecici_liste' not in st.session_state: st.session_state.mk_gecici_liste = {}
     if 'scan_counter' not in st.session_state: st.session_state.scan_counter = 0
     if 'full_sas_data' not in st.session_state: st.session_state.full_sas_data = pd.DataFrame()
+    # Adres ve Durum Hafızası
+    if 'def_adres' not in st.session_state: st.session_state.def_adres = "DEPO-1"
+    if 'def_durum' not in st.session_state: st.session_state.def_durum = "Kullanılabilir"
 
 def clean_code(val):
     if pd.isna(val): return ""
@@ -31,7 +34,6 @@ def load_safe_mapping():
         except: return pd.DataFrame()
     return pd.DataFrame()
 
-# --- BARKOD İŞLEME (MÜKERRER KONTROLLÜ VE SIRALAMA DESTEKLİ) ---
 def handle_barcode():
     if 'scan_counter' not in st.session_state:
         st.session_state.scan_counter = 0
@@ -84,8 +86,14 @@ def handle_barcode():
                 final_kod, final_ad = match.iloc[0][brn_k_col], match.iloc[0][brn_a_col]
                 st.toast(f"✅ {final_kod} listeye girdi.", icon="📥")
 
-    # Geçici listeye ekle
-    st.session_state.mk_gecici_liste[code] = {"Kod": final_kod, "Ad": final_ad, "Miktar": float(row['Sipariş Miktarı'])}
+    # Geçici listeye güncel Adres ve Durum ile ekle
+    st.session_state.mk_gecici_liste[code] = {
+        "Kod": final_kod, 
+        "Ad": final_ad, 
+        "Miktar": float(row['Sipariş Miktarı']),
+        "Adres": st.session_state.def_adres,
+        "Durum": st.session_state.def_durum
+    }
     st.session_state.scan_counter += 1
 
 def run(conn):
@@ -157,34 +165,32 @@ def run(conn):
                 st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
                 st.session_state.teslim_page = 'kabul'; st.rerun()
 
-    # --- MAL KABUL GİRİŞ (OTOMATİK SIRALAMALI TABLO) ---
+    # --- MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
         st.info(f"📍 SAS: {st.session_state.sel_siparis} | Tedarikçi: {st.session_state.get('sel_tedarikci', '')}")
+        
+        # ⚙️ VARSAYILAN DEPO AYARLARI (PERSONEL İÇİN SABİTLEME)
+        with st.expander("⚙️ Varsayılan Depo Ayarları (Adres & Durum)", expanded=True):
+            c_adr, c_dur = st.columns(2)
+            st.session_state.def_adres = c_adr.text_input("📍 Giriş Adresi:", value=st.session_state.def_adres).upper().strip()
+            st.session_state.def_durum = c_dur.selectbox("🛡️ Stok Durumu:", ["Kullanılabilir", "Kalite Kontrol", "Bloke"], index=0 if st.session_state.def_durum == "Kullanılabilir" else 1)
+
         with st.container(border=True):
             st.text_input("🔍 Barkod Okutun:", key=f"barkod_input_{st.session_state.scan_counter}", on_change=handle_barcode)
         
         sas_filter = st.session_state.full_sas_data.copy()
         sas_filter['Gelen (Yeni)'] = 0.0
         
-        # 🚀 KRİTİK GÜNCELLEME: Okutulan barkodları al ve tabloyu sırala
         scanned_codes = list(st.session_state.mk_gecici_liste.keys())
-        
         for b_code, b_data in st.session_state.mk_gecici_liste.items():
             mask = (sas_filter['Tedarikçi Barkodu'].astype(str) == str(b_code))
             if mask.any(): sas_filter.loc[mask, 'Gelen (Yeni)'] = b_data['Miktar']
 
-        # Son okutulan en üstte olacak şekilde tabloyu yeniden düzenle
         if scanned_codes:
-            # Okutulanları ayır
             okutulanlar = sas_filter[sas_filter['Tedarikçi Barkodu'].astype(str).isin(scanned_codes)].copy()
-            # Son okutulan barkoda göre sırala (Listeye eklenme sırasının tersi)
             okutulanlar['sort_order'] = okutulanlar['Tedarikçi Barkodu'].astype(str).apply(lambda x: scanned_codes.index(x))
             okutulanlar = okutulanlar.sort_values(by='sort_order', ascending=False).drop(columns=['sort_order'])
-            
-            # Okutulmayanları ayır
             bekleyenler = sas_filter[~sas_filter['Tedarikçi Barkodu'].astype(str).isin(scanned_codes)].copy()
-            
-            # Birleştir (Okutulanlar üstte)
             final_df = pd.concat([okutulanlar, bekleyenler], ignore_index=True)
         else:
             final_df = sas_filter
@@ -196,10 +202,33 @@ def run(conn):
                 df_stok = veritabani.get_internal_data("Stok")
                 df_har = veritabani.get_internal_data("Hareketler")
                 df_sas_up = veritabani.get_internal_data("Satin_Alma")
+                
                 for b_code, b_data in st.session_state.mk_gecici_liste.items():
-                    df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": b_data['Kod'], "İsim": b_data['Ad'], "Adres": "DEPO-1", "Miktar": b_data['Miktar'], "Durum": "Kullanılabilir", "Tedarikçi Barkod": b_code}])], ignore_index=True)
-                    df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": b_data['Kod'], "İsim": b_data['Ad'], "Miktar": b_data['Miktar'], "Personel": "Bilal", "Adres": "DEPO-1", "Tedarikçi Barkod": b_code}])], ignore_index=True)
+                    # Dinamik Adres ve Durum ile Kayıt
+                    df_stok = pd.concat([df_stok, pd.DataFrame([{
+                        "Kod": b_data['Kod'], 
+                        "İsim": b_data['Ad'], 
+                        "Adres": b_data['Adres'], # Hafızadaki adres
+                        "Miktar": b_data['Miktar'], 
+                        "Durum": b_data['Durum'], # Hafızadaki durum
+                        "Tedarikçi Barkod": b_code
+                    }])], ignore_index=True)
+                    
+                    df_har = pd.concat([df_har, pd.DataFrame([{
+                        "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                        "İşlem": "GİRİŞ", 
+                        "İş Emri": st.session_state.sel_siparis, 
+                        "Kod": b_data['Kod'], 
+                        "İsim": b_data['Ad'], 
+                        "Miktar": b_data['Miktar'], 
+                        "Personel": "Bilal", 
+                        "Adres": b_data['Adres'], 
+                        "Tedarikçi Barkod": b_code,
+                        "Durum": b_data['Durum']
+                    }])], ignore_index=True)
+                    
                     df_sas_up.loc[(df_sas_up['Sipariş No'] == st.session_state.sel_siparis) & (df_sas_up['Tedarikçi Barkodu'].astype(str) == b_code), 'Gelen Miktar'] = b_data['Miktar']
+                
                 veritabani.update_data("Stok", df_stok); veritabani.update_data("Hareketler", df_har); veritabani.update_data("Satin_Alma", df_sas_up)
                 st.session_state.mk_gecici_liste = {}; st.success("✅ Depoya başarıyla işlendi patron!"); st.rerun()
 
