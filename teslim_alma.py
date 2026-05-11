@@ -41,8 +41,6 @@ def handle_barcode():
     if not code: return
 
     df_stok_check = veritabani.get_internal_data("Stok")
-    df_har_check = veritabani.get_internal_data("Hareketler")
-    
     if code in df_stok_check.get('Tedarikçi Barkod', pd.Series()).astype(str).values:
         st.toast(f"🚨 HATA: {code} zaten stokta!", icon="🛑"); return
 
@@ -77,6 +75,7 @@ def handle_barcode():
 def run(conn):
     init_state()
 
+    # --- NAVİGASYON ---
     if st.session_state.teslim_page != 'menu' or st.session_state.get('page') != 'main':
         c_nav1, c_nav2, _ = st.columns([1.5, 1.5, 4])
         if c_nav1.button("🏠 ANA MENÜ", use_container_width=True):
@@ -86,7 +85,7 @@ def run(conn):
             st.rerun()
         st.divider()
 
-    # --- MENÜ ---
+    # --- ANA MENÜ ---
     if st.session_state.teslim_page == 'menu':
         st.subheader("📦 Mal Kabul & Teslim Alma")
         c1, c2 = st.columns(2)
@@ -95,76 +94,80 @@ def run(conn):
         if c2.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary"):
             st.session_state.teslim_page = 'olustur'; st.rerun()
 
-    # --- SAS OLUŞTURMA (MANUEL & EXCEL) ---
+    # --- SAS OLUŞTURMA ---
     elif st.session_state.teslim_page == 'olustur':
         st.subheader("📝 Yeni SAS Oluştur")
-        tab1, tab2 = st.tabs(["📄 Manuel Oluştur", "Excel'den Yükle"])
+        tab1, tab2 = st.tabs(["📄 Manuel Kalem Ekle", "📂 Excel'den Yükle"])
         
         with tab1:
             with st.container(border=True):
-                ted_m = st.text_input("🏢 Tedarikçi Firma:", key="man_ted").upper()
+                ted_m = st.text_input("🏢 Tedarikçi Firma:", key="man_ted_input").upper()
                 
-                # Malzeme Seçimi (Stok listesinden)
-                df_stok_ref = veritabani.get_internal_data("Stok")
-                malzeme_listesi = sorted(df_stok_ref['Kod'].unique().tolist()) if not df_stok_ref.empty else []
+                # Dinamik Malzeme Seçimi
+                df_ref = veritabani.get_internal_data("Stok")
+                kod_list = sorted(df_ref['Kod'].unique().tolist()) if not df_ref.empty else []
+                ad_list = sorted(df_ref['İsim'].unique().tolist()) if not df_ref.empty else []
+
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    m_kod_sec = st.selectbox("🔎 Malzeme Koduna Göre:", ["Seçiniz..."] + kod_list, key="m_kod_select")
+                with col_m2:
+                    # Kod seçilince ismi otomatik getir, isim seçilince kodu (Dinamik eşleşme)
+                    def_ad_val = df_ref[df_ref['Kod'] == m_kod_sec]['İsim'].iloc[0] if m_kod_sec != "Seçiniz..." else "Seçiniz..."
+                    m_ad_sec = st.selectbox("📦 Malzeme Adına Göre:", ["Seçiniz..."] + ad_list, index=(ad_list.index(def_ad_val) + 1) if def_ad_val in ad_list else 0)
+
+                col_m3, col_m4 = st.columns(2)
+                final_kod = m_kod_sec if m_kod_sec != "Seçiniz..." else (df_ref[df_ref['İsim'] == m_ad_sec]['Kod'].iloc[0] if m_ad_sec != "Seçiniz..." else "")
+                final_ad = m_ad_sec if m_ad_sec != "Seçiniz..." else (df_ref[df_ref['Kod'] == m_kod_sec]['İsim'].iloc[0] if m_kod_sec != "Seçiniz..." else "")
                 
-                c_m1, c_m2 = st.columns(2)
-                sec_kod = c_m1.selectbox("🔎 Malzeme Kod:", ["Seçiniz..."] + malzeme_listesi)
-                
-                sec_ad = ""
-                if sec_kod != "Seçiniz...":
-                    sec_ad = df_stok_ref[df_stok_ref['Kod'] == sec_kod]['İsim'].iloc[0]
-                
-                res_ad = c_m2.text_input("📦 Malzeme Adı:", value=sec_ad, disabled=True)
-                
-                c_m3, c_m4 = st.columns(2)
-                m_miktar = c_m3.number_input("🔢 Sipariş Miktarı:", min_value=0.0, step=1.0)
-                m_barkod = c_m4.text_input("🏷️ Tedarikçi Barkod (Parti No):").strip()
-                
-                if st.button("➕ KALEM EKLE", use_container_width=True):
-                    if sec_kod != "Seçiniz..." and m_miktar > 0 and m_barkod:
+                sip_mik = col_m3.number_input("🔢 Sipariş Miktarı:", min_value=0.0, step=1.0)
+                parti_no = col_m4.text_input("🏷️ Tedarikçi Barkod / Parti No:").strip().upper()
+
+                if st.button("➕ KALEMİ LİSTEYE EKLE", use_container_width=True):
+                    if final_kod and sip_mik > 0 and parti_no:
                         st.session_state.manuel_sas_liste.append({
-                            "Tedarikçi": ted_m, "Stok Kodu": sec_kod, "Stok Adı": sec_ad,
-                            "Sipariş Miktarı": m_miktar, "Tedarikçi Barkodu": m_barkod
+                            "Tedarikçi": ted_m, "Stok Kodu": final_kod, "Stok Adı": final_ad,
+                            "Sipariş Miktarı": sip_mik, "Tedarikçi Barkodu": parti_no
                         })
-                        st.success(f"Kalem eklendi: {sec_kod}")
-                    else: st.warning("Lütfen tüm alanları doldurun!")
+                        st.toast(f"✅ Eklendi: {final_kod}", icon="✔️")
+                    else: st.error("Lütfen Malzeme, Miktar ve Barkod bilgilerini girin!")
 
             if st.session_state.manuel_sas_liste:
-                st.write("📋 SAS Kalem Listesi")
-                df_gecici_sas = pd.DataFrame(st.session_state.manuel_sas_liste)
-                st.dataframe(df_gecici_sas, use_container_width=True, hide_index=True)
+                st.divider()
+                st.write("📋 Oluşturulacak SAS Kalemleri")
+                st.dataframe(pd.DataFrame(st.session_state.manuel_sas_liste), use_container_width=True, hide_index=True)
                 
-                if st.button("🚀 SAS'I DRIVE'A MÜHÜRLE", use_container_width=True, type="primary"):
-                    yeni_sas_no = f"SAS-M{datetime.now().strftime('%m%d%H%M')}"
-                    final_list = []
-                    for item in st.session_state.manuel_sas_liste:
-                        item.update({"Sipariş No": yeni_sas_no, "Gelen Miktar": 0, "Birim": "ADET"})
-                        final_list.append(item)
+                col_btn1, col_btn2 = st.columns(2)
+                if col_btn1.button("🗑️ LİSTEYİ TEMİZLE", use_container_width=True):
+                    st.session_state.manuel_sas_liste = []; st.rerun()
+                if col_btn2.button("🚀 SAS'I KAYDET VE MÜHÜRLE", use_container_width=True, type="primary"):
+                    yeni_no = f"SAS-M{datetime.now().strftime('%m%d%H%M')}"
+                    sas_data = pd.DataFrame(st.session_state.manuel_sas_liste)
+                    sas_data["Sipariş No"] = yeni_no
+                    sas_data["Gelen Miktar"] = 0
+                    sas_data["Birim"] = "ADET"
                     
-                    veritabani.update_data("Satin_Alma", pd.concat([veritabani.get_internal_data("Satin_Alma"), pd.DataFrame(final_list)], ignore_index=True))
+                    veritabani.update_data("Satin_Alma", pd.concat([veritabani.get_internal_data("Satin_Alma"), sas_data], ignore_index=True))
                     st.session_state.manuel_sas_liste = []
-                    st.success(f"✅ {yeni_sas_no} başarıyla oluşturuldu!"); st.rerun()
+                    st.success(f"✅ {yeni_no} başarıyla oluşturuldu!"); st.rerun()
 
         with tab2:
             with st.container(border=True):
-                ted_e = st.text_input("🏢 Tedarikçi (Excel için):").upper()
-                up = st.file_uploader("Excel Yükle (Main sheet)", type=['xlsx'])
+                ted_e = st.text_input("🏢 Tedarikçi (Excel):", key="excel_ted").upper()
+                up = st.file_uploader("Dosya Seç", type=['xlsx'])
                 if up and ted_e:
                     df_ex = pd.read_excel(up, sheet_name='Main sheet')
-                    if st.button("🚀 EXCEL'İ DRIVE'A AKTAR", use_container_width=True):
-                        yeni_sas = f"SAS-E{datetime.now().strftime('%m%d%H%M')}"
-                        sip_liste = []
-                        for i, row in df_ex.iterrows():
-                            sip_liste.append({
-                                "Sipariş No": yeni_sas, "Tedarikçi": ted_e,
-                                "Tedarikçi Barkodu": str(row.get('Parti No', '')).split(".")[0],
-                                "Sipariş Miktarı": row.get('Teslimat Miktarı', 0),
-                                "Stok Kodu": row.get('Malzeme Kodu', ''), "Stok Adı": row.get('Malzeme Tanımı', ''),
-                                "Gelen Miktar": 0, "Birim": "METRE"
-                            })
-                        veritabani.update_data("Satin_Alma", pd.concat([veritabani.get_internal_data("Satin_Alma"), pd.DataFrame(sip_liste)], ignore_index=True))
-                        st.success(f"✅ {yeni_sas} Excel'den oluşturuldu!"); st.rerun()
+                    if st.button("🚀 EXCEL VERİSİNİ AKTAR", use_container_width=True, type="primary"):
+                        yeni_sas_e = f"SAS-E{datetime.now().strftime('%m%d%H%M')}"
+                        sip_ex = pd.DataFrame([{
+                            "Sipariş No": yeni_sas_e, "Tedarikçi": ted_e,
+                            "Tedarikçi Barkodu": str(row.get('Parti No', '')).split(".")[0],
+                            "Sipariş Miktarı": row.get('Teslimat Miktarı', 0),
+                            "Stok Kodu": row.get('Malzeme Kodu', ''), "Stok Adı": row.get('Malzeme Tanımı', ''),
+                            "Gelen Miktar": 0, "Birim": "METRE"
+                        } for i, row in df_ex.iterrows()])
+                        veritabani.update_data("Satin_Alma", pd.concat([veritabani.get_internal_data("Satin_Alma"), sip_ex], ignore_index=True))
+                        st.success(f"✅ {yeni_sas_e} Excel'den yüklendi!"); st.rerun()
 
     # --- MAL KABUL SEÇİM ---
     elif st.session_state.teslim_page == 'secim':
