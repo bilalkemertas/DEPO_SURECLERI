@@ -45,7 +45,7 @@ def run_blok_kesim(conn):
                 # Veritabanından taze verileri çek
                 st.session_state['stok_data'] = veritabani.get_internal_data("Stok")
                 st.session_state['har_data'] = veritabani.get_internal_data("Hareketler")
-                st.success("✅ Kesim listesi ve taze veritabanı yüklendi.")
+                st.success("✅ Kesim listesi yüklendi")
             except Exception as e: st.error(f"Hata: {e}")
 
     # --- 3. OPERASYON EKRANI ---
@@ -54,8 +54,8 @@ def run_blok_kesim(conn):
         
         # --- [FIX] ZIRHLI SÜTUN TESPİTİ ---
         # Senin Excel'indeki "Stok Adı" veya alternatifleri akıllıca tarar
-        tanim_col = next((c for c in df.columns if any(x in c.upper() for x in ["STOK ADI", "TANIM", "MALZEME"])), None)
-        miktar_col = next((c for c in df.columns if any(x in c.upper() for x in ["ADET", "MİKTAR", "MIKTAR"])), None)
+        tanim_col = next((c for c in df.columns if any(x in c.upper() for x in ["Stok Adı", "TANIM", "MALZEME"])), None)
+        miktar_col = next((c for c in df.columns if any(x in c.upper() for x in ["Adet", "MİKTAR", "MIKTAR"])), None)
 
         if not tanim_col:
             st.error("❌ Excel'de 'Stok Adı' veya 'Tanım' sütunu bulunamadı! Lütfen dosyanızı kontrol edin."); st.stop()
