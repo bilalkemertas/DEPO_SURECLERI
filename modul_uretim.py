@@ -69,7 +69,6 @@ def goster():
                 
                 cols = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                 df_save = df[[c for c in cols if c in df.columns]]
-                
                 st.dataframe(df_save, use_container_width=True, hide_index=True)
                 
                 if st.button("LİSTEYE İLAVE ET (GÜVENLİ YÜKLEME)", type="primary", use_container_width=True):
@@ -144,38 +143,60 @@ def goster():
                             veritabani.update_data("Stok", df_stok)
                             veritabani.update_data("Is_Emirleri", df_db)
                             st.success("✅ Kaydedildi!"); st.rerun()
-        
         st.divider()
         st.dataframe(sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
-    # --- 4. RAPOR (İHTİYAÇ BAZLI DARALTILMIŞ ÖZET) ---
+    # --- 4. RAPOR (GELİŞMİŞ FİLTRELEME & AÇILIR ÖZET) ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("📊 Hazırlık Raporu")
         
         df_rapor = veritabani.get_internal_data("Is_Emirleri")
         if not df_rapor.empty:
-            # İş Emri Bazlı Özet
-            ozet = df_rapor.groupby('İş Emri').agg({
-                'Stok Kodu': 'count',
-                'İhtiyaç Miktarı': 'sum',
-                'Hazırlanan Adet': 'sum'
-            }).reset_index()
-            ozet.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
-            ozet['Tamamlanma %'] = (ozet['Toplam Hazırlanan'] / ozet['Toplam İhtiyaç'] * 100).round(1)
-            
-            # --- KRİTİK FİLTRE: SADECE EKSİĞİ OLANLARI GÖSTER ---
-            eksik_ozet = ozet[ozet['Toplam İhtiyaç'] - ozet['Toplam Hazırlanan'] > 0.001].copy()
-            
-            st.write("📈 **Devam Eden İş Emirleri**")
-            if not eksik_ozet.empty:
-                st.dataframe(eksik_ozet, use_container_width=True, hide_index=True)
-            else:
-                st.success("🌟 Harika! Tüm iş emirlerinin hazırlığı %100 tamamlanmış.")
-            
+            # 1. Açılır Özet Alanı
+            with st.expander("📈 İş Emri Hazırlık Özetleri (Devam Edenler)", expanded=False):
+                ozet = df_rapor.groupby('İş Emri').agg({
+                    'Stok Kodu': 'count',
+                    'İhtiyaç Miktarı': 'sum',
+                    'Hazırlanan Adet': 'sum'
+                }).reset_index()
+                ozet.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
+                ozet['Tamamlanma %'] = (ozet['Toplam Hazırlanan'] / ozet['Toplam İhtiyaç'] * 100).round(1)
+                eksik_ozet = ozet[ozet['Toplam İhtiyaç'] - ozet['Toplam Hazırlanan'] > 0.001].copy()
+                
+                if not eksik_ozet.empty:
+                    st.dataframe(eksik_ozet, use_container_width=True, hide_index=True)
+                else:
+                    st.success("Tüm hazırlıklar tamamlanmış!")
+
             st.divider()
-            st.write("📄 **İş Emri Detayı**")
-            st.dataframe(df_rapor, use_container_width=True, hide_index=True)
+            
+            # 2. Çift Kademeli Filtreleme
+            st.write("🔍 **Detaylı Liste Filtreleri**")
+            f_col1, f_col2 = st.columns(2)
+            
+            # Filtre 1: İş Emri Seçimi
+            emirler = ["Tümü"] + sorted(df_rapor['İş Emri'].unique().tolist())
+            f_emir = f_col1.selectbox("📋 İş Emri Seçin:", emirler)
+            
+            # Filtre 2: Mamül Adı Seçimi (İş emrine göre daralan)
+            if f_emir != "Tümü":
+                temp_df = df_rapor[df_rapor['İş Emri'] == f_emir]
+                mamuller = ["Tümü"] + sorted(temp_df['Mamül Adı'].dropna().unique().tolist())
+            else:
+                mamuller = ["Tümü"] + sorted(df_rapor['Mamül Adı'].dropna().unique().tolist())
+            
+            f_mamul = f_col2.selectbox("🏗️ Mamül Adı (Ana Ürün) Seçin:", mamuller)
+
+            # Filtreleri Uygula
+            filtrelenmis_df = df_rapor.copy()
+            if f_emir != "Tümü":
+                filtrelenmis_df = filtrelenmis_df[filtrelenmis_df['İş Emri'] == f_emir]
+            if f_mamul != "Tümü":
+                filtrelenmis_df = filtrelenmis_df[filtrelenmis_df['Mamül Adı'] == f_mamul]
+
+            st.write(f"📄 **Filtrelenmiş Detaylar ({len(filtrelenmis_df)} Satır)**")
+            st.dataframe(filtrelenmis_df, use_container_width=True, hide_index=True)
         else:
             st.info("Raporlanacak veri bulunamadı.")
 
