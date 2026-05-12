@@ -8,19 +8,19 @@ from datetime import datetime
 def run_blok_kesim(conn):
     # --- 1. GELİŞMİŞ AYIKLAMA MOTORU ---
     def ayikla_karakter_ve_olcu(text):
-        if pd.isna(text): return None
-        t = str(text).upper()
+        if pd.isna(text) or str(text).strip() == "": return None
+        t = str(text).upper().strip()
         
         # Ölçü tespiti (Boy X En)
         olcu = re.search(r'(\d+)\s*[Xx]\s*(\d+)', t)
         boy = float(olcu.group(1)) if olcu else 0
         en = float(olcu.group(2)) if olcu else 0
         
-        # Karakteristik özelliklerin ayıklanması
-        # Dansite (Örn: 23 DNS), Renk ve Diğer Özellikler (SOFT, DURA vb.)
+        # Karakteristik özellikler (Dansite, Özellik, Renk)
+        # Ölçüden önceki metin bloğunu alır
         karakter = t
         if olcu:
-            karakter = t[:olcu.start()].strip() # Ölçüden önceki her şey karakteristik bilgidir
+            karakter = t[:olcu.start()].strip()
             
         return {"boy": boy, "en": en, "karakter": karakter}
 
@@ -28,7 +28,8 @@ def run_blok_kesim(conn):
     c_back1, c_back2, _ = st.columns([1.5, 1.5, 4])
     with c_back1:
         if st.button("⬅️ ANA MENÜ", use_container_width=True):
-            st.session_state.page = 'home'; st.rerun()
+            st.session_state.page = 'home'
+            st.rerun()
     with c_back2:
         if st.button("⬅️ TEMİZLE", use_container_width=True):
             for k in ['main_data', 'stok_data', 'har_data']: 
@@ -53,10 +54,13 @@ def run_blok_kesim(conn):
                 df_load = pd.read_excel(uploaded_file, header=baslik_satiri)
                 df_load.columns = [str(c).strip() for c in df_load.columns]
                 st.session_state['main_data'] = df_load
+                
+                # Veritabanından taze verileri çek
                 st.session_state['stok_data'] = veritabani.get_internal_data("Stok")
                 st.session_state['har_data'] = veritabani.get_internal_data("Hareketler")
                 st.success(f"✅ Liste ve Stok verileri senkronize edildi.")
-            except Exception as e: st.error(f"Teknik bir hata oluştu: {e}")
+            except Exception as e:
+                st.error(f"Teknik bir hata oluştu: {e}")
 
     # --- 3. OPERASYON EKRANI ---
     if 'main_data' in st.session_state:
@@ -75,27 +79,35 @@ def run_blok_kesim(conn):
 
         if parti_barkod:
             stok_df = st.session_state['stok_data']
+            # Barkod eşleşmesi
             blok_match = stok_df[stok_df['Tedarikçi Barkod'].astype(str) == parti_barkod]
             
             if not blok_match.empty:
                 secilen_blok = blok_match.iloc[0]
                 blok_karakteristik = ayikla_karakter_ve_olcu(secilen_blok['İsim'])
                 
-                # --- YENİ KURGU: EXCEL'DEN DOĞRU SATIRI BULMA ---
+                # --- YENİ KURGU: DANSİTE, ÖZELLİK VE RENK EŞLEŞMESİ ---
                 def satir_uygun_mu(row):
-                    # Satırdaki plaka tanımından Dansite/Renk bilgisini al
+                    # 1. Hata Kontrolü: Hücre boşsa atla
+                    if pd.isna(row[tanim_col]) or pd.isna(row[blok_olcu_col]):
+                        return False
+                        
+                    # 2. Karakteristik Ayıklama
                     plaka_info = ayikla_karakter_ve_olcu(row[tanim_col])
-                    # Satırdaki Blokcm sütunundan ölçüyü al
                     hedef_blok_olcu = ayikla_karakter_ve_olcu(row[blok_olcu_col])
                     
-                    # Karakter eşleşmesi (Dansite ve Renk içinde geçiyor mu?)
-                    # Örn: "23 DNS 190 NEWTON ACIK MAVI" blok isminde var mı?
+                    if not plaka_info or not hedef_blok_olcu:
+                        return False
+                    
+                    # 3. Eşleşme Mantığı
+                    # Karakter eşleşmesi (Dansite ve Renk blok isminde geçiyor mu?)
                     karakter_tamam = plaka_info['karakter'] in blok_karakteristik['karakter']
-                    # Ölçü eşleşmesi (Boy ve En tutuyor mu?)
+                    # Ölçü eşleşmesi (Excel'deki Blokcm ile okutulan blok tutuyor mu?)
                     olcu_tamam = abs(hedef_blok_olcu['boy'] - blok_karakteristik['boy']) < 2 and abs(hedef_blok_olcu['en'] - blok_karakteristik['en']) < 2
                     
                     return karakter_tamam and olcu_tamam
 
+                # Filtreleme
                 uygun_satirlar = df[df.apply(satir_uygun_mu, axis=1)]
 
                 if not uygun_satirlar.empty:
@@ -103,7 +115,7 @@ def run_blok_kesim(conn):
                         st.subheader("🏭 Üretim Emri Eşleşti")
                         emir = uygun_satirlar.iloc[0]
                         
-                        # Kalınlık ayıklama (Plaka ismindeki son rakam: 170X115X1 -> 1cm)
+                        # Kalınlık ayıklama (Sondaki X rakamı)
                         plaka_match = re.search(r'X(\d+)$', str(emir[tanim_col]).upper().strip())
                         plaka_kalinlik = float(plaka_match.group(1)) if plaka_match else 0
                         
@@ -113,7 +125,8 @@ def run_blok_kesim(conn):
                             st.info(f"**Üretilecek Plaka:**\n{emir[tanim_col]}")
                         
                         with c2:
-                            adet = float(emir[miktar_col]) if miktar_col else 0
+                            adet_val = emir[miktar_col] if miktar_col else 0
+                            adet = float(adet_val) if not pd.isna(adet_val) else 0
                             net_tuketim = adet * plaka_kalinlik
                             
                             # Fire hesabı
@@ -129,14 +142,20 @@ def run_blok_kesim(conn):
                             if secilen_blok['Miktar'] < toplam_dusulecek:
                                 st.error("❌ Blok yüksekliği yetersiz!"); st.stop()
                             
+                            # Stok Güncelle
                             stok_df.loc[stok_df['Kod'] == secilen_blok['Kod'], 'Miktar'] -= toplam_dusulecek
                             
                             yeni_har = pd.DataFrame([{
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "İşlem": "KESİM/SARF", "İş Emri": f"KESIM-{parti_barkod}",
-                                "Kod": secilen_blok['Kod'], "İsim": secilen_blok['İsim'],
-                                "Miktar": toplam_dusulecek, "Personel": "Bilal",
-                                "Lot": parti_barkod, "Adres": secilen_blok['Adres'], "Durum": "Kullanıldı"
+                                "İşlem": "KESİM/SARF", 
+                                "İş Emri": f"KESIM-{parti_barkod}",
+                                "Kod": secilen_blok['Kod'], 
+                                "İsim": secilen_blok['İsim'],
+                                "Miktar": toplam_dusulecek, 
+                                "Personel": "Bilal",
+                                "Lot": parti_barkod, 
+                                "Adres": secilen_blok['Adres'], 
+                                "Durum": "Kullanıldı"
                             }])
                             
                             veritabani.update_data("Stok", stok_df)
@@ -147,7 +166,7 @@ def run_blok_kesim(conn):
                             for k in ['stok_data', 'har_data']: del st.session_state[k]
                             st.rerun()
                 else:
-                    st.error("❌ Bu bloğa uygun bir plaka emri kesim listesinde bulunamadı! (Dansite veya Ölçü uyuşmuyor)")
+                    st.error("❌ Bu bloğa uygun bir plaka emri kesim listesinde bulunamadı! (Dansite, Karakter veya Blokcm uyuşmuyor)")
             else:
                 st.error("❌ Okutulan barkod stokta bulunamadı.")
 
