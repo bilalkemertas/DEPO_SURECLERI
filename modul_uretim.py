@@ -106,7 +106,7 @@ def goster():
                     
                     st.dataframe(df_save, use_container_width=True, hide_index=True)
                     
-                    if st.button("LİSTEYE İLAVE ET (GÜVENLİ YÜKLEME)", type="primary", use_container_width=True):
+                    if st.button("LİSTEYE İLAVE ET", type="primary", use_container_width=True):
                         df_final = pd.concat([df_old, df_save], ignore_index=True)
                         veritabani.update_data("Is_Emirleri", df_final)
                         st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
