@@ -53,243 +53,263 @@ def goster():
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik_secim'))
         st.button("📊 HAZIRLIK RAPORU", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'rapor'))
 
-    # --- 1. YÜKLEME (ÇOKLU VE MÜKERRER KONTROLLÜ) ---
+    # --- 1. YÜKLEME (GELİŞMİŞ TOPLU YÜKLEME) ---
     elif st.session_state.uretim_page == 'is_emri':
         if st.button("⬅️ GERİ"):
             go_uretim_menu()
             st.rerun()
             
-        st.subheader("📤 İş Emri Yükleme")
+        st.subheader("📤 Çoklu İş Emri Excel'i Yükleme")
         
-        # accept_multiple_files aktif edildi
         uploaded_files = st.file_uploader("Dosyaları Seçin:", type=['xlsx'], accept_multiple_files=True)
         
         if uploaded_files:
-            all_new_data = []
-            files_to_process = []
+            all_valid_dataframes = []
+            successfully_parsed_names = []
             
-            df_old = veritabani.get_internal_data("Is_Emirleri")
-            existing_names = df_old['İş Emri'].unique().tolist() if not df_old.empty else []
+            # Veritabanındaki güncel durumu DRIVE'dan çek
+            df_current_db = veritabani.get_internal_data("Is_Emirleri")
+            existing_emir_names = []
+            if df_current_db is not None and not df_current_db.empty:
+                existing_emir_names = df_current_db['İş Emri'].unique().tolist()
 
-            for uploaded_file in uploaded_files:
-                is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
+            for current_file in uploaded_files:
+                current_emri_adi = current_file.name.rsplit('.', 1)[0]
                 
-                if is_emri_adi in existing_names:
-                    st.warning(f"⚠️ '{is_emri_adi}' zaten sistemde var. Bu dosya atlanacak.")
+                # Mükerrer Kontrolü
+                if current_emri_adi in existing_emir_names:
+                    st.warning(f"⚠️ '{current_emri_adi}' zaten veritabanında mevcut. Atlanıyor.")
                     continue
                 
                 try:
-                    df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
-                    baslik_idx = 0
+                    df_raw = pd.read_excel(current_file, sheet_name=0, header=None)
+                    header_row_index = 0
                     
-                    for i in range(min(30, len(df_raw))):
-                        row_vals = [str(x).lower().strip() for x in df_raw.iloc[i].fillna("").values]
-                        if "stok kodu" in row_vals:
-                            baslik_idx = i
+                    for row_idx in range(min(30, len(df_raw))):
+                        values_in_row = [str(cell).lower().strip() for cell in df_raw.iloc[row_idx].fillna("").values]
+                        if "stok kodu" in values_in_row:
+                            header_row_index = row_idx
                             break
                     
-                    df = df_raw.iloc[baslik_idx:].copy()
-                    df.columns = df.iloc[0]
-                    df = df.iloc[1:].reset_index(drop=True)
-                    df.columns = [str(c).strip() for c in df.columns]
+                    df_extracted = df_raw.iloc[header_row_index:].copy()
+                    df_extracted.columns = df_extracted.iloc[0]
+                    df_extracted = df_extracted.iloc[1:].reset_index(drop=True)
+                    df_extracted.columns = [str(col_name).strip() for col_name in df_extracted.columns]
                     
-                    if 'Mamül Adı' in df.columns:
-                        df['Mamül Adı'] = df['Mamül Adı'].ffill()
-                    elif 'Ürün Adı' in df.columns:
-                        df['Mamül Adı'] = df['Ürün Adı'].ffill()
+                    if 'Mamül Adı' in df_extracted.columns:
+                        df_extracted['Mamül Adı'] = df_extracted['Mamül Adı'].ffill()
+                    elif 'Ürün Adı' in df_extracted.columns:
+                        df_extracted['Mamül Adı'] = df_extracted['Ürün Adı'].ffill()
                     
-                    df = df.dropna(subset=['Stok Kodu', 'Stok Adı'])
-                    df['İş Emri'] = is_emri_adi
-                    df['Hazırlanan Adet'] = 0
+                    df_extracted = df_extracted.dropna(subset=['Stok Kodu', 'Stok Adı'])
+                    df_extracted['İş Emri'] = current_emri_adi
+                    df_extracted['Hazırlanan Adet'] = 0
                     
-                    for col in df.columns:
-                        if any(x in col.lower() for x in ['total', 'ihtiyaç', 'miktar']):
-                            df['İhtiyaç Miktarı'] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                    for col_name in df_extracted.columns:
+                        if any(keyword in col_name.lower() for keyword in ['total', 'ihtiyaç', 'miktar']):
+                            df_extracted['İhtiyaç Miktarı'] = pd.to_numeric(df_extracted[col_name], errors='coerce').fillna(0)
                             break
                     
-                    cols = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
-                    df_filtered = df[[c for c in cols if c in df.columns]]
+                    target_columns = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
+                    df_final_filtered = df_extracted[[c for c in target_columns if c in df_extracted.columns]]
                     
-                    all_new_data.append(df_filtered)
-                    files_to_process.append(is_emri_adi)
+                    all_valid_dataframes.append(df_final_filtered)
+                    successfully_parsed_names.append(current_emri_adi)
                     
-                except Exception as e:
-                    st.error(f"❌ {uploaded_file.name} işlenirken hata oluştu: {e}")
+                except Exception as file_error:
+                    st.error(f"❌ {current_file.name} okunurken teknik bir hata oluştu: {file_error}")
 
-            if all_new_data:
-                st.write(f"📋 Toplam {len(files_to_process)} yeni iş emri hazırlandı:")
-                st.info(", ".join(files_to_process))
+            if all_valid_dataframes:
+                st.write(f"📋 **{len(successfully_parsed_names)}** adet yeni iş emri mühürlenmeye hazır:")
+                st.success(", ".join(successfully_parsed_names))
                 
-                combined_new_df = pd.concat(all_new_data, ignore_index=True)
-                st.dataframe(combined_new_df, use_container_width=True, hide_index=True)
+                df_to_upload = pd.concat(all_valid_dataframes, ignore_index=True)
+                st.dataframe(df_to_upload, use_container_width=True, hide_index=True)
                 
-                if st.button("🚀 TÜMÜNÜ LİSTEYE İLAVE ET", type="primary", use_container_width=True):
-                    df_final = pd.concat([df_old, combined_new_df], ignore_index=True)
-                    veritabani.update_data("Is_Emirleri", df_final)
-                    st.success(f"✅ {len(files_to_process)} adet iş emri başarıyla mühürlendi!")
+                if st.button("🚀 TÜMÜNÜ VERİTABANINA MÜHÜRLE", type="primary", use_container_width=True):
+                    # Birleştirme sırasında veritabanını tekrar tazeleyerek oku
+                    df_refresh_db = veritabani.get_internal_data("Is_Emirleri")
+                    df_master_concat = pd.concat([df_refresh_db, df_to_upload], ignore_index=True)
+                    
+                    # DRIVE GÜNCELLEME
+                    veritabani.update_data("Is_Emirleri", df_master_concat)
+                    st.success(f"✅ Başarılı! {len(successfully_parsed_names)} iş emri sisteme mühürlendi.")
+                    # Verinin Drive'a oturması için kısa bir süre tanı ve sayfayı tazele
                     st.rerun()
 
-    # --- 2. SEÇİM EKRANI (DURUM FİLTRELİ) ---
+    # --- 2. SEÇİM EKRANI (ZIRHLANMIŞ OKUMA) ---
     elif st.session_state.uretim_page == 'hazirlik_secim':
         if st.button("⬅️ GERİ"):
             go_uretim_menu()
             st.rerun()
             
-        st.subheader("🔍 İş Emri Seçimi")
-        df_db = veritabani.get_internal_data("Is_Emirleri")
+        st.subheader("🔍 İş Emri Hazırlık Seçimi")
         
-        if not df_db.empty:
-            emir_ozet = df_db.groupby('İş Emri').agg({
+        # Drive'dan en güncel veriyi zorla çek
+        df_db_select = veritabani.get_internal_data("Is_Emirleri")
+        
+        # KRİTİK KONTROL: Eğer veri varsa ama boş görünüyorsa tipi kontrol et
+        if df_db_select is not None and not df_db_select.empty:
+            summary_emir = df_db_select.groupby('İş Emri').agg({
                 'İhtiyaç Miktarı': 'sum', 
                 'Hazırlanan Adet': 'sum'
             }).reset_index()
             
-            def durum_belirle(row):
-                if row['Hazırlanan Adet'] >= row['İhtiyaç Miktarı'] - 0.001:
+            def calculate_status(row_data):
+                if row_data['Hazırlanan Adet'] >= row_data['İhtiyaç Miktarı'] - 0.001:
                     return "✅ Tamamlandı"
-                elif row['Hazırlanan Adet'] > 0:
+                elif row_data['Hazırlanan Adet'] > 0:
                     return "🏗️ Devam Ediyor"
                 else:
                     return "🆕 Başlanmadı"
             
-            emir_ozet['Durum'] = emir_ozet.apply(durum_belirle, axis=1)
+            summary_emir['Durum'] = summary_emir.apply(calculate_status, axis=1)
             
-            f_durum = st.radio("🚩 Duruma Göre Filtrele:", ["Tümü", "🆕 Başlanmadı", "🏗️ Devam Ediyor", "✅ Tamamlandı"], horizontal=True)
+            # Filtreleme
+            status_filter_choice = st.radio("🚩 Statü Filtresi:", ["Tümü", "🆕 Başlanmadı", "🏗️ Devam Ediyor", "✅ Tamamlandı"], horizontal=True)
             
-            filtered_emirler = emir_ozet.copy()
-            if f_durum != "Tümü":
-                filtered_emirler = filtered_emirler[filtered_emirler['Durum'] == f_durum]
+            df_emir_filtered = summary_emir.copy()
+            if status_filter_choice != "Tümü":
+                df_emir_filtered = df_emir_filtered[df_emir_filtered['Durum'] == status_filter_choice]
             
-            display_list = [f"{r['İş Emri']} | {r['Durum']}" for _, r in filtered_emirler.iterrows()]
-            secilen_raw = st.selectbox("Lütfen bir iş emri seçin:", ["Seçiniz..."] + display_list)
+            # Dropdown Listesi
+            list_for_dropdown = [f"{record['İş Emri']} | {record['Durum']}" for _, record in df_emir_filtered.iterrows()]
             
-            if secilen_raw != "Seçiniz...":
-                secilen_is_emri = secilen_raw.split(" | ")[0]
-                if st.button("🚀 HAZIRLIĞA BAŞLA", use_container_width=True, type="primary"):
-                    st.session_state.sel_is_emri = secilen_is_emri
-                    st.session_state.uretim_page = 'hazirlik_panel'
-                    st.rerun()
+            if list_for_dropdown:
+                raw_selection = st.selectbox("Lütfen bir iş emri seçin:", ["Seçiniz..."] + list_for_dropdown)
+                
+                if raw_selection != "Seçiniz...":
+                    clean_emri_name = raw_selection.split(" | ")[0]
+                    if st.button("🚀 ÜRETİM HAZIRLIĞINA GİT", use_container_width=True, type="primary"):
+                        st.session_state.sel_is_emri = clean_emri_name
+                        st.session_state.uretim_page = 'hazirlik_panel'
+                        st.rerun()
+            else:
+                st.info(f"💡 Bu statüde ({status_filter_choice}) uygun iş emri bulunamadı.")
         else:
-            st.warning("Henüz yüklü iş emri bulunamadı.")
+            # Burası senin uyardığın kısım patron. Eğer veri gelmezse butonu tekrar gösteriyoruz.
+            st.error("⚠️ Drive verisi henüz okunmadı veya 'Is_Emirleri' sekmesi boş!")
+            if st.button("🔄 VERİLERİ YENİDEN TARA"):
+                st.rerun()
 
     # --- 3. HAZIRLIK PANELİ ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
-        if st.button("⬅️ İŞ EMRİ LİSTESİNE DÖN"):
+        if st.button("⬅️ SEÇİM EKRANINA DÖN"):
             st.session_state.uretim_page = 'hazirlik_secim'
             st.rerun()
             
-        st.subheader(f"🏗️ {st.session_state.sel_is_emri}")
+        st.subheader(f"🏗️ İş Emri: {st.session_state.sel_is_emri}")
         
         st.session_state.local_stok = veritabani.get_internal_data("Stok")
-        df_db = veritabani.get_internal_data("Is_Emirleri")
+        df_db_active = veritabani.get_internal_data("Is_Emirleri")
         
-        sub = df_db[df_db['İş Emri'] == st.session_state.sel_is_emri].copy()
-        bekleyenler = sub[(sub['İhtiyaç Miktarı'] - sub['Hazırlanan Adet']) > 0.001].copy()
+        sub_view = df_db_active[df_db_active['İş Emri'] == st.session_state.sel_is_emri].copy()
+        pending_items = sub_view[(sub_view['İhtiyaç Miktarı'] - sub_view['Hazırlanan Adet']) > 0.001].copy()
         
-        if not bekleyenler.empty:
-            bekleyenler['key'] = bekleyenler['Stok Adı'] + " | " + bekleyenler['Stok Kodu']
-            sel_display = st.selectbox("🎯 Malzeme Seç:", ["Seçiniz..."] + bekleyenler['key'].tolist())
+        if not pending_items.empty:
+            pending_items['display_key'] = pending_items['Stok Adı'] + " | " + pending_items['Stok Kodu']
+            active_item_selection = st.selectbox("🎯 Hazırlanacak Malzeme:", ["Seçiniz..."] + pending_items['display_key'].tolist())
             
-            if sel_display != "Seçiniz...":
-                row = bekleyenler[bekleyenler['key'] == sel_display].iloc[0]
-                s_kod = str(row['Stok Kodu']).strip().upper()
-                kalan_ih = round(row['İhtiyaç Miktarı'] - row['Hazırlanan Adet'], 3)
+            if active_item_selection != "Seçiniz...":
+                selected_row_data = pending_items[pending_items['display_key'] == active_item_selection].iloc[0]
+                target_stock_code = str(selected_row_data['Stok Kodu']).strip().upper()
+                remaining_need = round(selected_row_data['İhtiyaç Miktarı'] - selected_row_data['Hazırlanan Adet'], 3)
                 
-                df_stok = st.session_state.local_stok
-                temp_stok = df_stok[df_stok["Kod"].astype(str).str.strip().str.upper() == s_kod]
+                df_stock_ref = st.session_state.local_stok
+                specific_stock_view = df_stock_ref[df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code]
                 
                 with st.container(border=True):
-                    st.markdown(f"🛠️ **{row['Stok Adı']}**")
-                    toplam_mevcut = temp_stok['Miktar'].sum() if not temp_stok.empty else 0
+                    st.markdown(f"🛠️ **Seçili Ürün:** {selected_row_data['Stok Adı']}")
+                    total_available_stock = specific_stock_view['Miktar'].sum() if not specific_stock_view.empty else 0
                     
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("İhtiyaç", f"{kalan_ih} {row.get('Birim','AD')}")
-                    m2.metric("Toplam Stok", f"{toplam_mevcut} {row.get('Birim','AD')}")
+                    metric_c1, metric_c2, metric_c3 = st.columns(3)
+                    metric_c1.metric("Kalan İhtiyaç", f"{remaining_need} {selected_row_data.get('Birim','AD')}")
+                    metric_c2.metric("Toplam Depo Stoğu", f"{total_available_stock} {selected_row_data.get('Birim','AD')}")
                     
-                    r1c1, r1c2 = st.columns([2, 1])
-                    adrs_data = temp_stok[temp_stok["Miktar"] > 0]
-                    adrs_list = ["Adres Seçiniz..."] + [f"{r['Adres']} ({r['Miktar']} {row.get('Birim','AD')})" for _, r in adrs_data.iterrows()] if not adrs_data.empty else ["STOK YOK"]
+                    input_col_1, input_col_2 = st.columns([2, 1])
+                    valid_address_records = specific_stock_view[specific_stock_view["Miktar"] > 0]
+                    address_dropdown_list = ["Adres Seçiniz..."] + [f"{r['Adres']} ({r['Miktar']} {selected_row_data.get('Birim','AD')})" for _, r in valid_address_records.iterrows()] if not valid_address_records.empty else ["STOKTA YOK"]
                     
-                    input_adr_raw = r1c1.selectbox("📍 Raf Seçimi:", adrs_list)
+                    raw_address_selection = input_col_1.selectbox("📍 Kaynak Raf:", address_dropdown_list)
                     
-                    if "Adres Seçiniz..." not in input_adr_raw and "STOK YOK" not in input_adr_raw:
-                        adr_miktari = float(input_adr_raw.split('(')[1].split(' ')[0])
-                        m3.metric("Raf Stoğu", f"{adr_miktari}")
+                    if "Adres Seçiniz..." not in raw_address_selection and "STOKTA YOK" not in raw_address_selection:
+                        current_address_qty = float(raw_address_selection.split('(')[1].split(' ')[0])
+                        metric_c3.metric("Seçili Raf Stoğu", f"{current_address_qty}")
                     
-                    input_mik = r1c2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(kalan_ih), step=1.0)
+                    output_quantity_input = input_col_2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(remaining_need), step=1.0)
                     
-                    if st.button("⚡ KAYDI TAMAMLA", use_container_width=True, type="primary"):
-                        if "Adres Seçiniz..." not in input_adr_raw and "STOK YOK" not in input_adr_raw and input_mik > 0:
-                            secilen_adres = input_adr_raw.split(' ')[0]
+                    if st.button("⚡ HAZIRLIK KAYDINI TAMAMLA", use_container_width=True, type="primary"):
+                        if "Adres Seçiniz..." not in raw_address_selection and "STOK YOK" not in raw_address_selection and output_quantity_input > 0:
+                            actual_address = raw_address_selection.split(' ')[0]
                             
-                            mask_stok = (df_stok["Kod"].astype(str).str.strip().str.upper() == s_kod) & (df_stok["Adres"] == secilen_adres)
-                            df_stok.loc[mask_stok, "Miktar"] -= input_mik
+                            # DRIVE GÜNCELLEME (STOK)
+                            df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
                             
-                            mask_emir = (df_db['İş Emri'] == st.session_state.sel_is_emri) & (df_db['Stok Kodu'] == row['Stok Kodu'])
-                            df_db.loc[mask_emir, 'Hazırlanan Adet'] += input_mik
+                            # DRIVE GÜNCELLEME (İŞ EMRİ)
+                            df_db_active.loc[(df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Stok Kodu'] == selected_row_data['Stok Kodu']), 'Hazırlanan Adet'] += output_quantity_input
                             
-                            veritabani.update_data("Stok", df_stok)
-                            veritabani.update_data("Is_Emirleri", df_db)
+                            veritabani.update_data("Stok", df_stock_ref)
+                            veritabani.update_data("Is_Emirleri", df_db_active)
                             
-                            st.success("✅ Kaydedildi!")
+                            st.success(f"✅ {output_quantity_input} adet başarıyla ayrıldı!")
                             st.rerun()
         else:
-            st.success("🌟 Bu iş emrindeki tüm kalemler hazırlandı!")
+            st.success("🎉 Bu iş emrindeki tüm hazırlıklar tamamlanmış.")
             
         st.divider()
-        st.dataframe(sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
+        st.dataframe(sub_view[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
-    # --- 4. RAPOR (GELİŞMİŞ FİLTRELEME & AÇILIR ÖZET) ---
+    # --- 4. RAPOR (GELİŞMİŞ ANALİZ) ---
     elif st.session_state.uretim_page == 'rapor':
-        if st.button("⬅️ GERİ"):
+        if st.button("⬅️ ANA MENÜYE DÖN"):
             go_uretim_menu()
             st.rerun()
             
-        st.subheader("📊 Hazırlık Raporu")
+        st.subheader("📊 Üretim Hazırlık Analizi")
         
-        df_rapor = veritabani.get_internal_data("Is_Emirleri")
-        if not df_rapor.empty:
-            with st.expander("📈 İş Emri Hazırlık Özetleri (Devam Edenler)", expanded=False):
-                ozet = df_rapor.groupby('İş Emri').agg({
+        df_report_master = veritabani.get_internal_data("Is_Emirleri")
+        if df_report_master is not None and not df_report_master.empty:
+            with st.expander("📈 İş Emri Bazlı Tamamlanma Oranları", expanded=False):
+                report_summary = df_report_master.groupby('İş Emri').agg({
                     'Stok Kodu': 'count', 
                     'İhtiyaç Miktarı': 'sum', 
                     'Hazırlanan Adet': 'sum'
                 }).reset_index()
-                ozet.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
-                ozet['Tamamlanma %'] = (ozet['Toplam Hazırlanan'] / ozet['Toplam İhtiyaç'] * 100).round(1)
+                report_summary.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
+                report_summary['Tamamlanma %'] = (report_summary['Toplam Hazırlanan'] / report_summary['Toplam İhtiyaç'] * 100).round(1)
                 
-                eksik_ozet = ozet[ozet['Toplam İhtiyaç'] - ozet['Toplam Hazırlanan'] > 0.001].copy()
+                only_pending_report = report_summary[report_summary['Toplam İhtiyaç'] - report_summary['Toplam Hazırlanan'] > 0.001].copy()
                 
-                if not eksik_ozet.empty:
-                    st.dataframe(eksik_ozet, use_container_width=True, hide_index=True)
+                if not only_pending_report.empty:
+                    st.dataframe(only_pending_report, use_container_width=True, hide_index=True)
                 else:
-                    st.success("🌟 Harika! Tüm hazırlıklar tamamlanmış.")
+                    st.success("🌟 Tüm iş emirleri %100 tamamlandı.")
 
             st.divider()
             
-            st.write("🔍 **Detaylı Liste Filtreleri**")
-            f_col1, f_col2 = st.columns(2)
+            st.write("🔍 **Detaylı Rapor Filtreleme**")
+            filter_c1, filter_c2 = st.columns(2)
             
-            emirler = ["Tümü"] + sorted(df_rapor['İş Emri'].unique().tolist())
-            f_emir = f_col1.selectbox("📋 İş Emri Seçin:", emirler)
+            report_emir_list = ["Tümü"] + sorted(df_report_master['İş Emri'].unique().tolist())
+            report_f_emir = filter_c1.selectbox("📋 İş Emri Filtresi:", report_emir_list)
             
-            temp_df = df_rapor[df_rapor['İş Emri'] == f_emir] if f_emir != "Tümü" else df_rapor
-            mamuller = ["Tümü"] + sorted(temp_df['Mamül Adı'].dropna().unique().tolist())
-            f_mamul = f_col2.selectbox("🏗️ Mamül Adı Seçin:", mamuller)
+            temp_report_df = df_report_master[df_report_master['İş Emri'] == report_f_emir] if report_f_emir != "Tümü" else df_report_master
+            report_mamul_list = ["Tümü"] + sorted(temp_report_df['Mamül Adı'].dropna().unique().tolist())
+            report_f_mamul = filter_c2.selectbox("🏗️ Mamül Filtresi:", report_mamul_list)
 
-            filtrelenmis_df = temp_df.copy()
-            if f_mamul != "Tümü":
-                filtrelenmis_df = filtrelenmis_df[filtrelenmis_df['Mamül Adı'] == f_mamul]
+            report_final_view = temp_report_df.copy()
+            if report_f_mamul != "Tümü":
+                report_final_view = report_final_view[report_final_view['Mamül Adı'] == report_f_mamul]
 
-            st.write(f"📄 **Filtrelenmiş Detaylar ({len(filtrelenmis_df)} Satır)**")
-            st.dataframe(filtrelenmis_df, use_container_width=True, hide_index=True)
+            st.write(f"📄 **Filtrelenmiş Detaylar ({len(report_final_view)} Satır)**")
+            st.dataframe(report_final_view, use_container_width=True, hide_index=True)
         else:
             st.info("Raporlanacak veri bulunamadı.")
 
     # --- SAYFA SONU İMZASI ---
     st.markdown("---")
-    col_sign1, col_sign2 = st.columns([3, 1])
-    with col_sign2:
+    sign_c1, sign_c2 = st.columns([3, 1])
+    with sign_c2:
         st.markdown(
             """
             <div style='text-align: right;'>
