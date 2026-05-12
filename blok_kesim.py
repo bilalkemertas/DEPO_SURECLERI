@@ -10,6 +10,7 @@ def run_blok_kesim(conn):
     def ayikla_malzeme_detay(tanim):
         if pd.isna(tanim): return None
         text = str(tanim).upper()
+        # Ölçü tespiti (Örn: 200X180X20 veya 200X180)
         olcu = re.search(r'(\d+)\s*[Xx]\s*(\d+)(?:\s*[Xx]\s*(\d+))?', text)
         if not olcu: return None
         boy, en, yuk = olcu.groups()
@@ -38,6 +39,7 @@ def run_blok_kesim(conn):
         if uploaded_file and 'main_data' not in st.session_state:
             try:
                 df_load = pd.read_excel(uploaded_file)
+                # Başlıkları temizle
                 df_load.columns = [str(c).strip() for c in df_load.columns]
                 st.session_state['main_data'] = df_load
                 # Veritabanından taze verileri çek
@@ -49,33 +51,38 @@ def run_blok_kesim(conn):
     # --- 3. OPERASYON EKRANI ---
     if 'main_data' in st.session_state:
         df = st.session_state['main_data']
-        # Excel'de parti no yoksa Malzeme Tanımı üzerinden ilerliyoruz
-        tanim_col = next((c for c in df.columns if "Tanım" in c or "Malzeme" in c), "Malzeme Tanımı")
+        
+        # --- ZIRHLI SÜTUN TESPİTİ (Görseldeki Stok Adı ve Adet Sütunları İçin) ---
+        tanim_col = next((c for c in df.columns if any(x in c.upper() for x in ["STOK ADI", "TANIM", "MALZEME"])), None)
+        miktar_col = next((c for c in df.columns if any(x in c.upper() for x in ["ADET", "MİKTAR", "MIKTAR"])), None)
+
+        if not tanim_col:
+            st.error("❌ Excel'de 'Stok Adı' veya 'Tanım' sütunu bulunamadı!"); st.stop()
 
         st.divider()
-        # PATRONUN NOTU: Burada okutulan kod, Teslim Alma'daki Parti No/Barkod'dur.
+        st.caption(f"📍 Kullanılan Sütunlar: Ürün: {tanim_col} | Miktar: {miktar_col if miktar_col else 'Bulunamadı'}")
+        
         parti_barkod = st.text_input("🔍 Kesilecek Blok/Parti Barkodunu Okutun:").strip()
 
         if parti_barkod:
-            # 1. Önce bu barkodun stoktaki karşılığını bul (Mal Kabul'den gelen Tedarikçi Barkod)
             stok_df = st.session_state['stok_data']
             if 'Tedarikçi Barkod' not in stok_df.columns:
                 st.error("❌ Stok tablosunda 'Tedarikçi Barkod' sütunu bulunamadı!"); st.stop()
             
+            # Blok stokta var mı?
             blok_match = stok_df[stok_df['Tedarikçi Barkod'].astype(str) == parti_barkod]
             
             if not blok_match.empty:
                 secilen_row = blok_match.iloc[0]
                 secilen_kod = secilen_row['Kod']
                 
-                # Blok özelliklerini ayıkla
+                # Blok özelliklerini (Boy x En) ayıkla
                 blok_detay = ayikla_malzeme_detay(secilen_row['İsim'])
                 
                 if not blok_detay:
-                    st.error("❌ Blok isminden ölçü ayıklanamadı."); st.stop()
+                    st.error("❌ Blok isminden ölçü ayıklanamadı (Örn: 200X180 olmalı)."); st.stop()
 
-                # 2. Excel listesinden bu bloğa uygun olan Üretim emrini bul
-                # (Aynı Boy x En ölçüsündeki plaka emrini arıyoruz)
+                # Excel listesinden bu bloğa uygun olan emri bul (Boy ve En ölçüsü tutanlar)
                 def uygun_emir_mi(tanim):
                     d = ayikla_malzeme_detay(tanim)
                     if not d: return False
@@ -86,18 +93,19 @@ def run_blok_kesim(conn):
                 if not uygun_emirler.empty:
                     with st.container(border=True):
                         st.subheader("📍 Kesim Planı")
-                        # İlk uygun emri alalım (Veya operatöre seçtirelim)
                         emir = uygun_emirler.iloc[0]
                         emir_detay = ayikla_malzeme_detay(emir[tanim_col])
                         
                         c1, c2 = st.columns(2)
                         with c1:
                             st.info(f"**Üretilecek:** {emir_detay['ozellik']}\n\n**Ölçü:** {emir_detay['boy']}x{emir_detay['en']} cm\n\n**Kalınlık:** {emir_detay['kalinlik']} cm")
+                        
                         with c2:
-                            adet = float(emir.get('Miktar', 0))
+                            # Miktar tespiti
+                            adet = float(emir[miktar_col]) if miktar_col and not pd.isna(emir[miktar_col]) else 0.0
                             net_tuketim = adet * (emir_detay['kalinlik'] if emir_detay['kalinlik'] else 0)
                             
-                            # 🔥 OTOMATİK FİRE MANTIĞI
+                            # Fire Hesabı (Blok ilk kez mi kesiliyor?)
                             df_har = st.session_state['har_data']
                             daha_once_kesilmis = ((df_har['Kod'] == secilen_kod) & (df_har['İşlem'] == "KESİM/SARF")).any()
                             fire = 0.0 if daha_once_kesilmis else 2.0
@@ -110,11 +118,11 @@ def run_blok_kesim(conn):
                             if secilen_row['Miktar'] < toplam_dusulecek:
                                 st.error("❌ Stok yetersiz!"); st.stop()
                             
-                            # Stok Güncelle
+                            # 1. Stok Güncelleme
                             stok_df.loc[stok_df['Kod'] == secilen_kod, 'Miktar'] -= toplam_dusulecek
                             yeni_kalan = stok_df.loc[stok_df['Kod'] == secilen_kod, 'Miktar'].values[0]
                             
-                            # Hareket Kaydı
+                            # 2. Hareket Kaydı
                             yeni_har = pd.DataFrame([{
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
                                 "İşlem": "KESİM/SARF", "İş Emri": f"KESIM-{parti_barkod}",
@@ -129,13 +137,15 @@ def run_blok_kesim(conn):
                             
                             st.balloons()
                             st.success(f"✅ İşlem Başarılı! Blok Kalan: {yeni_kalan} cm")
-                            # Belleği temizle ve tazele
-                            for k in ['stok_data', 'har_data']: del st.session_state[k]
+                            
+                            # Önbelleği temizle ve sayfayı yenile
+                            for k in ['stok_data', 'har_data']: 
+                                if k in st.session_state: del st.session_state[k]
                             st.rerun()
                 else:
                     st.error(f"❌ Excel listesinde bu bloğa uygun ({blok_detay['boy']}x{blok_detay['en']}) bir kesim emri bulunamadı.")
             else:
-                st.error("❌ Okutulan barkod stokta bulunamadı.")
+                st.error("❌ Okutulan barkod stokta bulunamadı veya 'Tedarikçi Barkod' hatalı.")
 
     st.markdown("---")
     st.markdown(f"<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
