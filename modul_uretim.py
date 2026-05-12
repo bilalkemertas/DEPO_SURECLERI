@@ -95,7 +95,7 @@ def goster():
         else:
             st.warning("İş emri bulunamadı.")
 
-    # --- 3. HAZIRLIK PANELİ ---
+    # --- 3. HAZIRLIK PANELİ (STOK BİLGİLERİ GERİ GELDİ) ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
         if st.button("⬅️ İŞ EMRİ LİSTESİNE DÖN"): st.session_state.uretim_page = 'hazirlik_secim'; st.rerun()
         st.subheader(f"🏗️ {st.session_state.sel_is_emri}")
@@ -118,14 +118,29 @@ def goster():
                 
                 with st.container(border=True):
                     st.markdown(f"🛠️ **{row['Stok Adı']}**")
+                    
+                    # --- STOK BİLGİ GÖSTERİMİ (GERİ GETİRİLDİ) ---
+                    toplam_mevcut = temp_stok['Miktar'].sum() if not temp_stok.empty else 0
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("İhtiyaç", f"{kalan_ih} {row.get('Birim','AD')}")
+                    m2.metric("Toplam Stok", f"{toplam_mevcut} {row.get('Birim','AD')}")
+                    
                     r1c1, r1c2 = st.columns([2, 1])
-                    adrs_list = ["Adres Seçiniz..."] + sorted(temp_stok[temp_stok["Miktar"] > 0]["Adres"].unique().tolist()) if not temp_stok.empty else ["STOK YOK"]
-                    input_adr = r1c1.selectbox("📍 Raf:", adrs_list)
-                    input_mik = r1c2.number_input("🔢 Miktar:", min_value=0.0, max_value=float(kalan_ih), step=1.0)
+                    adrs_data = temp_stok[temp_stok["Miktar"] > 0]
+                    adrs_list = ["Adres Seçiniz..."] + [f"{r['Adres']} ({r['Miktar']} {row.get('Birim','AD')})" for _, r in adrs_data.iterrows()] if not adrs_data.empty else ["STOK YOK"]
+                    input_adr_raw = r1c1.selectbox("📍 Raf Seçimi:", adrs_list)
+                    
+                    # Adresteki miktarı m3'e yazdır
+                    if "Adres Seçiniz..." not in input_adr_raw and "STOK YOK" not in input_adr_raw:
+                        adr_miktari = float(input_adr_raw.split('(')[1].split(' ')[0])
+                        m3.metric("Raf Stoğu", f"{adr_miktari}")
+                    
+                    input_mik = r1c2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(kalan_ih), step=1.0)
                     
                     if st.button("⚡ KAYDI TAMAMLA", use_container_width=True, type="primary"):
-                        if input_adr not in ["Adres Seçiniz...", "STOK YOK"] and input_mik > 0:
-                            mask_stok = (df_stok["Kod"].astype(str).str.strip().str.upper() == s_kod) & (df_stok["Adres"] == input_adr)
+                        if "Adres Seçiniz..." not in input_adr_raw and "STOK YOK" not in input_adr_raw and input_mik > 0:
+                            secilen_adres = input_adr_raw.split(' ')[0]
+                            mask_stok = (df_stok["Kod"].astype(str).str.strip().str.upper() == s_kod) & (df_stok["Adres"] == secilen_adres)
                             df_stok.loc[mask_stok, "Miktar"] -= input_mik
                             mask_emir = (df_db['İş Emri'] == st.session_state.sel_is_emri) & (df_db['Stok Kodu'] == row['Stok Kodu'])
                             df_db.loc[mask_emir, 'Hazırlanan Adet'] += input_mik
@@ -133,15 +148,33 @@ def goster():
                             veritabani.update_data("Is_Emirleri", df_db)
                             st.success("✅ Kaydedildi!"); st.rerun()
         
+        st.divider()
         st.dataframe(sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
-    # --- 4. RAPOR ---
+    # --- 4. RAPOR (İŞ EMRİ ÖZETİ GERİ GELDİ) ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
-        st.subheader("📊 Rapor")
+        st.subheader("📊 Hazırlık Raporu")
+        
         df_rapor = veritabani.get_internal_data("Is_Emirleri")
         if not df_rapor.empty:
+            # İş Emri Bazlı Özet Tablo
+            ozet = df_rapor.groupby('İş Emri').agg({
+                'Stok Kodu': 'count',
+                'İhtiyaç Miktarı': 'sum',
+                'Hazırlanan Adet': 'sum'
+            }).reset_index()
+            ozet.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
+            ozet['Tamamlanma %'] = (ozet['Toplam Hazırlanan'] / ozet['Toplam İhtiyaç'] * 100).round(1)
+            
+            st.write("📈 **İş Emri Genel Durumu**")
+            st.dataframe(ozet, use_container_width=True, hide_index=True)
+            
+            st.divider()
+            st.write("📄 **Tüm Detaylar**")
             st.dataframe(df_rapor, use_container_width=True, hide_index=True)
+        else:
+            st.info("Raporlanacak veri bulunamadı.")
 
     # --- SAYFA SONU İMZASI ---
     st.markdown("---")
