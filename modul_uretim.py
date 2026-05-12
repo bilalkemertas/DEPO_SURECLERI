@@ -79,20 +79,41 @@ def goster():
                     st.success(f"✅ {is_emri_adi} başarıyla eklendi!"); st.rerun()
             except Exception as e: st.error(f"Hata: {e}")
 
-    # --- 2. SEÇİM EKRANI ---
+    # --- 2. SEÇİM EKRANI (DURUM FİLTRELİ) ---
     elif st.session_state.uretim_page == 'hazirlik_secim':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("🔍 İş Emri Seçimi")
         df_db = veritabani.get_internal_data("Is_Emirleri")
+        
         if not df_db.empty:
-            is_emirleri = sorted(df_db['İş Emri'].unique().tolist())
-            secilen = st.selectbox("Lütfen iş emrini seçin:", ["İş Emri Seçiniz..."] + is_emirleri)
-            if secilen != "İş Emri Seçiniz...":
+            # İş emri bazında durum tespiti
+            emir_ozet = df_db.groupby('İş Emri').agg({'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
+            
+            def durum_belirle(row):
+                if row['Hazırlanan Adet'] >= row['İhtiyaç Miktarı'] - 0.001: return "✅ Tamamlandı"
+                if row['Hazırlanan Adet'] > 0: return "🏗️ Devam Ediyor"
+                return "🆕 Başlanmadı"
+            
+            emir_ozet['Durum'] = emir_ozet.apply(durum_belirle, axis=1)
+            
+            # Filtreleme Seçenekleri
+            f_durum = st.radio("🚩 Duruma Göre Filtrele:", ["Tümü", "🆕 Başlanmadı", "🏗️ Devam Ediyor", "✅ Tamamlandı"], horizontal=True)
+            
+            filtered_emirler = emir_ozet.copy()
+            if f_durum != "Tümü":
+                filtered_emirler = filtered_emirler[filtered_emirler['Durum'] == f_durum]
+            
+            # Seçim Kutusu Listesi
+            display_list = [f"{r['İş Emri']} | {r['Durum']}" for _, r in filtered_emirler.iterrows()]
+            secilen_raw = st.selectbox("Lütfen bir iş emri seçin:", ["Seçiniz..."] + display_list)
+            
+            if secilen_raw != "Seçiniz...":
+                secilen_is_emri = secilen_raw.split(" | ")[0]
                 if st.button("🚀 HAZIRLIĞA BAŞLA", use_container_width=True, type="primary"):
-                    st.session_state.sel_is_emri = secilen
+                    st.session_state.sel_is_emri = secilen_is_emri
                     st.session_state.uretim_page = 'hazirlik_panel'; st.rerun()
         else:
-            st.warning("İş emri bulunamadı.")
+            st.warning("Henüz yüklü iş emri bulunamadı.")
 
     # --- 3. HAZIRLIK PANELİ ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
@@ -143,59 +164,37 @@ def goster():
                             veritabani.update_data("Stok", df_stok)
                             veritabani.update_data("Is_Emirleri", df_db)
                             st.success("✅ Kaydedildi!"); st.rerun()
+        else:
+            st.success("🌟 Bu iş emrindeki tüm kalemler hazırlandı!")
+            
         st.divider()
         st.dataframe(sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
-    # --- 4. RAPOR (GELİŞMİŞ FİLTRELEME & AÇILIR ÖZET) ---
+    # --- 4. RAPOR ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("📊 Hazırlık Raporu")
         
         df_rapor = veritabani.get_internal_data("Is_Emirleri")
         if not df_rapor.empty:
-            # 1. Açılır Özet Alanı
             with st.expander("📈 İş Emri Hazırlık Özetleri (Devam Edenler)", expanded=False):
-                ozet = df_rapor.groupby('İş Emri').agg({
-                    'Stok Kodu': 'count',
-                    'İhtiyaç Miktarı': 'sum',
-                    'Hazırlanan Adet': 'sum'
-                }).reset_index()
+                ozet = df_rapor.groupby('İş Emri').agg({'Stok Kodu': 'count', 'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
                 ozet.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
                 ozet['Tamamlanma %'] = (ozet['Toplam Hazırlanan'] / ozet['Toplam İhtiyaç'] * 100).round(1)
                 eksik_ozet = ozet[ozet['Toplam İhtiyaç'] - ozet['Toplam Hazırlanan'] > 0.001].copy()
-                
-                if not eksik_ozet.empty:
-                    st.dataframe(eksik_ozet, use_container_width=True, hide_index=True)
-                else:
-                    st.success("Tüm hazırlıklar tamamlanmış!")
+                st.dataframe(eksik_ozet, use_container_width=True, hide_index=True) if not eksik_ozet.empty else st.success("Her şey tamam!")
 
             st.divider()
-            
-            # 2. Çift Kademeli Filtreleme
-            st.write("🔍 **Detaylı Liste Filtreleri**")
             f_col1, f_col2 = st.columns(2)
-            
-            # Filtre 1: İş Emri Seçimi
             emirler = ["Tümü"] + sorted(df_rapor['İş Emri'].unique().tolist())
             f_emir = f_col1.selectbox("📋 İş Emri Seçin:", emirler)
-            
-            # Filtre 2: Mamül Adı Seçimi (İş emrine göre daralan)
-            if f_emir != "Tümü":
-                temp_df = df_rapor[df_rapor['İş Emri'] == f_emir]
-                mamuller = ["Tümü"] + sorted(temp_df['Mamül Adı'].dropna().unique().tolist())
-            else:
-                mamuller = ["Tümü"] + sorted(df_rapor['Mamül Adı'].dropna().unique().tolist())
-            
-            f_mamul = f_col2.selectbox("🏗️ Mamül Adı (Ana Ürün) Seçin:", mamuller)
+            temp_df = df_rapor[df_rapor['İş Emri'] == f_emir] if f_emir != "Tümü" else df_rapor
+            mamuller = ["Tümü"] + sorted(temp_df['Mamül Adı'].dropna().unique().tolist())
+            f_mamul = f_col2.selectbox("🏗️ Mamül Adı Seçin:", mamuller)
 
-            # Filtreleri Uygula
-            filtrelenmis_df = df_rapor.copy()
-            if f_emir != "Tümü":
-                filtrelenmis_df = filtrelenmis_df[filtrelenmis_df['İş Emri'] == f_emir]
-            if f_mamul != "Tümü":
-                filtrelenmis_df = filtrelenmis_df[filtrelenmis_df['Mamül Adı'] == f_mamul]
+            filtrelenmis_df = temp_df.copy()
+            if f_mamul != "Tümü": filtrelenmis_df = filtrelenmis_df[filtrelenmis_df['Mamül Adı'] == f_mamul]
 
-            st.write(f"📄 **Filtrelenmiş Detaylar ({len(filtrelenmis_df)} Satır)**")
             st.dataframe(filtrelenmis_df, use_container_width=True, hide_index=True)
         else:
             st.info("Raporlanacak veri bulunamadı.")
@@ -204,12 +203,4 @@ def goster():
     st.markdown("---")
     col_sign1, col_sign2 = st.columns([3, 1])
     with col_sign2:
-        st.markdown(
-            """
-            <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-                <p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+        st.markdown("<div style='text-align: right;'><p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p><p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p></div>", unsafe_allow_html=True)
