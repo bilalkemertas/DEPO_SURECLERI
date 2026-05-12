@@ -8,8 +8,10 @@ from datetime import datetime
 def init_state():
     if 'uretim_page' not in st.session_state:
         st.session_state.uretim_page = 'menu'
+    
     if 'page' not in st.session_state:
         st.session_state.page = 'home'
+    
     if 'sel_is_emri' not in st.session_state:
         st.session_state.sel_is_emri = None
 
@@ -23,6 +25,7 @@ def go_uretim_menu():
     init_state()
     st.session_state.uretim_page = 'menu'
     st.session_state.sel_is_emri = None
+    
     if 'local_emirler' in st.session_state:
         del st.session_state.local_emirler
 
@@ -50,32 +53,35 @@ def goster():
         st.button("🏗️ ÜRETİM HAZIRLIK YAP", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'hazirlik_secim'))
         st.button("📊 HAZIRLIK RAPORU", use_container_width=True, type="primary", on_click=lambda: setattr(st.session_state, 'uretim_page', 'rapor'))
 
-    # --- 1. YÜKLEME (MÜKERRER KONTROLLÜ) ---
+    # --- 1. YÜKLEME (ÇOKLU VE MÜKERRER KONTROLLÜ) ---
     elif st.session_state.uretim_page == 'is_emri':
         if st.button("⬅️ GERİ"):
             go_uretim_menu()
             st.rerun()
             
-        st.subheader("📤 İş Emri Excel'i Yükle")
-        uploaded_file = st.file_uploader("Dosya Seçin:", type=['xlsx'])
+        st.subheader("📤 İş Emri Yükleme")
         
-        if uploaded_file:
-            try:
+        # accept_multiple_files aktif edildi
+        uploaded_files = st.file_uploader("Dosyaları Seçin:", type=['xlsx'], accept_multiple_files=True)
+        
+        if uploaded_files:
+            all_new_data = []
+            files_to_process = []
+            
+            df_old = veritabani.get_internal_data("Is_Emirleri")
+            existing_names = df_old['İş Emri'].unique().tolist() if not df_old.empty else []
+
+            for uploaded_file in uploaded_files:
                 is_emri_adi = uploaded_file.name.rsplit('.', 1)[0]
                 
-                # Mevcut veriyi çek ve mükerrer kontrolü yap
-                df_old = veritabani.get_internal_data("Is_Emirleri")
-                is_emri_mevcut = False
-                if not df_old.empty:
-                    if is_emri_adi in df_old['İş Emri'].values:
-                        is_emri_mevcut = True
+                if is_emri_adi in existing_names:
+                    st.warning(f"⚠️ '{is_emri_adi}' zaten sistemde var. Bu dosya atlanacak.")
+                    continue
                 
-                if is_emri_mevcut:
-                    st.error(f"🚨 HATA: '{is_emri_adi}' isimli iş emri sistemde zaten kayıtlı!")
-                    st.warning("Lütfen farklı bir isimle yükleyin veya rapor ekranından kontrol edin.")
-                else:
+                try:
                     df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
                     baslik_idx = 0
+                    
                     for i in range(min(30, len(df_raw))):
                         row_vals = [str(x).lower().strip() for x in df_raw.iloc[i].fillna("").values]
                         if "stok kodu" in row_vals:
@@ -102,18 +108,26 @@ def goster():
                             break
                     
                     cols = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
-                    df_save = df[[c for c in cols if c in df.columns]]
+                    df_filtered = df[[c for c in cols if c in df.columns]]
                     
-                    st.dataframe(df_save, use_container_width=True, hide_index=True)
+                    all_new_data.append(df_filtered)
+                    files_to_process.append(is_emri_adi)
                     
-                    if st.button("LİSTEYE İLAVE ET", type="primary", use_container_width=True):
-                        df_final = pd.concat([df_old, df_save], ignore_index=True)
-                        veritabani.update_data("Is_Emirleri", df_final)
-                        st.success(f"✅ {is_emri_adi} başarıyla eklendi!")
-                        st.rerun()
-                        
-            except Exception as e:
-                st.error(f"Hata: {e}")
+                except Exception as e:
+                    st.error(f"❌ {uploaded_file.name} işlenirken hata oluştu: {e}")
+
+            if all_new_data:
+                st.write(f"📋 Toplam {len(files_to_process)} yeni iş emri hazırlandı:")
+                st.info(", ".join(files_to_process))
+                
+                combined_new_df = pd.concat(all_new_data, ignore_index=True)
+                st.dataframe(combined_new_df, use_container_width=True, hide_index=True)
+                
+                if st.button("🚀 TÜMÜNÜ LİSTEYE İLAVE ET", type="primary", use_container_width=True):
+                    df_final = pd.concat([df_old, combined_new_df], ignore_index=True)
+                    veritabani.update_data("Is_Emirleri", df_final)
+                    st.success(f"✅ {len(files_to_process)} adet iş emri başarıyla mühürlendi!")
+                    st.rerun()
 
     # --- 2. SEÇİM EKRANI (DURUM FİLTRELİ) ---
     elif st.session_state.uretim_page == 'hazirlik_secim':
@@ -125,7 +139,6 @@ def goster():
         df_db = veritabani.get_internal_data("Is_Emirleri")
         
         if not df_db.empty:
-            # Durum tespiti için özet tablo
             emir_ozet = df_db.groupby('İş Emri').agg({
                 'İhtiyaç Miktarı': 'sum', 
                 'Hazırlanan Adet': 'sum'
@@ -236,7 +249,6 @@ def goster():
         
         df_rapor = veritabani.get_internal_data("Is_Emirleri")
         if not df_rapor.empty:
-            # 1. Açılır Özet Alanı (Sadece ihtiyaç olanlar)
             with st.expander("📈 İş Emri Hazırlık Özetleri (Devam Edenler)", expanded=False):
                 ozet = df_rapor.groupby('İş Emri').agg({
                     'Stok Kodu': 'count', 
@@ -255,7 +267,6 @@ def goster():
 
             st.divider()
             
-            # 2. Çift Kademeli Filtreleme
             st.write("🔍 **Detaylı Liste Filtreleri**")
             f_col1, f_col2 = st.columns(2)
             
