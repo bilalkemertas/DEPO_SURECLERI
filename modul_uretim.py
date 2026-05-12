@@ -95,7 +95,7 @@ def goster():
         else:
             st.warning("İş emri bulunamadı.")
 
-    # --- 3. HAZIRLIK PANELİ (STOK BİLGİLERİ GERİ GELDİ) ---
+    # --- 3. HAZIRLIK PANELİ ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
         if st.button("⬅️ İŞ EMRİ LİSTESİNE DÖN"): st.session_state.uretim_page = 'hazirlik_secim'; st.rerun()
         st.subheader(f"🏗️ {st.session_state.sel_is_emri}")
@@ -118,8 +118,6 @@ def goster():
                 
                 with st.container(border=True):
                     st.markdown(f"🛠️ **{row['Stok Adı']}**")
-                    
-                    # --- STOK BİLGİ GÖSTERİMİ (GERİ GETİRİLDİ) ---
                     toplam_mevcut = temp_stok['Miktar'].sum() if not temp_stok.empty else 0
                     m1, m2, m3 = st.columns(3)
                     m1.metric("İhtiyaç", f"{kalan_ih} {row.get('Birim','AD')}")
@@ -130,7 +128,6 @@ def goster():
                     adrs_list = ["Adres Seçiniz..."] + [f"{r['Adres']} ({r['Miktar']} {row.get('Birim','AD')})" for _, r in adrs_data.iterrows()] if not adrs_data.empty else ["STOK YOK"]
                     input_adr_raw = r1c1.selectbox("📍 Raf Seçimi:", adrs_list)
                     
-                    # Adresteki miktarı m3'e yazdır
                     if "Adres Seçiniz..." not in input_adr_raw and "STOK YOK" not in input_adr_raw:
                         adr_miktari = float(input_adr_raw.split('(')[1].split(' ')[0])
                         m3.metric("Raf Stoğu", f"{adr_miktari}")
@@ -151,14 +148,14 @@ def goster():
         st.divider()
         st.dataframe(sub[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
-    # --- 4. RAPOR (İŞ EMRİ ÖZETİ GERİ GELDİ) ---
+    # --- 4. RAPOR (İHTİYAÇ BAZLI DARALTILMIŞ ÖZET) ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ GERİ"): go_uretim_menu(); st.rerun()
         st.subheader("📊 Hazırlık Raporu")
         
         df_rapor = veritabani.get_internal_data("Is_Emirleri")
         if not df_rapor.empty:
-            # İş Emri Bazlı Özet Tablo
+            # İş Emri Bazlı Özet
             ozet = df_rapor.groupby('İş Emri').agg({
                 'Stok Kodu': 'count',
                 'İhtiyaç Miktarı': 'sum',
@@ -167,11 +164,17 @@ def goster():
             ozet.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
             ozet['Tamamlanma %'] = (ozet['Toplam Hazırlanan'] / ozet['Toplam İhtiyaç'] * 100).round(1)
             
-            st.write("📈 **İş Emri Genel Durumu**")
-            st.dataframe(ozet, use_container_width=True, hide_index=True)
+            # --- KRİTİK FİLTRE: SADECE EKSİĞİ OLANLARI GÖSTER ---
+            eksik_ozet = ozet[ozet['Toplam İhtiyaç'] - ozet['Toplam Hazırlanan'] > 0.001].copy()
+            
+            st.write("📈 **Devam Eden İş Emirleri (İhtiyaç Mevcut)**")
+            if not eksik_ozet.empty:
+                st.dataframe(eksik_ozet, use_container_width=True, hide_index=True)
+            else:
+                st.success("🌟 Harika! Tüm iş emirlerinin hazırlığı %100 tamamlanmış.")
             
             st.divider()
-            st.write("📄 **Tüm Detaylar**")
+            st.write("📄 **Tüm Detaylar (Geçmiş Dahil)**")
             st.dataframe(df_rapor, use_container_width=True, hide_index=True)
         else:
             st.info("Raporlanacak veri bulunamadı.")
