@@ -33,32 +33,45 @@ def run_blok_kesim(conn):
 
     st.title("✂️ Blok & Rulo Kesim")
 
-    # --- 2. VERİ YÜKLEME ---
+    # --- 2. VERİ YÜKLEME (GELİŞMİŞ BAŞLIK TESPİTİ) ---
     with st.container(border=True):
         uploaded_file = st.file_uploader("Kesim Listesi Yükle (Excel)", type=['xlsx'], key="bk_uploader")
         if uploaded_file and 'main_data' not in st.session_state:
             try:
-                df_load = pd.read_excel(uploaded_file)
+                # Önce ham oku
+                df_raw = pd.read_excel(uploaded_file, header=None)
+                
+                # Gerçek başlık satırını bul (Stok Kodu veya Stok Adı geçen satırı ara)
+                baslik_satiri = 0
+                for i in range(min(15, len(df_raw))):
+                    satir_degerleri = [str(val).upper().strip() for val in df_raw.iloc[i].fillna("").values]
+                    if "STOK KODU" in satir_degerleri or "STOK ADI" in satir_degerleri:
+                        baslik_satiri = i
+                        break
+                
+                # Başlık satırını kullanarak yeniden oku
+                df_load = pd.read_excel(uploaded_file, header=baslik_satiri)
+                
                 # Başlıklardaki gizli boşlukları temizle
                 df_load.columns = [str(c).strip() for c in df_load.columns]
                 st.session_state['main_data'] = df_load
+                
                 # Veritabanından taze verileri çek
                 st.session_state['stok_data'] = veritabani.get_internal_data("Stok")
                 st.session_state['har_data'] = veritabani.get_internal_data("Hareketler")
-                st.success("✅ Kesim listesi yüklendi")
-            except Exception as e: st.error(f"Hata: {e}")
+                st.success(f"✅ Kesim listesi yüklendi. (Başlık satırı {baslik_satiri + 1} olarak tespit edildi)")
+            except Exception as e: st.error(f"Teknik bir hata oluştu: {e}")
 
     # --- 3. OPERASYON EKRANI ---
     if 'main_data' in st.session_state:
         df = st.session_state['main_data']
         
-        # --- [FIX] ZIRHLI SÜTUN TESPİTİ ---
-        # Senin Excel'indeki "Stok Adı" veya alternatifleri akıllıca tarar
-        tanim_col = next((c for c in df.columns if any(x in c.upper() for x in ["Stok Adı", "TANIM", "MALZEME"])), None)
-        miktar_col = next((c for c in df.columns if any(x in c.upper() for x in ["Adet", "MİKTAR", "MIKTAR"])), None)
+        # --- [FIX] ZIRHLI SÜTUN TESPİT MOTORU ---
+        tanim_col = next((c for c in df.columns if any(x in c.upper() for x in ["STOK ADI", "TANIM", "MALZEME"])), None)
+        miktar_col = next((c for c in df.columns if any(x in c.upper() for x in ["ADET", "MİKTAR", "MIKTAR"])), None)
 
         if not tanim_col:
-            st.error("❌ Excel'de 'Stok Adı' veya 'Tanım' sütunu bulunamadı! Lütfen dosyanızı kontrol edin."); st.stop()
+            st.error("❌ Excel'de 'Stok Adı' sütunu hala bulunamadı! Başlık satırı hatalı olabilir."); st.stop()
 
         st.divider()
         st.caption(f"📍 Sistem Eşleşmesi: [Ürün Sütunu: {tanim_col}] | [Miktar Sütunu: {miktar_col if miktar_col else 'Bulunamadı'}]")
@@ -75,7 +88,6 @@ def run_blok_kesim(conn):
             if not blok_match.empty:
                 secilen_row = blok_match.iloc[0]
                 secilen_kod = secilen_row['Kod']
-                
                 blok_detay = ayikla_malzeme_detay(secilen_row['İsim'])
                 
                 if not blok_detay:
@@ -85,15 +97,13 @@ def run_blok_kesim(conn):
                 def uygun_emir_mi(tanim):
                     d = ayikla_malzeme_detay(tanim)
                     if not d: return False
-                    # Ölçüler %99 tutuyorsa eşleştir
                     return abs(d['boy'] - blok_detay['boy']) < 0.1 and abs(d['en'] - blok_detay['en']) < 0.1
 
-                # FIX: tanim_col artık güvenli bir şekilde tespit edildiği için KeyError vermez
                 uygun_emirler = df[df[tanim_col].apply(uygun_emir_mi)]
 
                 if not uygun_emirler.empty:
                     with st.container(border=True):
-                        st.subheader("📍 Kesim Planı")
+                        st.subheader("📍 Kesim Planı Önerisi")
                         emir = uygun_emirler.iloc[0]
                         emir_detay = ayikla_malzeme_detay(emir[tanim_col])
                         
@@ -103,7 +113,8 @@ def run_blok_kesim(conn):
                         
                         with c2:
                             # Miktar tespiti (Adet veya Miktar sütunundan)
-                            adet = float(emir[miktar_col]) if miktar_col and not pd.isna(emir[miktar_col]) else 0.0
+                            adet_val = emir[miktar_col] if miktar_col else 0.0
+                            adet = float(adet_val) if not pd.isna(adet_val) else 0.0
                             net_tuketim = adet * (emir_detay['kalinlik'] if emir_detay['kalinlik'] else 0)
                             
                             df_har = st.session_state['har_data']
@@ -118,9 +129,11 @@ def run_blok_kesim(conn):
                             if secilen_row['Miktar'] < toplam_dusulecek:
                                 st.error("❌ Stok yetersiz!"); st.stop()
                             
+                            # 1. Stok Güncelleme
                             stok_df.loc[stok_df['Kod'] == secilen_kod, 'Miktar'] -= toplam_dusulecek
                             yeni_kalan = stok_df.loc[stok_df['Kod'] == secilen_kod, 'Miktar'].values[0]
                             
+                            # 2. Hareket Kaydı
                             yeni_har = pd.DataFrame([{
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
                                 "İşlem": "KESİM/SARF", "İş Emri": f"KESIM-{parti_barkod}",
