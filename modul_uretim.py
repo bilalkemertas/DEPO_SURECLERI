@@ -167,14 +167,14 @@ def goster():
             # --- KRİTİK FİLTRE: SADECE EKSİĞİ OLANLARI GÖSTER ---
             eksik_ozet = ozet[ozet['Toplam İhtiyaç'] - ozet['Toplam Hazırlanan'] > 0.001].copy()
             
-            st.write("📈 **Devam Eden İş Emirleri (İhtiyaç Mevcut)**")
+            st.write("📈 **Devam Eden İş Emirleri**")
             if not eksik_ozet.empty:
                 st.dataframe(eksik_ozet, use_container_width=True, hide_index=True)
             else:
                 st.success("🌟 Harika! Tüm iş emirlerinin hazırlığı %100 tamamlanmış.")
             
             st.divider()
-            st.write("📄 **Tüm Detaylar (Geçmiş Dahil)**")
+            st.write("📄 **İş Emri Detayı**")
             st.dataframe(df_rapor, use_container_width=True, hide_index=True)
         else:
             st.info("Raporlanacak veri bulunamadı.")
