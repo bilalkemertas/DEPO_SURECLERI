@@ -96,6 +96,9 @@ def goster():
                     df_extracted = df_extracted.iloc[1:].reset_index(drop=True)
                     df_extracted.columns = [str(col_name).strip() for col_name in df_extracted.columns]
                     
+                    # --- OTOMATİK KALEM NO EKLEME (PATRONUN İSTEĞİ) ---
+                    df_extracted['Kalem No'] = range(1, len(df_extracted) + 1)
+                    
                     if 'Mamül Adı' in df_extracted.columns:
                         df_extracted['Mamül Adı'] = df_extracted['Mamül Adı'].ffill()
                     elif 'Ürün Adı' in df_extracted.columns:
@@ -110,7 +113,7 @@ def goster():
                             df_extracted['İhtiyaç Miktarı'] = pd.to_numeric(df_extracted[col_name], errors='coerce').fillna(0)
                             break
                     
-                    target_columns = ["İş Emri", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
+                    target_columns = ["İş Emri", "Kalem No", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]
                     df_final_filtered = df_extracted[[c for c in target_columns if c in df_extracted.columns]]
                     
                     all_valid_dataframes.append(df_final_filtered)
@@ -150,6 +153,10 @@ def goster():
         
         # KRİTİK KONTROL: Eğer veri varsa ama boş görünüyorsa tipi kontrol et
         if df_db_select is not None and not df_db_select.empty:
+            # Sayısal zırh eklendi (Hücre boşluğu hatası için)
+            df_db_select['İhtiyaç Miktarı'] = pd.to_numeric(df_db_select['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            df_db_select['Hazırlanan Adet'] = pd.to_numeric(df_db_select['Hazırlanan Adet'], errors='coerce').fillna(0)
+
             summary_emir = df_db_select.groupby('İş Emri').agg({
                 'İhtiyaç Miktarı': 'sum', 
                 'Hazırlanan Adet': 'sum'
@@ -203,23 +210,32 @@ def goster():
         st.session_state.local_stok = veritabani.get_internal_data("Stok")
         df_db_active = veritabani.get_internal_data("Is_Emirleri")
         
+        # Sayısal zırh (Hücre boşluğu hatası için)
+        df_db_active['İhtiyaç Miktarı'] = pd.to_numeric(df_db_active['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+        df_db_active['Hazırlanan Adet'] = pd.to_numeric(df_db_active['Hazırlanan Adet'], errors='coerce').fillna(0)
+
         sub_view = df_db_active[df_db_active['İş Emri'] == st.session_state.sel_is_emri].copy()
         pending_items = sub_view[(sub_view['İhtiyaç Miktarı'] - sub_view['Hazırlanan Adet']) > 0.001].copy()
         
         if not pending_items.empty:
-            pending_items['display_key'] = pending_items['Stok Adı'] + " | " + pending_items['Stok Kodu']
+            # --- KALEM NO BAZLI SEÇİM (KARIŞIKLIĞI ÖNLER) ---
+            pending_items['display_key'] = (
+                "Kalem " + pending_items['Kalem No'].astype(str) + " | " + 
+                pending_items['Stok Adı'] + " | " + pending_items['Stok Kodu']
+            )
             active_item_selection = st.selectbox("🎯 Hazırlanacak Malzeme:", ["Seçiniz..."] + pending_items['display_key'].tolist())
             
             if active_item_selection != "Seçiniz...":
                 selected_row_data = pending_items[pending_items['display_key'] == active_item_selection].iloc[0]
                 target_stock_code = str(selected_row_data['Stok Kodu']).strip().upper()
+                target_kalem_no = selected_row_data['Kalem No'] # Yeni anahtar
                 remaining_need = round(selected_row_data['İhtiyaç Miktarı'] - selected_row_data['Hazırlanan Adet'], 3)
                 
                 df_stock_ref = st.session_state.local_stok
                 specific_stock_view = df_stock_ref[df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code]
                 
                 with st.container(border=True):
-                    st.markdown(f"🛠️ **Seçili Ürün:** {selected_row_data['Stok Adı']}")
+                    st.markdown(f"🛠️ **Seçili Ürün:** {selected_row_data['Stok Adı']} (Kalem: {target_kalem_no})")
                     total_available_stock = specific_stock_view['Miktar'].sum() if not specific_stock_view.empty else 0
                     
                     metric_c1, metric_c2, metric_c3 = st.columns(3)
@@ -245,19 +261,20 @@ def goster():
                             # DRIVE GÜNCELLEME (STOK)
                             df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
                             
-                            # DRIVE GÜNCELLEME (İŞ EMRİ)
-                            df_db_active.loc[(df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Stok Kodu'] == selected_row_data['Stok Kodu']), 'Hazırlanan Adet'] += output_quantity_input
+                            # --- DRIVE GÜNCELLEME (İŞ EMRİ - KALEM NO BAZLI NOKTA ATIŞI) ---
+                            mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
+                            df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
                             
                             veritabani.update_data("Stok", df_stock_ref)
                             veritabani.update_data("Is_Emirleri", df_db_active)
                             
-                            st.success(f"✅ {output_quantity_input} adet başarıyla ayrıldı!")
+                            st.success(f"✅ Kalem {target_kalem_no} başarıyla güncellendi!")
                             st.rerun()
         else:
             st.success("🎉 Bu iş emrindeki tüm hazırlıklar tamamlanmış.")
             
         st.divider()
-        st.dataframe(sub_view[["Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
+        st.dataframe(sub_view[["Kalem No", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
     # --- 4. RAPOR (GELİŞMİŞ ANALİZ) ---
     elif st.session_state.uretim_page == 'rapor':
@@ -269,6 +286,10 @@ def goster():
         
         df_report_master = veritabani.get_internal_data("Is_Emirleri")
         if df_report_master is not None and not df_report_master.empty:
+            # Rapor zırhı
+            df_report_master['İhtiyaç Miktarı'] = pd.to_numeric(df_report_master['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            df_report_master['Hazırlanan Adet'] = pd.to_numeric(df_report_master['Hazırlanan Adet'], errors='coerce').fillna(0)
+
             with st.expander("📈 İş Emri Bazlı Tamamlanma Oranları", expanded=False):
                 report_summary = df_report_master.groupby('İş Emri').agg({
                     'Stok Kodu': 'count', 
