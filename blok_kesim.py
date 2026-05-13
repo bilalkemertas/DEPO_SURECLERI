@@ -69,7 +69,7 @@ def run_blok_kesim(conn):
                 # PATRONUN İSTEDİĞİ EŞLEŞMELER TABLOSU (Drive'dan çekiliyor)
                 st.session_state['eslesme_tablosu'] = veritabani.get_internal_data("Eşleşmeler")
                 
-                st.success(f"✅ Kesim listesi ve Drive eşleşme tablosu mühürlendi.")
+                st.success(f"✅ Kesim listesi ve Drive eşleşme tablosu Okundu.")
                 
             except Exception as e:
                 st.error(f"Teknik bir hata oluştu: {e}")
