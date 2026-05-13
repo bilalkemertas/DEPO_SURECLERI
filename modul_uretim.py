@@ -120,20 +120,20 @@ def goster():
                     st.error(f"❌ {current_file.name} okunurken teknik bir hata oluştu: {file_error}")
 
             if all_valid_dataframes:
-                st.write(f"📋 **{len(successfully_parsed_names)}** adet yeni iş emri mühürlenmeye hazır:")
+                st.write(f"📋 **{len(successfully_parsed_names)}** adet yeni iş emri Yüklenmeye hazır:")
                 st.success(", ".join(successfully_parsed_names))
                 
                 df_to_upload = pd.concat(all_valid_dataframes, ignore_index=True)
                 st.dataframe(df_to_upload, use_container_width=True, hide_index=True)
                 
-                if st.button("🚀 TÜMÜNÜ VERİTABANINA MÜHÜRLE", type="primary", use_container_width=True):
+                if st.button("🚀 TÜMÜNÜ VERİTABANINA YÜKLE", type="primary", use_container_width=True):
                     # Birleştirme sırasında veritabanını tekrar tazeleyerek oku
                     df_refresh_db = veritabani.get_internal_data("Is_Emirleri")
                     df_master_concat = pd.concat([df_refresh_db, df_to_upload], ignore_index=True)
                     
                     # DRIVE GÜNCELLEME
                     veritabani.update_data("Is_Emirleri", df_master_concat)
-                    st.success(f"✅ Başarılı! {len(successfully_parsed_names)} iş emri sisteme mühürlendi.")
+                    st.success(f"✅ Başarılı! {len(successfully_parsed_names)} iş emri sisteme Yüklendi.")
                     # Verinin Drive'a oturması için kısa bir süre tanı ve sayfayı tazele
                     st.rerun()
 
