@@ -82,7 +82,19 @@ def goster():
                     continue
                 
                 try:
-                    df_raw = pd.read_excel(current_file, sheet_name=0, header=None)
+                    # --- SEKME KONTROLÜ (HAZIRLIK veya Sheet4) ---
+                    excel_obj = pd.ExcelFile(current_file)
+                    target_sheet = None
+                    for s in excel_obj.sheet_names:
+                        if s.upper() in ["HAZIRLIK", "SHEET4"]:
+                            target_sheet = s
+                            break
+                    
+                    if not target_sheet:
+                        st.error(f"❌ {current_file.name} içinde 'HAZIRLIK' veya 'Sheet4' bulunamadı!")
+                        continue
+
+                    df_raw = pd.read_excel(current_file, sheet_name=target_sheet, header=None)
                     header_row_index = 0
                     
                     for row_idx in range(min(30, len(df_raw))):
@@ -96,7 +108,7 @@ def goster():
                     df_extracted = df_extracted.iloc[1:].reset_index(drop=True)
                     df_extracted.columns = [str(col_name).strip() for col_name in df_extracted.columns]
                     
-                    # --- OTOMATİK KALEM NO EKLEME (PATRONUN İSTEĞİ) ---
+                    # --- KALEM NO EKLEME ---
                     df_extracted['Kalem No'] = range(1, len(df_extracted) + 1)
                     
                     if 'Mamül Adı' in df_extracted.columns:
@@ -137,7 +149,7 @@ def goster():
                     # DRIVE GÜNCELLEME
                     veritabani.update_data("Is_Emirleri", df_master_concat)
                     st.success(f"✅ Başarılı! {len(successfully_parsed_names)} iş emri sisteme Yüklendi.")
-                    # Verinin Drive'a oturması için kısa bir süre tanı ve sayfayı tazele
+                    
                     st.rerun()
 
     # --- 2. SEÇİM EKRANI (ZIRHLANMIŞ OKUMA) ---
@@ -151,9 +163,9 @@ def goster():
         # Drive'dan en güncel veriyi zorla çek
         df_db_select = veritabani.get_internal_data("Is_Emirleri")
         
-        # KRİTİK KONTROL: Eğer veri varsa ama boş görünüyorsa tipi kontrol et
+        # KRİTİK KONTROL
         if df_db_select is not None and not df_db_select.empty:
-            # Sayısal zırh eklendi (Hücre boşluğu hatası için)
+            # Sayısal zırh (Patronun boş hücre uyarısı üzerine)
             df_db_select['İhtiyaç Miktarı'] = pd.to_numeric(df_db_select['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             df_db_select['Hazırlanan Adet'] = pd.to_numeric(df_db_select['Hazırlanan Adet'], errors='coerce').fillna(0)
 
@@ -194,7 +206,6 @@ def goster():
             else:
                 st.info(f"💡 Bu statüde ({status_filter_choice}) uygun iş emri bulunamadı.")
         else:
-            # Burası senin uyardığın kısım patron. Eğer veri gelmezse butonu tekrar gösteriyoruz.
             st.error("⚠️ Drive verisi henüz okunmadı veya 'Is_Emirleri' sekmesi boş!")
             if st.button("🔄 VERİLERİ YENİDEN TARA"):
                 st.rerun()
@@ -210,7 +221,7 @@ def goster():
         st.session_state.local_stok = veritabani.get_internal_data("Stok")
         df_db_active = veritabani.get_internal_data("Is_Emirleri")
         
-        # Sayısal zırh (Hücre boşluğu hatası için)
+        # Sayısal zırh
         df_db_active['İhtiyaç Miktarı'] = pd.to_numeric(df_db_active['İhtiyaç Miktarı'], errors='coerce').fillna(0)
         df_db_active['Hazırlanan Adet'] = pd.to_numeric(df_db_active['Hazırlanan Adet'], errors='coerce').fillna(0)
 
@@ -218,7 +229,7 @@ def goster():
         pending_items = sub_view[(sub_view['İhtiyaç Miktarı'] - sub_view['Hazırlanan Adet']) > 0.001].copy()
         
         if not pending_items.empty:
-            # --- KALEM NO BAZLI SEÇİM (KARIŞIKLIĞI ÖNLER) ---
+            # --- KALEM NO BAZLI SEÇİM ---
             pending_items['display_key'] = (
                 "Kalem " + pending_items['Kalem No'].astype(str) + " | " + 
                 pending_items['Stok Adı'] + " | " + pending_items['Stok Kodu']
@@ -228,7 +239,7 @@ def goster():
             if active_item_selection != "Seçiniz...":
                 selected_row_data = pending_items[pending_items['display_key'] == active_item_selection].iloc[0]
                 target_stock_code = str(selected_row_data['Stok Kodu']).strip().upper()
-                target_kalem_no = selected_row_data['Kalem No'] # Yeni anahtar
+                target_kalem_no = selected_row_data['Kalem No'] 
                 remaining_need = round(selected_row_data['İhtiyaç Miktarı'] - selected_row_data['Hazırlanan Adet'], 3)
                 
                 df_stock_ref = st.session_state.local_stok
@@ -255,13 +266,13 @@ def goster():
                     output_quantity_input = input_col_2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(remaining_need), step=1.0)
                     
                     if st.button("⚡ HAZIRLIK KAYDINI TAMAMLA", use_container_width=True, type="primary"):
-                        if "Adres Seçiniz..." not in raw_address_selection and "STOK YOK" not in raw_address_selection and output_quantity_input > 0:
+                        if "Adres Seçiniz..." not in raw_address_selection and output_quantity_input > 0:
                             actual_address = raw_address_selection.split(' ')[0]
                             
                             # DRIVE GÜNCELLEME (STOK)
                             df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
                             
-                            # --- DRIVE GÜNCELLEME (İŞ EMRİ - KALEM NO BAZLI NOKTA ATIŞI) ---
+                            # --- DRIVE GÜNCELLEME (KALEM NO BAZLI NOKTA ATIŞI) ---
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
                             
