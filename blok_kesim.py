@@ -7,14 +7,13 @@ from datetime import datetime
 
 def run_blok_kesim(conn):
 
-    # --- 1. GELİŞMİŞ AYIKLAMA VE EŞLEŞTİRME MOTORU ---
+    # --- AYIKLAMA ---
     def ayikla_karakter_ve_olcu(text):
         if pd.isna(text) or str(text).strip() == "":
             return None
 
         t = str(text).upper().strip()
 
-        # Ölçü tespiti (Boy X En)
         olcu = re.search(r'(\d+)\s*[Xx]\s*(\d+)', t)
         boy = float(olcu.group(1)) if olcu else 0
         en = float(olcu.group(2)) if olcu else 0
@@ -26,7 +25,41 @@ def run_blok_kesim(conn):
         return {"boy": boy, "en": en, "karakter": karakter}
 
 
-    # --- YENİ: AKILLI KARAKTER EŞLEŞTİRME ---
+    # --- BLOKCM AYRI AYIKLAMA ---
+    def ayikla_blokcm(text):
+        if pd.isna(text):
+            return None
+
+        t = str(text).upper()
+
+        olcu = re.search(r'(\d+)\s*[Xx]\s*(\d+)', t)
+
+        return {
+            "boy": float(olcu.group(1)) if olcu else 0,
+            "en": float(olcu.group(2)) if olcu else 0,
+            "full": t
+        }
+
+
+    # --- TEMİZLEME ---
+    def temizle_karakter(text):
+        if not text:
+            return ""
+
+        gereksizler = [
+            "SUNGER", "PU", "PLAKA",
+            "DUZ", "LEVHA"
+        ]
+
+        t = text.upper()
+
+        for g in gereksizler:
+            t = t.replace(g, "")
+
+        return t.strip()
+
+
+    # --- MATCH ---
     def karakter_match(plaka, blok):
         if not plaka or not blok:
             return False
@@ -34,8 +67,7 @@ def run_blok_kesim(conn):
         kritik_kelimeler = [
             "DNS", "NEWTON",
             "MAVI", "GRI", "BEYAZ",
-            "SOFT", "FLEXI", "FR",
-            "SERT", "YUMUSAK"
+            "SOFT", "FLEXI", "FR"
         ]
 
         skor = 0
@@ -43,149 +75,127 @@ def run_blok_kesim(conn):
             if kelime in plaka and kelime in blok:
                 skor += 1
 
-        return skor >= 2  # minimum eşleşme
+        return skor >= 2
 
 
-    # --- NAVİGASYON ---
-    c_back1, c_back2, _ = st.columns([1.5, 1.5, 4])
+    # --- NAV ---
+    c1, c2, _ = st.columns([1.5,1.5,4])
 
-    with c_back1:
-        if st.button("⬅️ ANA MENÜ", use_container_width=True):
-            st.session_state.page = 'home'
-            st.rerun()
+    if c1.button("ANA MENÜ"):
+        st.session_state.page = 'home'
+        st.rerun()
 
-    with c_back2:
-        if st.button("⬅️ TEMİZLE", use_container_width=True):
-            for k in ['main_data', 'stok_data', 'har_data', 'eslesme_tablosu']:
-                if k in st.session_state:
-                    del st.session_state[k]
-            st.rerun()
+    if c2.button("TEMİZLE"):
+        for k in ['main_data','stok_data','har_data']:
+            if k in st.session_state:
+                del st.session_state[k]
+        st.rerun()
 
-    st.title("✂️ Blok & Rulo Kesim")
+    st.title("BLOK KESİM")
 
-    # --- 2. VERİ YÜKLEME ---
-    with st.container(border=True):
-        uploaded_file = st.file_uploader("Kesim Listesi Yükle (Excel)", type=['xlsx'], key="bk_uploader")
+    # --- YÜKLE ---
+    up = st.file_uploader("Excel", type=['xlsx'])
 
-        if uploaded_file and 'main_data' not in st.session_state:
-            try:
-                df_raw = pd.read_excel(uploaded_file, header=None)
+    if up and 'main_data' not in st.session_state:
+        df = pd.read_excel(up)
+        df.columns = [str(c).strip() for c in df.columns]
 
-                baslik_satiri = 0
-                for i in range(min(15, len(df_raw))):
-                    vals = [str(v).upper().strip() for v in df_raw.iloc[i].fillna("").values]
-                    if "STOK ADI" in vals or "BLOKCM" in vals:
-                        baslik_satiri = i
-                        break
+        st.session_state.main_data = df
+        st.session_state.stok_data = veritabani.get_internal_data("Stok")
+        st.session_state.har_data = veritabani.get_internal_data("Hareketler")
 
-                df_load = pd.read_excel(uploaded_file, header=baslik_satiri)
-                df_load.columns = [str(c).strip() for c in df_load.columns]
-
-                st.session_state['main_data'] = df_load
-                st.session_state['stok_data'] = veritabani.get_internal_data("Stok")
-                st.session_state['har_data'] = veritabani.get_internal_data("Hareketler")
-                st.session_state['eslesme_tablosu'] = veritabani.get_internal_data("Eşleşmeler")
-
-                st.success("✅ Veri yüklendi")
-
-            except Exception as e:
-                st.error(f"Hata: {e}")
-
-    # --- 3. OPERASYON ---
+    # --- ANA ---
     if 'main_data' in st.session_state:
-        df = st.session_state['main_data']
+
+        df = st.session_state.main_data
 
         tanim_col = next((c for c in df.columns if "STOK ADI" in c.upper()), None)
-        blok_olcu_col = next((c for c in df.columns if "BLOKCM" in c.upper()), None)
-        miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper()), None)
+        blok_col = next((c for c in df.columns if "BLOKCM" in c.upper()), None)
+        miktar_col = next((c for c in df.columns if "ADET" in c.upper()), None)
 
-        if not tanim_col or not blok_olcu_col:
-            st.error("Sütun bulunamadı")
-            st.stop()
+        barkod = st.text_input("BARKOD")
 
-        st.divider()
-        parti_barkod = st.text_input("🔍 Blok Barkod").strip()
+        if barkod:
 
-        if parti_barkod:
-            stok_df = st.session_state['stok_data']
-            blok_match = stok_df[stok_df['Tedarikçi Barkod'].astype(str) == parti_barkod]
+            stok_df = st.session_state.stok_data
+            match = stok_df[stok_df['Tedarikçi Barkod'].astype(str) == barkod]
 
-            if not blok_match.empty:
-                secilen_blok = blok_match.iloc[0]
-                blok_karakteristik = ayikla_karakter_ve_olcu(secilen_blok['İsim'])
+            if not match.empty:
 
-                def satir_uygun_mu(row):
+                blok = match.iloc[0]
+
+                blok_info = ayikla_karakter_ve_olcu(blok['İsim'])
+
+                def uygun_mu(row):
                     try:
-                        if pd.isna(row[tanim_col]) or pd.isna(row[blok_olcu_col]):
+                        plaka = ayikla_karakter_ve_olcu(row[tanim_col])
+                        hedef = ayikla_blokcm(row[blok_col])
+
+                        if not plaka or not hedef or not blok_info:
                             return False
 
-                        plaka_info = ayikla_karakter_ve_olcu(row[tanim_col])
-                        hedef_blok = ayikla_karakter_ve_olcu(row[blok_olcu_col])
+                        plaka_clean = temizle_karakter(plaka['karakter'])
+                        blok_clean = temizle_karakter(blok_info['karakter'])
 
-                        if not plaka_info or not hedef_blok or not blok_karakteristik:
-                            return False
+                        # DEBUG
+                        st.write("PLAKA:", plaka_clean)
+                        st.write("BLOK:", blok_clean)
 
-                        # KARAKTER MATCH (YENİ)
-                        karakter_tamam = karakter_match(
-                            plaka_info['karakter'],
-                            blok_karakteristik['karakter']
-                        )
+                        karakter_ok = karakter_match(plaka_clean, blok_clean)
 
-                        # SADECE BOY KONTROL
-                        olcu_tamam = abs(
-                            hedef_blok['boy'] - blok_karakteristik['boy']
-                        ) < 2
+                        olcu_ok = abs(hedef['boy'] - blok_info['boy']) < 2
 
-                        return karakter_tamam and olcu_tamam
+                        return karakter_ok and olcu_ok
 
-                    except Exception as e:
+                    except:
                         return False
 
-                uygun_satirlar = df[df.apply(satir_uygun_mu, axis=1)]
+                uygunlar = df[df.apply(uygun_mu, axis=1)]
 
-                if not uygun_satirlar.empty:
-                    emir = uygun_satirlar.iloc[0]
+                if not uygunlar.empty:
 
-                    plaka_match = re.search(r'X(\d+)$', str(emir[tanim_col]).upper())
-                    kalinlik = float(plaka_match.group(1)) if plaka_match else 0
+                    emir = uygunlar.iloc[0]
+
+                    kalinlik_match = re.search(r'X(\d+)$', str(emir[tanim_col]).upper())
+                    kalinlik = float(kalinlik_match.group(1)) if kalinlik_match else 0
 
                     adet = float(emir[miktar_col]) if miktar_col else 0
                     net = adet * kalinlik
 
-                    df_har = st.session_state['har_data']
-                    daha_once = ((df_har['Kod'] == secilen_blok['Kod']) & (df_har['İşlem'] == "KESİM/SARF")).any()
+                    har = st.session_state.har_data
+                    once = ((har['Kod']==blok['Kod']) & (har['İşlem']=="KESİM/SARF")).any()
 
-                    fire = 0 if daha_once else 2
+                    fire = 0 if once else 2
                     toplam = net + fire
 
-                    st.success("✅ EŞLEŞME VAR")
+                    st.success("EŞLEŞME VAR")
                     st.write(emir[tanim_col])
-                    st.metric("Düşülecek", toplam)
+                    st.metric("DÜŞÜLECEK", toplam)
 
                     if st.button("KES"):
-                        if secilen_blok['Miktar'] < toplam:
-                            st.error("Yetersiz blok")
+                        if blok['Miktar'] < toplam:
+                            st.error("YETERSİZ")
                             st.stop()
 
-                        stok_df.loc[stok_df['Kod'] == secilen_blok['Kod'], 'Miktar'] -= toplam
+                        stok_df.loc[stok_df['Kod']==blok['Kod'],'Miktar'] -= toplam
 
                         yeni = pd.DataFrame([{
                             "Tarih": datetime.now(),
                             "İşlem": "KESİM/SARF",
-                            "Kod": secilen_blok['Kod'],
+                            "Kod": blok['Kod'],
                             "Miktar": toplam
                         }])
 
                         veritabani.update_data("Stok", stok_df)
-                        veritabani.update_data("Hareketler", pd.concat([df_har, yeni]))
+                        veritabani.update_data("Hareketler", pd.concat([har,yeni]))
 
-                        st.success("Kesildi")
+                        st.success("OK")
 
                 else:
-                    st.error("❌ UYGUN EMİR YOK")
+                    st.error("EŞLEŞME YOK")
 
             else:
-                st.error("❌ Barkod yok")
+                st.error("BARKOD YOK")
 
     st.markdown("---")
     st.markdown("BRN 2026")
