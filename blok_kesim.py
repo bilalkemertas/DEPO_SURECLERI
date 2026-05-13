@@ -41,41 +41,34 @@ def run_blok_kesim(conn):
         }
 
 
-    # --- TEMİZLEME ---
+    # --- TEMİZLEME (KRİTİK DÜZELTME) ---
     def temizle_karakter(text):
         if not text:
             return ""
 
-        gereksizler = [
-            "SUNGER", "PU", "PLAKA",
-            "DUZ", "LEVHA"
-        ]
-
         t = text.upper()
+
+        gereksizler = ["SUNGER", "PU", "PLAKA", "DUZ", "LEVHA"]
 
         for g in gereksizler:
             t = t.replace(g, "")
 
-        return t.strip()
+        return re.sub(r'\s+', ' ', t).strip()
 
 
-    # --- MATCH ---
+    # --- MATCH (DÜZELTİLDİ) ---
     def karakter_match(plaka, blok):
         if not plaka or not blok:
             return False
 
-        kritik_kelimeler = [
-            "DNS", "NEWTON",
-            "MAVI", "GRI", "BEYAZ",
-            "SOFT", "FLEXI", "FR"
-        ]
+        # artık direkt string içerik karşılaştırıyoruz
+        plaka_words = set(plaka.split())
+        blok_words = set(blok.split())
 
-        skor = 0
-        for kelime in kritik_kelimeler:
-            if kelime in plaka and kelime in blok:
-                skor += 1
+        ortak = plaka_words.intersection(blok_words)
 
-        return skor >= 2
+        # en az 2 güçlü teknik eşleşme
+        return len(ortak) >= 2
 
 
     # --- NAV ---
@@ -123,7 +116,6 @@ def run_blok_kesim(conn):
             if not match.empty:
 
                 blok = match.iloc[0]
-
                 blok_info = ayikla_karakter_ve_olcu(blok['İsim'])
 
                 def uygun_mu(row):
@@ -137,13 +129,13 @@ def run_blok_kesim(conn):
                         plaka_clean = temizle_karakter(plaka['karakter'])
                         blok_clean = temizle_karakter(blok_info['karakter'])
 
-                        # DEBUG
-                        st.write("PLAKA:", plaka_clean)
-                        st.write("BLOK:", blok_clean)
-
                         karakter_ok = karakter_match(plaka_clean, blok_clean)
 
-                        olcu_ok = abs(hedef['boy'] - blok_info['boy']) < 2
+                        # 🔥 KRİTİK DÜZELTME: SADECE BOY DEĞİL EN DE KONTROL
+                        olcu_ok = (
+                            abs(hedef['boy'] - blok_info['boy']) < 3 and
+                            abs(hedef['en'] - blok_info['en']) < 3
+                        )
 
                         return karakter_ok and olcu_ok
 
