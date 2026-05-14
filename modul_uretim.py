@@ -165,7 +165,7 @@ def goster():
         
         # KRİTİK KONTROL
         if df_db_select is not None and not df_db_select.empty:
-            # Sayısal zırh (Patronun boş hücre uyarısı üzerine)
+            # Sayısal zırh
             df_db_select['İhtiyaç Miktarı'] = pd.to_numeric(df_db_select['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             df_db_select['Hazırlanan Adet'] = pd.to_numeric(df_db_select['Hazırlanan Adet'], errors='coerce').fillna(0)
 
@@ -267,24 +267,24 @@ def goster():
                     output_quantity_input = input_col_2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(remaining_need), step=1.0)
                     
                     if st.button("⚡ HAZIRLIK KAYDINI TAMAMLA", use_container_width=True, type="primary"):
-                        # --- KRİTİK EKSİ STOK KONTROLÜ ---
                         if output_quantity_input > current_shelf_qty:
-                            st.error(f"❌ Yetersiz Stok! Seçili rafta sadece {current_shelf_qty} adet var. Lütfen miktarı düzeltin.")
+                            st.error(f"❌ Yetersiz Stok! Seçili rafta sadece {current_shelf_qty} adet var.")
                         elif "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
                             st.warning("⚠️ Lütfen geçerli bir raf ve miktar girin.")
                         else:
+                            # --- AKTİF KULLANICIYI YAKALA ---
+                            islem_yapan = st.session_state.get('user', 'Bilinmeyen Kullanıcı')
                             actual_address = raw_address_selection.split(' ')[0]
-                            # STOK DÜŞÜŞÜ
+                            # STOK GÜNCELLE
                             df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
-                            # İŞ EMRİ GÜNCELLEME
+                            # İŞ EMRİ GÜNCELLE
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
+                            df_db_active.loc[mask, 'Hazırlayan'] = islem_yapan # Gerçek kişi!
                             
                             veritabani.update_data("Stok", df_stock_ref)
                             veritabani.update_data("Is_Emirleri", df_db_active)
-                            
-                            st.success(f"✅ Kalem {target_kalem_no} başarıyla güncellendi!")
-                            st.rerun()
+                            st.success(f"✅ İşlem '{islem_yapan}' tarafından başarıyla kaydedildi!"); st.rerun()
         else:
             st.success("🎉 Bu iş emrindeki tüm hazırlıklar tamamlanmış.")
             
@@ -301,46 +301,28 @@ def goster():
         
         df_report_master = veritabani.get_internal_data("Is_Emirleri")
         if df_report_master is not None and not df_report_master.empty:
-            # Rapor zırhı
             df_report_master['İhtiyaç Miktarı'] = pd.to_numeric(df_report_master['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             df_report_master['Hazırlanan Adet'] = pd.to_numeric(df_report_master['Hazırlanan Adet'], errors='coerce').fillna(0)
 
             with st.expander("📈 İş Emri Bazlı Tamamlanma Oranları", expanded=False):
-                report_summary = df_report_master.groupby('İş Emri').agg({
-                    'Stok Kodu': 'count', 
-                    'İhtiyaç Miktarı': 'sum', 
-                    'Hazırlanan Adet': 'sum'
-                }).reset_index()
+                report_summary = df_report_master.groupby('İş Emri').agg({'Stok Kodu': 'count', 'İhtiyaç Miktarı': 'sum', 'Hazırlanan Adet': 'sum'}).reset_index()
                 report_summary.columns = ['İş Emri', 'Kalem Sayısı', 'Toplam İhtiyaç', 'Toplam Hazırlanan']
                 report_summary['Tamamlanma %'] = (report_summary['Toplam Hazırlanan'] / report_summary['Toplam İhtiyaç'] * 100).round(1)
-                
-                only_pending_report = report_summary[report_summary['Toplam İhtiyaç'] - report_summary['Toplam Hazırlanan'] > 0.001].copy()
-                
-                if not only_pending_report.empty:
-                    st.dataframe(only_pending_report, use_container_width=True, hide_index=True)
-                else:
-                    st.success("🌟 Tüm iş emirleri %100 tamamlandı.")
+                st.dataframe(report_summary, use_container_width=True, hide_index=True)
 
             st.divider()
-            
             st.write("🔍 **Detaylı Rapor Filtreleme**")
             filter_c1, filter_c2 = st.columns(2)
-            
             report_emir_list = ["Tümü"] + sorted(df_report_master['İş Emri'].unique().tolist())
             report_f_emir = filter_c1.selectbox("📋 İş Emri Filtresi:", report_emir_list)
-            
             temp_report_df = df_report_master[df_report_master['İş Emri'] == report_f_emir] if report_f_emir != "Tümü" else df_report_master
             report_mamul_list = ["Tümü"] + sorted(temp_report_df['Mamül Adı'].dropna().unique().tolist())
             report_f_mamul = filter_c2.selectbox("🏗️ Mamül Filtresi:", report_mamul_list)
 
             report_final_view = temp_report_df.copy()
-            if report_f_mamul != "Tümü":
-                report_final_view = report_final_view[report_final_view['Mamül Adı'] == report_f_mamul]
-
-            st.write(f"📄 **Filtrelenmiş Detaylar ({len(report_final_view)} Satır)**")
+            if report_f_mamul != "Tümü": report_final_view = report_final_view[report_final_view['Mamül Adı'] == report_f_mamul]
             st.dataframe(report_final_view, use_container_width=True, hide_index=True)
-        else:
-            st.info("Raporlanacak veri bulunamadı.")
+        else: st.info("Raporlanacak veri bulunamadı.")
 
     # --- SAYFA SONU İMZASI ---
     st.markdown("---")
@@ -349,7 +331,7 @@ def goster():
         st.markdown(
             """
             <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Depo Sistemi</p>
                 <p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p>
             </div>
             """, 
