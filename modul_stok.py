@@ -122,6 +122,7 @@ def goster():
 
         if st.button("🚀 VERİTABANINA İŞLE", use_container_width=True, type="primary"):
             zaman = datetime.now().strftime("%Y-%m-%d %H:%M")
+            aktif_user = st.session_state.get("user", "Bilinmeyen Personel")
             for satir in st.session_state.gecici_liste:
                 if satir["İşlem"] == "GİRİŞ":
                     m = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
@@ -141,7 +142,7 @@ def goster():
                 df_har = pd.concat([df_har, pd.DataFrame([{
                     "Tarih": zaman, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
                     "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
-                    "Miktar": satir["Miktar"], "Personel": "Bilal", "Durum": satir["Durum"], "Lot": satir["Lot"]
+                    "Miktar": satir["Miktar"], "Personel": aktif_user, "Durum": satir["Durum"], "Lot": satir["Lot"]
                 }])], ignore_index=True)
 
             veritabani.update_data("Stok", df_stok)
