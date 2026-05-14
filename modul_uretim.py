@@ -259,20 +259,24 @@ def goster():
                     
                     raw_address_selection = input_col_1.selectbox("📍 Kaynak Raf:", address_dropdown_list)
                     
+                    current_shelf_qty = 0
                     if "Adres Seçiniz..." not in raw_address_selection and "STOKTA YOK" not in raw_address_selection:
-                        current_address_qty = float(raw_address_selection.split('(')[1].split(' ')[0])
-                        metric_c3.metric("Seçili Raf Stoğu", f"{current_address_qty}")
+                        current_shelf_qty = float(raw_address_selection.split('(')[1].split(' ')[0])
+                        metric_c3.metric("Seçili Raf Stoğu", f"{current_shelf_qty}")
                     
                     output_quantity_input = input_col_2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(remaining_need), step=1.0)
                     
                     if st.button("⚡ HAZIRLIK KAYDINI TAMAMLA", use_container_width=True, type="primary"):
-                        if "Adres Seçiniz..." not in raw_address_selection and output_quantity_input > 0:
+                        # --- KRİTİK EKSİ STOK KONTROLÜ ---
+                        if output_quantity_input > current_shelf_qty:
+                            st.error(f"❌ Yetersiz Stok! Seçili rafta sadece {current_shelf_qty} adet var. Lütfen miktarı düzeltin.")
+                        elif "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
+                            st.warning("⚠️ Lütfen geçerli bir raf ve miktar girin.")
+                        else:
                             actual_address = raw_address_selection.split(' ')[0]
-                            
-                            # DRIVE GÜNCELLEME (STOK)
+                            # STOK DÜŞÜŞÜ
                             df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
-                            
-                            # --- DRIVE GÜNCELLEME (KALEM NO BAZLI NOKTA ATIŞI) ---
+                            # İŞ EMRİ GÜNCELLEME
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
                             
