@@ -15,6 +15,13 @@ def init_state():
     if 'sel_is_emri' not in st.session_state:
         st.session_state.sel_is_emri = None
 
+    # RAM üzerinden çalışma için kritik state'ler
+    if 'local_db_active' not in st.session_state:
+        st.session_state.local_db_active = None
+    
+    if 'local_stok' not in st.session_state:
+        st.session_state.local_stok = None
+
 # --- NAVİGASYON ---
 def go_home(): 
     init_state()
@@ -25,6 +32,7 @@ def go_uretim_menu():
     init_state()
     st.session_state.uretim_page = 'menu'
     st.session_state.sel_is_emri = None
+    st.session_state.local_db_active = None # Belleği temizle
     
     if 'local_emirler' in st.session_state:
         del st.session_state.local_emirler
@@ -205,6 +213,9 @@ def goster():
                     clean_emri_name = raw_selection.split(" | ")[0]
                     if st.button("🚀 ÜRETİM HAZIRLIĞINA GİT", use_container_width=True, type="primary"):
                         st.session_state.sel_is_emri = clean_emri_name
+                        # 🟢 KRİTİK: Drive'dan RAM'e Tek Seferlik Okuma
+                        st.session_state.local_db_active = df_db_select.copy()
+                        st.session_state.local_stok = veritabani.get_internal_data("Stok")
                         st.session_state.uretim_page = 'hazirlik_panel'
                         st.rerun()
             else:
@@ -214,7 +225,7 @@ def goster():
             if st.button("🔄 VERİLERİ YENİDEN TARA"):
                 st.rerun()
 
-    # --- 3. HAZIRLIK PANELİ ---
+    # --- 3. HAZIRLIK PANELİ (RAM ÜZERİNDEN ÇALIŞMA) ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
         if st.button("⬅️ SEÇİM EKRANINA DÖN"):
             st.session_state.uretim_page = 'hazirlik_secim'
@@ -222,14 +233,13 @@ def goster():
             
         st.subheader(f"🏗️ İş Emri: {st.session_state.sel_is_emri}")
         
-        st.session_state.local_stok = veritabani.get_internal_data("Stok")
-        df_db_active = veritabani.get_internal_data("Is_Emirleri")
+        # Drive'a gitmek yerine RAM'den (session_state) okuyoruz
+        df_db_active = st.session_state.local_db_active
+        df_stok_active = st.session_state.local_stok
         
-        # Sayısal ve Kolon Zırhı (Döngü öncesi tazeleme)
+        # Kolon Zırhı
         if df_db_active is not None:
             df_db_active.columns = [str(c).strip() for c in df_db_active.columns]
-            df_db_active['İhtiyaç Miktarı'] = pd.to_numeric(df_db_active['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            df_db_active['Hazırlanan Adet'] = pd.to_numeric(df_db_active['Hazırlanan Adet'], errors='coerce').fillna(0)
 
         sub_view = df_db_active[df_db_active['İş Emri'] == st.session_state.sel_is_emri].copy()
         pending_items = sub_view[(sub_view['İhtiyaç Miktarı'] - sub_view['Hazırlanan Adet']) > 0.001].copy()
@@ -248,8 +258,7 @@ def goster():
                 target_kalem_no = selected_row_data['Kalem No'] 
                 remaining_need = round(selected_row_data['İhtiyaç Miktarı'] - selected_row_data['Hazırlanan Adet'], 3)
                 
-                df_stock_ref = st.session_state.local_stok
-                specific_stock_view = df_stock_ref[df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code]
+                specific_stock_view = df_stok_active[df_stok_active["Kod"].astype(str).str.strip().str.upper() == target_stock_code]
                 
                 with st.container(border=True):
                     st.markdown(f"🛠️ **Seçili Ürün:** {selected_row_data['Stok Adı']} (Kalem: {target_kalem_no})")
@@ -272,7 +281,7 @@ def goster():
                     
                     output_quantity_input = input_col_2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(remaining_need), step=1.0)
                     
-                    if st.button("⚡ HAZIRLIK KAYDINI TAMAMLA", use_container_width=True, type="primary"):
+                    if st.button("➕ RAM LİSTESİNE EKLE", use_container_width=True):
                         if output_quantity_input > current_shelf_qty:
                             st.error(f"❌ Yetersiz Stok! Seçili rafta sadece {current_shelf_qty} adet var.")
                         elif "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
@@ -280,18 +289,25 @@ def goster():
                         else:
                             islem_yapan = st.session_state.get('username') or st.session_state.get('kullanici') or 'Bilinmeyen Kullanıcı'
                             actual_address = raw_address_selection.split(' ')[0]
-                            # STOK GÜNCELLE
-                            df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
-                            # İŞ EMRİ GÜNCELLE
+                            # 🟢 SADECE RAM'DEKİ TABLOYU GÜNCELLE
+                            df_stok_active.loc[(df_stok_active["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stok_active["Adres"] == actual_address), "Miktar"] -= output_quantity_input
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
                             df_db_active.loc[mask, 'Hazırlayan'] = islem_yapan 
-                            
-                            veritabani.update_data("Stok", df_stock_ref)
-                            veritabani.update_data("Is_Emirleri", df_db_active)
-                            st.success(f"✅ İşlem '{islem_yapan}' tarafından başarıyla kaydedildi!"); st.rerun()
+                            st.toast("RAM Listesi Güncellendi (Henüz Kaydedilmedi)")
+                            st.rerun()
+
+        # 🚀 KRİTİK: TÜM RAM'İ TEK SEFERDE DRIVE'A YAZMA
+        st.info("⚠️ Hazırlıklar bittiğinde aşağıdaki butonla Drive'a kaydedin.")
+        if st.button("💾 HAZIRLIK KAYDINI TAMAMLA (DRIVE'A SENKRON ET)", use_container_width=True, type="primary"):
+            with st.spinner("Drive veritabanı senkronize ediliyor..."):
+                veritabani.update_data("Stok", df_stok_active)
+                veritabani.update_data("Is_Emirleri", df_db_active)
+                st.success("✅ Tüm işlemler başarıyla Drive'a kaydedildi!"); st.rerun()
+
         else:
-            st.success("🎉 Bu iş emrindeki tüm hazırlıklar tamamlanmış.")
+            if pending_items.empty:
+                st.success("🎉 Bu iş emrindeki tüm hazırlıklar tamamlanmış.")
             
         st.divider()
         st.dataframe(sub_view[["Kalem No", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
