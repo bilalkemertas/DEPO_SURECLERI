@@ -122,7 +122,7 @@ def goster():
 
         if st.button("🚀 VERİTABANINA İŞLE", use_container_width=True, type="primary"):
             zaman = datetime.now().strftime("%Y-%m-%d %H:%M")
-            aktif_user = st.session_state.get("user", "Bilinmeyen Personel")
+            aktif_user = st.session_state.get("username") or st.session_state.get("kullanici") or st.session_state.get("user") or st.session_state.get("user_name") or "Bilinmeyen Personel"
             for satir in st.session_state.gecici_liste:
                 if satir["İşlem"] == "GİRİŞ":
                     m = (df_stok['Kod'] == satir["Kod"]) & (df_stok['Adres'] == satir["Hedef"])
