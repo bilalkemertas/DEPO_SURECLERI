@@ -22,6 +22,10 @@ def init_state():
     if 'local_stok' not in st.session_state:
         st.session_state.local_stok = None
 
+    # HAREKET KAYITLARI İÇİN RAM ALANI
+    if 'local_movements' not in st.session_state:
+        st.session_state.local_movements = []
+
 # --- NAVİGASYON ---
 def go_home(): 
     init_state()
@@ -33,6 +37,7 @@ def go_uretim_menu():
     st.session_state.uretim_page = 'menu'
     st.session_state.sel_is_emri = None
     st.session_state.local_db_active = None # Belleği temizle
+    st.session_state.local_movements = [] # RAM Hareketleri temizle
     
     if 'local_emirler' in st.session_state:
         del st.session_state.local_emirler
@@ -216,6 +221,7 @@ def goster():
                         # 🟢 KRİTİK: Drive'dan RAM'e Tek Seferlik Okuma
                         st.session_state.local_db_active = df_db_select.copy()
                         st.session_state.local_stok = veritabani.get_internal_data("Stok")
+                        st.session_state.local_movements = [] # Yeni hazırlık için temizle
                         st.session_state.uretim_page = 'hazirlik_panel'
                         st.rerun()
             else:
@@ -225,7 +231,7 @@ def goster():
             if st.button("🔄 VERİLERİ YENİDEN TARA"):
                 st.rerun()
 
-    # --- 3. HAZIRLIK PANELİ (RAM ÜZERİNDEN ÇALIŞMA) ---
+    # --- 3. HAZIRLIK PANELİ (RAM ÜZERİNDEN ÇALIŞMA + DİNAMİK HAREKET ENTEGRASYONU) ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
         if st.button("⬅️ SEÇİM EKRANINA DÖN"):
             st.session_state.uretim_page = 'hazirlik_secim'
@@ -287,13 +293,37 @@ def goster():
                         elif "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
                             st.warning("⚠️ Lütfen geçerli bir raf ve miktar girin.")
                         else:
-                            islem_yapan = st.session_state.get('username') or st.session_state.get('kullanici') or 'Bilinmeyen Kullanıcı'
+                            # 🟢 Akıllı Kullanıcı Zırhı
+                            islem_yapan = (
+                                st.session_state.get('username') or 
+                                st.session_state.get('kullanici') or 
+                                st.session_state.get('user') or 
+                                st.session_state.get('user_name') or 
+                                st.session_state.get('aktif_kullanici') or 
+                                'Bilal Kemertaş'
+                            )
                             actual_address = raw_address_selection.split(' ')[0]
-                            # 🟢 SADECE RAM'DEKİ TABLOYU GÜNCELLE
+                            
+                            # 1. SADECE RAM'DEKİ TABLOYU GÜNCELLE
                             df_stok_active.loc[(df_stok_active["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stok_active["Adres"] == actual_address), "Miktar"] -= output_quantity_input
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
                             df_db_active.loc[mask, 'Hazırlayan'] = islem_yapan 
+                            
+                            # 2. HAREKET KAYDI OLUŞTURMA (İşlem Tipi Dinamik Olarak İş Emri Adı Yapıldı)
+                            st.session_state.local_movements.append({
+                                "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "İşlem": str(st.session_state.sel_is_emri).strip().upper(), # 🟢 KRİTİK DEĞİŞİKLİK: İş Emri Kodu Yazılıyor
+                                "İş Emri": st.session_state.sel_is_emri,
+                                "Kod": target_stock_code,
+                                "İsim": selected_row_data['Stok Adı'],
+                                "Adres": actual_address,
+                                "Miktar": output_quantity_input,
+                                "Personel": islem_yapan,
+                                "Durum": "Hazırlık",
+                                "Lot": "-"
+                            })
+                            
                             st.toast("RAM Listesi Güncellendi (Henüz Kaydedilmedi)")
                             st.rerun()
 
@@ -301,9 +331,19 @@ def goster():
         st.info("⚠️ Hazırlıklar bittiğinde aşağıdaki butonla Drive'a kaydedin.")
         if st.button("💾 HAZIRLIK KAYDINI TAMAMLA (DRIVE'A SENKRON ET)", use_container_width=True, type="primary"):
             with st.spinner("Drive veritabanı senkronize ediliyor..."):
+                # Drive'dan güncel Hareketler tablosunu çek ve RAM'dekileri ekle
+                df_har_db = veritabani.get_internal_data("Hareketler")
+                if st.session_state.local_movements:
+                    df_new_movs = pd.DataFrame(st.session_state.local_movements)
+                    df_har_db = pd.concat([df_har_db, df_new_movs], ignore_index=True)
+                
+                # TÜMÜNÜ YAZ VE GÜNCELLE
                 veritabani.update_data("Stok", df_stok_active)
                 veritabani.update_data("Is_Emirleri", df_db_active)
-                st.success("✅ Tüm işlemler başarıyla Drive'a kaydedildi!"); st.rerun()
+                veritabani.update_data("Hareketler", df_har_db)
+                
+                st.session_state.local_movements = [] # RAM'i sıfırla
+                st.success("✅ Tüm işlemler ve dinamik hareket kayıtları başarıyla Drive'a kaydedildi!"); st.rerun()
 
         else:
             if pending_items.empty:
