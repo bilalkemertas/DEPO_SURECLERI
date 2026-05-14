@@ -71,6 +71,7 @@ def goster():
             df_current_db = veritabani.get_internal_data("Is_Emirleri")
             existing_emir_names = []
             if df_current_db is not None and not df_current_db.empty:
+                df_current_db.columns = [str(c).strip() for c in df_current_db.columns]
                 existing_emir_names = df_current_db['İş Emri'].unique().tolist()
 
             for current_file in uploaded_files:
@@ -144,12 +145,12 @@ def goster():
                 if st.button("🚀 TÜMÜNÜ VERİTABANINA YÜKLE", type="primary", use_container_width=True):
                     # Birleştirme sırasında veritabanını tekrar tazeleyerek oku
                     df_refresh_db = veritabani.get_internal_data("Is_Emirleri")
+                    if df_refresh_db is not None: df_refresh_db.columns = [str(c).strip() for c in df_refresh_db.columns]
                     df_master_concat = pd.concat([df_refresh_db, df_to_upload], ignore_index=True)
                     
                     # DRIVE GÜNCELLEME
                     veritabani.update_data("Is_Emirleri", df_master_concat)
                     st.success(f"✅ Başarılı! {len(successfully_parsed_names)} iş emri sisteme Yüklendi.")
-                    
                     st.rerun()
 
     # --- 2. SEÇİM EKRANI (ZIRHLANMIŞ OKUMA) ---
@@ -165,9 +166,12 @@ def goster():
         
         # KRİTİK KONTROL
         if df_db_select is not None and not df_db_select.empty:
+            df_db_select.columns = [str(c).strip() for c in df_db_select.columns]
             # Sayısal zırh
-            df_db_select['İhtiyaç Miktarı'] = pd.to_numeric(df_db_select['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-            df_db_select['Hazırlanan Adet'] = pd.to_numeric(df_db_select['Hazırlanan Adet'], errors='coerce').fillna(0)
+            if 'İhtiyaç Miktarı' in df_db_select.columns:
+                df_db_select['İhtiyaç Miktarı'] = pd.to_numeric(df_db_select['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            if 'Hazırlanan Adet' in df_db_select.columns:
+                df_db_select['Hazırlanan Adet'] = pd.to_numeric(df_db_select['Hazırlanan Adet'], errors='coerce').fillna(0)
 
             summary_emir = df_db_select.groupby('İş Emri').agg({
                 'İhtiyaç Miktarı': 'sum', 
@@ -221,9 +225,11 @@ def goster():
         st.session_state.local_stok = veritabani.get_internal_data("Stok")
         df_db_active = veritabani.get_internal_data("Is_Emirleri")
         
-        # Sayısal zırh
-        df_db_active['İhtiyaç Miktarı'] = pd.to_numeric(df_db_active['İhtiyaç Miktarı'], errors='coerce').fillna(0)
-        df_db_active['Hazırlanan Adet'] = pd.to_numeric(df_db_active['Hazırlanan Adet'], errors='coerce').fillna(0)
+        # Sayısal ve Kolon Zırhı (Döngü öncesi tazeleme)
+        if df_db_active is not None:
+            df_db_active.columns = [str(c).strip() for c in df_db_active.columns]
+            df_db_active['İhtiyaç Miktarı'] = pd.to_numeric(df_db_active['İhtiyaç Miktarı'], errors='coerce').fillna(0)
+            df_db_active['Hazırlanan Adet'] = pd.to_numeric(df_db_active['Hazırlanan Adet'], errors='coerce').fillna(0)
 
         sub_view = df_db_active[df_db_active['İş Emri'] == st.session_state.sel_is_emri].copy()
         pending_items = sub_view[(sub_view['İhtiyaç Miktarı'] - sub_view['Hazırlanan Adet']) > 0.001].copy()
@@ -272,15 +278,14 @@ def goster():
                         elif "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
                             st.warning("⚠️ Lütfen geçerli bir raf ve miktar girin.")
                         else:
-                            # --- AKTİF KULLANICIYI YAKALA ---
-                            islem_yapan = st.session_state.get('user', 'Bilinmeyen Kullanıcı')
+                            islem_yapan = st.session_state.get('username') or st.session_state.get('kullanici') or 'Bilinmeyen Kullanıcı'
                             actual_address = raw_address_selection.split(' ')[0]
                             # STOK GÜNCELLE
                             df_stock_ref.loc[(df_stock_ref["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stock_ref["Adres"] == actual_address), "Miktar"] -= output_quantity_input
                             # İŞ EMRİ GÜNCELLE
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
-                            df_db_active.loc[mask, 'Hazırlayan'] = islem_yapan # Gerçek kişi!
+                            df_db_active.loc[mask, 'Hazırlayan'] = islem_yapan 
                             
                             veritabani.update_data("Stok", df_stock_ref)
                             veritabani.update_data("Is_Emirleri", df_db_active)
@@ -301,6 +306,7 @@ def goster():
         
         df_report_master = veritabani.get_internal_data("Is_Emirleri")
         if df_report_master is not None and not df_report_master.empty:
+            df_report_master.columns = [str(c).strip() for c in df_report_master.columns]
             df_report_master['İhtiyaç Miktarı'] = pd.to_numeric(df_report_master['İhtiyaç Miktarı'], errors='coerce').fillna(0)
             df_report_master['Hazırlanan Adet'] = pd.to_numeric(df_report_master['Hazırlanan Adet'], errors='coerce').fillna(0)
 
