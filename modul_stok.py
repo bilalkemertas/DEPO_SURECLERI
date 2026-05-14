@@ -22,10 +22,21 @@ def goster():
         st.session_state["s_mik"] = 0.0
         st.session_state["clear_form"] = False
 
-    # --- VERİ ÇEKME ---
+    # --- VERİ ÇEKME VEYA SÜTUN ZIRHI BAŞLANGICI ---
     df_stok = veritabani.get_internal_data("Stok")
     df_har = veritabani.get_internal_data("Hareketler")
     
+    # Kendi modülündeki KeyError'u önlemek için geçici zırh kontrolü
+    df_check_is = veritabani.get_internal_data("Is_Emirleri")
+    if df_check_is is not None and not df_check_is.empty:
+        df_check_is.columns = [str(c).strip() for c in df_check_is.columns]
+        if "İhtiyaç Miktarı" not in df_check_is.columns:
+            for c_name in df_check_is.columns:
+                if any(k in c_name.lower() for k in ['total', 'ihtiyaç', 'miktar']):
+                    df_check_is = df_check_is.rename(columns={c_name: "İhtiyaç Miktarı"})
+                    veritabani.update_data("Is_Emirleri", df_check_is)
+                    break
+
     df_k = veritabani.get_internal_data("Urun_Listesi")
     if df_k is None or df_k.empty:
         df_k = veritabani.get_internal_data("Katalog")
@@ -35,7 +46,7 @@ def goster():
     else:
         df_k.columns = [str(c).strip() for c in df_k.columns]
         k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
-        n_col = 'İsim' if 'İsim' in df_k.columns else df_k.columns[1]
+        n_col = 'İsim' if 'İsimm' in df_k.columns or 'İsim' in df_k.columns else df_k.columns[1]
         katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
 
     if "gecici_liste" not in st.session_state:
