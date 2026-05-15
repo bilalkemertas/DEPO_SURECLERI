@@ -331,24 +331,27 @@ def goster():
         st.info("⚠️ Hazırlıklar bittiğinde aşağıdaki butonla Drive'a kaydedin.")
         if st.button("💾 HAZIRLIK KAYDINI TAMAMLA (DRIVE'A SENKRON ET)", use_container_width=True, type="primary"):
             with st.spinner("Drive veritabanı senkronize ediliyor..."):
-                # Drive'dan güncel Hareketler tablosunu çek ve RAM'dekileri ekle
-                df_har_db = veritabani.get_internal_data("Hareketler")
-                if st.session_state.local_movements:
-                    df_new_movs = pd.DataFrame(st.session_state.local_movements)
-                    df_har_db = pd.concat([df_har_db, df_new_movs], ignore_index=True)
                 
-                # TÜMÜNÜ YAZ VE GÜNCELLE
+                # === HATA BURADAYDI, ARTIK BOŞ KAYITTA SİLME YAPAMAZ ===
+                if st.session_state.local_movements:
+                    df_har_db = veritabani.get_internal_data("Hareketler")
+                    if df_har_db is None: 
+                        df_har_db = pd.DataFrame()
+                    df_new_movs = pd.DataFrame(st.session_state.local_movements)
+                    df_har_master = pd.concat([df_har_db, df_new_movs], ignore_index=True)
+                    veritabani.update_data("Hareketler", df_har_master)
+                
+                # TÜMÜNÜ YAZ VE GÜNCELLE (Hareket yoksa bile stok/emir güncellenir)
                 veritabani.update_data("Stok", df_stok_active)
                 veritabani.update_data("Is_Emirleri", df_db_active)
-                veritabani.update_data("Hareketler", df_har_db)
                 
                 st.session_state.local_movements = [] # RAM'i sıfırla
-                st.success("✅ Tüm işlemler ve dinamik hareket kayıtları başarıyla Drive'a kaydedildi!"); st.rerun()
+                st.success("✅ Tüm işlemler başarıyla Drive'a kaydedildi!"); st.rerun()
 
         else:
             if pending_items.empty:
                 st.success("🎉 Bu iş emrindeki tüm hazırlıklar tamamlanmış.")
-            
+        
         st.divider()
         st.dataframe(sub_view[["Kalem No", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
