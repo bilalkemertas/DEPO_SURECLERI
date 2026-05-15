@@ -393,7 +393,7 @@ def goster():
         st.markdown(
             """
             <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Depo Sistemi</p>
+                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal KEMERTAŞ</p>
                 <p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p>
             </div>
             """, 
