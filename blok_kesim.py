@@ -190,4 +190,4 @@ def run_blok_kesim(conn):
                 st.error("BARKOD YOK")
 
     st.markdown("---")
-    st.markdown("BRN 2026")
+    st.markdown("Bilal KEMERTAŞ | BRN 2026")
