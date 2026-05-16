@@ -284,13 +284,13 @@ def goster():
                     if "Adres Seçiniz..." not in raw_address_selection and "STOKTA YOK" not in raw_address_selection:
                         current_shelf_qty = float(raw_address_selection.split('(')[1].split(' ')[0])
                         metric_c3.metric("Seçili Raf Stoğu", f"{current_shelf_qty}")
+                    else:
+                        metric_c3.metric("Seçili Raf Stoğu", "0.0")
                     
                     output_quantity_input = input_col_2.number_input("🔢 Çıkış Miktarı:", min_value=0.0, max_value=float(remaining_need), step=1.0)
                     
                     if st.button("➕ RAM LİSTESİNE EKLE", use_container_width=True):
-                        if output_quantity_input > current_shelf_qty:
-                            st.error(f"❌ Yetersiz Stok! Seçili rafta sadece {current_shelf_qty} adet var.")
-                        elif "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
+                        if "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
                             st.warning("⚠️ Lütfen geçerli bir raf ve miktar girin.")
                         else:
                             # 🟢 Akıllı Kullanıcı Zırhı
@@ -302,18 +302,55 @@ def goster():
                                 st.session_state.get('aktif_kullanici') or 
                                 'Bilal Kemertaş'
                             )
-                            actual_address = raw_address_selection.split(' ')[0]
                             
-                            # 1. SADECE RAM'DEKİ TABLOYU GÜNCELLE
+                            # Adres belirleme (Stokta yoksa sanal raf oluştur)
+                            if "STOKTA YOK" in raw_address_selection:
+                                actual_address = "SİSTEM-GİRİŞ"
+                                current_shelf_qty = 0.0
+                            else:
+                                actual_address = raw_address_selection.split(' ')[0]
+
+                            eksik_miktar = output_quantity_input - current_shelf_qty
+
+                            # 1. OTOMATİK GİRİŞ KONTROLÜ (Stok yetersizse aradaki farkı otomatik gir)
+                            if eksik_miktar > 0:
+                                st.session_state.local_movements.append({
+                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    "İşlem": "OTOMATİK GİRİŞ",
+                                    "İş Emri": st.session_state.sel_is_emri,
+                                    "Kod": target_stock_code,
+                                    "İsim": selected_row_data['Stok Adı'],
+                                    "Adres": actual_address,
+                                    "Miktar": eksik_miktar,
+                                    "Personel": "SİSTEM",
+                                    "Durum": "Giriş",
+                                    "Lot": "-"
+                                })
+                                
+                                mask_stok = (df_stok_active["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stok_active["Adres"] == actual_address)
+                                if df_stok_active[mask_stok].empty:
+                                    yeni_stok_satiri = pd.DataFrame([{
+                                        "Kod": target_stock_code,
+                                        "İsim": selected_row_data['Stok Adı'],
+                                        "Adres": actual_address,
+                                        "Miktar": eksik_miktar,
+                                        "Birim": selected_row_data.get('Birim', 'AD')
+                                    }])
+                                    df_stok_active = pd.concat([df_stok_active, yeni_stok_satiri], ignore_index=True)
+                                    st.session_state.local_stok = df_stok_active
+                                else:
+                                    df_stok_active.loc[mask_stok, "Miktar"] += eksik_miktar
+
+                            # 2. NORMAL HAZIRLIK ÇIKIŞINI TAMAMLA
                             df_stok_active.loc[(df_stok_active["Kod"].astype(str).str.strip().str.upper() == target_stock_code) & (df_stok_active["Adres"] == actual_address), "Miktar"] -= output_quantity_input
+                            
                             mask = (df_db_active['İş Emri'] == st.session_state.sel_is_emri) & (df_db_active['Kalem No'] == target_kalem_no)
                             df_db_active.loc[mask, 'Hazırlanan Adet'] += output_quantity_input
                             df_db_active.loc[mask, 'Hazırlayan'] = islem_yapan 
                             
-                            # 2. HAREKET KAYDI OLUŞTURMA (İşlem Tipi Dinamik Olarak İş Emri Adı Yapıldı)
                             st.session_state.local_movements.append({
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "İşlem": str(st.session_state.sel_is_emri).strip().upper(), # 🟢 KRİTİK DEĞİŞİKLİK: İş Emri Kodu Yazılıyor
+                                "İşlem": str(st.session_state.sel_is_emri).strip().upper(),
                                 "İş Emri": st.session_state.sel_is_emri,
                                 "Kod": target_stock_code,
                                 "İsim": selected_row_data['Stok Adı'],
