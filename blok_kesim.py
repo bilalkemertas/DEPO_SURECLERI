@@ -108,8 +108,22 @@ def run_blok_kesim(conn):
 
     if up and 'main_data' not in st.session_state:
         try:
-            df = pd.read_excel(up)
+            # --- REFERANS KODA DOKUNMADAN SADECE SATIR ATLAMAYI (HEADER FINDER) EKLİYORUZ ---
+            raw_df = pd.read_excel(up, header=None)
+            header_idx = 0
+            
+            # Üstteki ilk 20 satırı tarayıp başlıkların hangi satırda olduğunu bul
+            for i in range(min(20, len(raw_df))):
+                row_str = " ".join(str(val).upper() for val in raw_df.iloc[i].values if pd.notna(val))
+                if ("TANIM" in row_str or "ÜRÜN" in row_str or "URUN" in row_str) and \
+                   ("MIKTAR" in row_str or "MİKTAR" in row_str or "ADET" in row_str):
+                    header_idx = i
+                    break
+            
+            # Excel'i bulduğumuz doğru satırdan itibaren oku
+            df = pd.read_excel(up, header=header_idx)
             df.columns = [str(c).strip() for c in df.columns]
+            
             # Sadece geçerli satırları al (Performans İyileştirmesi)
             df.dropna(how='all', inplace=True)
             st.session_state.main_data = df
