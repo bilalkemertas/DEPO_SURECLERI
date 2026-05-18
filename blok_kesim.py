@@ -2,17 +2,19 @@ import streamlit as st
 import pandas as pd
 import veritabani
 import re
+import math
 from datetime import datetime
 
 def run_blok_kesim(conn):
 
-    # --- GELİŞMİŞ AYIKLAMA ---
+    # --- GELİŞMİŞ AYIKLAMA (3'LÜ ÖLÇÜ VE VİRGÜL DESTEKLİ) ---
     def ayikla_karakter_ve_olcu(text):
         if pd.isna(text) or str(text).strip() == "":
             return None
 
-        t = str(text).upper().replace(",", ".").strip()
-
+        t = str(text).upper().replace(",", ".").strip() # Virgülleri noktaya çevir (18.5 için)
+        
+        # 3'lü veya 2'li ölçü kalıbını bulur (Örn: 188X88X18.5 veya 200X100)
         olcu_uzun = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
         olcu_kisa = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
 
@@ -29,6 +31,7 @@ def run_blok_kesim(conn):
         else:
             return {"boy": 0, "en": 0, "kalinlik": 0, "karakter": t}
 
+        # Ölçüden öncesini ürünün karakteri/kalitesi olarak alıyoruz
         karakter = t[:start_idx].strip()
         return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
 
@@ -37,46 +40,64 @@ def run_blok_kesim(conn):
         if not text:
             return ""
         t = text.upper()
+        # Kelimelerin tam eşleşmesi için temizlik yapıyoruz
         gereksizler = ["SUNGER", "PU", "PLAKA", "DUZ", "LEVHA", "RULO", "YATAK", "FRMYTK"]
         for g in gereksizler:
             t = t.replace(g, "")
-        t = t.replace("DNS", "")
+        # Parantezleri ve özel karakterleri temizle
         t = re.sub(r'[\(\)\-\+\:]', ' ', t)
         return re.sub(r'\s+', ' ', t).strip()
 
-    # --- KARAKTER MATCH (GELİŞTİRİLDİ) ---
+    # --- YENİ: DNS VE KALİTE PARSİNG ---
+    def parse_ozellik(text):
+        text = str(text).upper().replace(",", ".")
+        dns_match = re.search(r'(\d{2,3})\s*(?:DNS)?', text)
+        text_harfler = re.sub(r'\d+', '', text).replace('DNS', '').strip()
+        kalite_kelimeleri = set(re.findall(r'[A-Z]+', text_harfler))
+        return {
+            "dns": int(dns_match.group(1)) if dns_match else None,
+            "kelimeler": kalite_kelimeleri
+        }
+
+    # --- YENİ: KELİME BAZLI EŞLEŞTİRME (DNS ZIRHLI) ---
     def karakter_match(plaka, blok):
         if not plaka or not blok:
             return False
+            
+        p = parse_ozellik(plaka)
+        b = parse_ozellik(blok)
 
-        def parse(text):
-            dns = re.search(r'(\d+)\s*DNS', text)
-            dns_val = int(dns.group(1)) if dns else None
-            kelimeler = set(re.findall(r'[A-Z]+', text))
-            return dns_val, kelimeler
+        # DNS birebir olmalı
+        if p["dns"] is not None and b["dns"] is not None:
+            if p["dns"] != b["dns"]:
+                return False
 
-        p_dns, p_words = parse(plaka)
-        b_dns, b_words = parse(blok)
-
-        if p_dns and b_dns and p_dns != b_dns:
+        # Kalite kelimeleri kesişmeli
+        ortak = p["kelimeler"].intersection(b["kelimeler"])
+        if len(p["kelimeler"]) > 0 and len(b["kelimeler"]) > 0 and len(ortak) == 0:
             return False
 
-        ortak = p_words.intersection(b_words)
-        return len(ortak) >= 1
+        return True
 
-    # --- ÜRETİM HESABI ---
-    def plaka_sayisi(plaka, blok):
-        if plaka['boy'] == 0 or plaka['en'] == 0:
+    # --- YENİ: PLAKA SAYISI (VERİM) HESAPLAMA ---
+    def plaka_sayisi_hesapla(plaka, blok):
+        if plaka.get('boy', 0) == 0 or plaka.get('en', 0) == 0:
             return 0
 
-        adet_boy = int(blok['boy'] // plaka['boy'])
-        adet_en  = int(blok['en'] // plaka['en'])
+        # Düz Kesim
+        adet_boy_1 = int(blok['boy'] // plaka['boy'])
+        adet_en_1  = int(blok['en'] // plaka['en'])
+        verim_1 = adet_boy_1 * adet_en_1
 
-        return adet_boy * adet_en
+        # 90 Derece Döndürülerek Kesim
+        adet_boy_2 = int(blok['boy'] // plaka['en'])
+        adet_en_2  = int(blok['en'] // plaka['boy'])
+        verim_2 = adet_boy_2 * adet_en_2
 
-    # --- NAV ---
+        return max(verim_1, verim_2)
+
+    # --- NAVİGASYON ---
     c1, c2, _ = st.columns([1.5, 1.5, 4])
-
     if c1.button("ANA MENÜ"):
         st.session_state.page = 'home'
         st.rerun()
@@ -99,23 +120,24 @@ def run_blok_kesim(conn):
         st.session_state.stok_data = veritabani.get_internal_data("Stok")
         st.session_state.har_data = veritabani.get_internal_data("Hareketler")
 
-    # --- ANA ---
+    # --- ANA OPERASYON ---
     if 'main_data' in st.session_state:
-
         df = st.session_state.main_data
 
+        # Dinamik Sütun Yakalama
         tanim_col = next((c for c in df.columns if "STOK" in c.upper() or "TANIM" in c.upper()), None)
+        blok_col = next((c for c in df.columns if "BLOKCM" in c.upper() or "KODU" in c.upper() or "KOD" in c.upper()), None)
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MİKTAR" in c.upper()), None)
 
         barkod = st.text_input("🔍 OKUTULAN BARKOD / PARTİ NO")
 
         if barkod:
-
             stok_df = st.session_state.stok_data
+            
+            # Master veri ve hareket listesindeki barkodları stringe çevirerek tam eşleştirme yapıyoruz
             match = stok_df[stok_df['Tedarikçi Barkod'].astype(str) == str(barkod)]
 
             if not match.empty:
-
                 blok = match.iloc[0]
                 blok_info = ayikla_karakter_ve_olcu(blok['İsim'])
 
@@ -128,40 +150,41 @@ def run_blok_kesim(conn):
                         plaka_clean = temizle_karakter(plaka['karakter'])
                         blok_clean = temizle_karakter(blok_info['karakter'])
 
+                        # 1. Aşama: Sünger Kalite/Dansite Uyumu Kontrolü (YENİ MODEL)
                         karakter_ok = karakter_match(plaka_clean, blok_clean)
 
-                        uretim = plaka_sayisi(plaka, blok_info)
-                        olcu_ok = uretim > 0
+                        # 2. Aşama: Ölçü Esnekliği ve Kesim Verimi Kontrolü (YENİ MODEL)
+                        verim = plaka_sayisi_hesapla(plaka, blok_info)
+                        olcu_ok = verim > 0
 
                         return karakter_ok and olcu_ok
                     except:
                         return False
 
-                uygunlar = df[df.apply(uygun_mu, axis=1)]
+                # Uygun siparişleri bul
+                uygunlar = df[df.apply(uygun_mu, axis=1)].copy()
 
                 if not uygunlar.empty:
-
-                    # --- EN İYİ SEÇİM ---
-                    def skor(row):
-                        pl = ayikla_karakter_ve_olcu(row[tanim_col])
-                        return plaka_sayisi(pl, blok_info)
-
-                    uygunlar['SKOR'] = uygunlar.apply(skor, axis=1)
-                    emir = uygunlar.sort_values(by="SKOR", ascending=False).iloc[0]
-
+                    # YENİ: EN İYİ EŞLEŞMEYİ SEÇME (Verim Puanlaması)
+                    uygunlar['tek_kat_verim'] = uygunlar.apply(
+                        lambda r: plaka_sayisi_hesapla(ayikla_karakter_ve_olcu(r[tanim_col]), blok_info), axis=1
+                    )
+                    
+                    # Verimi en yüksek olan siparişi seç
+                    emir = uygunlar.sort_values(by="tek_kat_verim", ascending=False).iloc[0]
+                    
                     plaka_detay = ayikla_karakter_ve_olcu(emir[tanim_col])
-
                     kalinlik = plaka_detay['kalinlik'] if plaka_detay else 0
                     adet = float(emir[miktar_col]) if miktar_col else 0
+                    
+                    # YENİ: GERÇEK KALINLIK DİLİMLEME MATEMATİĞİ
+                    tek_katta_cikan_plaka = emir['tek_kat_verim']
+                    # Bu siparişi karşılamak için makine kaç dilim kesecek?
+                    gereken_dilim_sayisi = math.ceil(adet / tek_katta_cikan_plaka) if tek_katta_cikan_plaka > 0 else 0
+                    # Tüketilecek net blok kalınlığı
+                    net = gereken_dilim_sayisi * kalinlik
 
-                    uretilebilir = plaka_sayisi(plaka_detay, blok_info)
-
-                    if uretilebilir == 0:
-                        st.error("Bu bloktan üretim yapılamaz")
-                        st.stop()
-
-                    net = adet * kalinlik
-
+                    # Rapor Geçmişi ve Fire Hesabı (SENİN MANTIĞIN KORUNDU)
                     har = st.session_state.har_data
                     once = False
                     if not har.empty and 'Kod' in har.columns:
@@ -170,22 +193,26 @@ def run_blok_kesim(conn):
                     fire = 0 if once else 2
                     toplam = net + fire
 
+                    # Bilgilendirme Kartı
                     with st.container(border=True):
                         st.success("✅ REÇETE VE EŞLEŞME BULUNDU")
                         st.write(f"**Eşleşen Ürün:** {emir[tanim_col]}")
-                        st.write(f"**Üretilebilir Plaka:** {uretilebilir} adet")
-                        st.write(f"**Kalınlık:** {kalinlik} cm | **Sipariş:** {adet} adet")
-
+                        st.write(f"**Kesim Detayı:** Tek Katta Çıkan Plaka: {tek_katta_cikan_plaka} | Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
+                        st.write(f"**Sipariş Adeti:** {adet} Adet")
+                        
                         c_m1, c_m2 = st.columns(2)
-                        c_m1.metric("Mevcut Stok", f"{blok['Miktar']:.2f}")
-                        c_m2.metric("Toplam Sarfiyat", f"{toplam:.2f}", delta=f"Fire: {fire}")
+                        c_m1.metric("Mevcut Stok (cm/Mt)", f"{blok['Miktar']:.2f}")
+                        c_m2.metric("Düşülecek Toplam Sarfiyat", f"{toplam:.2f}", delta=f"Fire: {fire}")
 
+                    # --- BUTON DURUM YÖNETİMİ VE KAYIT ---
                     if st.button("✂️ KESİM HAREKETİNİ ONAYLA", type="primary"):
                         if blok['Miktar'] < toplam:
-                            st.error("❌ YETERSİZ STOK")
+                            st.error("❌ Depodaki bu blok miktarı, kesilmek istenen miktardan az! (Yetersiz Stok)")
                         else:
+                            # Bellekteki Stok Miktarını Güncelle
                             stok_df.loc[stok_df['Kod'] == blok['Kod'], 'Miktar'] -= toplam
 
+                            # Yeni Hareket Satırı Oluştur
                             yeni = pd.DataFrame([{
                                 "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 "İşlem": "KESİM/SARF",
@@ -193,17 +220,17 @@ def run_blok_kesim(conn):
                                 "Miktar": toplam
                             }])
 
+                            # Veritabanına/Sheets'e gönder
                             veritabani.update_data("Stok", stok_df)
                             veritabani.update_data("Hareketler", pd.concat([har, yeni], ignore_index=True))
-
-                            st.success("🎉 KESİM KAYDEDİLDİ")
+                            
+                            st.balloons()
+                            st.success("🎉 Kesim işlemi başarıyla kaydedildi! Stok güncellendi.")
                             st.rerun()
-
                 else:
-                    st.error("❌ EŞLEŞME YOK")
-
+                    st.error("❌ Bu Barkodun Sünger Kalitesi veya Ölçüsü, Yüklenen Sipariş Listesiyle Eşleşmiyor!")
             else:
-                st.error("❌ BARKOD BULUNAMADI")
+                st.error("❌ Okutulan Barkod Sistem Stoklarında Kayıtlı Değil!")
 
     st.markdown("---")
     st.caption("Bilal KEMERTAŞ | BRN 2026")
