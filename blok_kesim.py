@@ -123,12 +123,13 @@ def run_blok_kesim(conn):
     if 'main_data' in st.session_state:
         df = st.session_state.main_data
 
-        # --- KRİTİK: Kolon Adı Kontrolleri ---
-        tanim_col = next((c for c in df.columns if "STOK" in c.upper() or "TANIM" in c.upper()), None)
-        miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MİKTAR" in c.upper()), None)
+        # --- KRİTİK: Kolon Adı Kontrolleri (Türkçe Karakter ve İsim Korumalı) ---
+        tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
+        # Python 'i'yi 'I' yaptığı için MIKTAR ve MİKTAR birlikte aranıyor.
+        miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
 
         if not tanim_col or not miktar_col:
-            st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı ('Stok'/'Tanım') veya Adet ('Adet'/'Miktar') sütunları bulunamadı!")
+            st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı ('Ürün'/'Tanım') veya Adet ('Adet'/'Miktar') sütunları bulunamadı!")
             st.stop()
 
         barkod = st.text_input("🔍 OKUTULAN BARKOD / PARTİ NO")
