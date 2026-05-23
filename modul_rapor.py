@@ -41,21 +41,23 @@ def goster():
             m_col = next((c for c in cols_s if "Miktar" in c), None)
             
             is_completely_empty = False
+            # BURASI YENİ: SIFIR OLANLARI TABLODAN KOMPLE SİLİYORUZ
             if m_col and not df_stok.empty:
-                numeric_values = pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0)
-                if (numeric_values == 0).all():
+                df_stok[m_col] = pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0)
+                df_stok = df_stok[df_stok[m_col] > 0]
+                
+                # Tablo tamamen boşaldıysa empty flag'ini True yapıyoruz
+                if df_stok.empty:
                     is_completely_empty = True
 
             if is_completely_empty:
-                st.error("🚫 STOK YOK")
+                st.error("🚫 STOK YOK (Veya aradığınız kriterlere uygun ürün kalmamış)")
             else:
                 st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
-                if m_col:
-                    mask = (pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0) == 0)
-                    df_stok_view = df_stok.astype(str)
-                    df_stok_view.loc[mask, :] = "STOK YOK"
                 
-                st.dataframe(df_stok_view, use_container_width=True, hide_index=True)
+                # ESKİ KODDAKİ df_stok_view.loc[mask] KISMI KALDIRILDI (Çünkü artık 0 stok ekranda yok)
+                # Tabloyu temiz haliyle direkt ekrana basıyoruz:
+                st.dataframe(df_stok, use_container_width=True, hide_index=True)
             
             # Excel İndirme Butonu
             buffer1 = io.BytesIO()
