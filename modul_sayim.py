@@ -21,7 +21,7 @@ def goster(conn):
     # --- 2. DEĞİŞKENLER ---
     df_Stok_ana = st.session_state['stok_df']
     katalog = st.session_state['katalog']
-    
+
     # --- 3. FONKSİYONLAR ---
     def urun_secildi():
         sec_val = st.session_state.get("sec_box")
@@ -38,8 +38,9 @@ def goster(conn):
 
     with tab1:
         st.subheader("📍 Yeni Veri Girişi")
+        
         with st.container(border=True):
-            # ÜRÜN SEÇİMİ (REFERANS KOD)
+            # ÜRÜN SEÇİMİ
             st.selectbox(
                 "🔍 Ürün Seç:", 
                 options=katalog,
@@ -51,8 +52,10 @@ def goster(conn):
             
             c1, c2 = st.columns(2)
             with c1:
+                # Widgetlar burada oluşuyor
                 s_kod = st.text_input("📦 Malzeme Kodu:", key="manual_s_kod").upper().strip()
                 s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
+                
             with c2:
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
                 s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur")
@@ -81,7 +84,10 @@ def goster(conn):
                 r_col2.write(item["Kod"])
                 r_col3.write(item["Lot"])
                 r_col4.write(f"{item['Miktar']:,.0f}")
-                r_col5.write(item["Durum"])
+                
+                status_color = "🔴" if item["Durum"] == "Hasarlı" else "🟢"
+                r_col5.write(f"{status_color} {item['Durum']}")
+                
                 if r_col6.button("🗑️", key=f"del_{index}"):
                     st.session_state['gecici_sayim_listesi'].pop(index)
                     st.rerun()
@@ -104,7 +110,13 @@ def goster(conn):
             final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
             final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
             
-            st.dataframe(final_df.style.map(lambda v: 'background-color: #ffcccc' if v < 0 else ('background-color: #ccffcc' if v > 0 else ''), subset=['FARK']), use_container_width=True)
+            # Renklendirme stili
+            def style_f(v):
+                if v < 0: return 'background-color: #ffcccc; color: red'
+                if v > 0: return 'background-color: #ccffcc; color: green'
+                return ''
+            
+            st.dataframe(final_df.style.map(style_f, subset=['FARK']), use_container_width=True)
             
             m1, m2, m3 = st.columns(3)
             m1.metric("Toplam Sistem", f"{final_df['Sistem_Miktarı'].sum():,.0f}")
