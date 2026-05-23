@@ -5,9 +5,6 @@ import io
 from datetime import datetime
 
 
-# =========================
-# NAV HELPERS
-# =========================
 def go_home():
     st.session_state.page = 'home'
     st.session_state.sayim_page = 'menu'
@@ -29,227 +26,274 @@ def go_rapor():
     st.session_state.sayim_page = 'rapor'
 
 
-# =========================
-# MAIN
-# =========================
 def goster(conn=None):
+    # -----------------------------
+    # SESSION STATE INIT
+    # -----------------------------
+    if 'gecici_sayim_listesi' not in st.session_state:
+        st.session_state['gecici_sayim_listesi'] = []
 
-    ss = st.session_state
+    if 'aktif_sayim_adi' not in st.session_state:
+        st.session_state.aktif_sayim_adi = None
 
-    ss.setdefault('gecici_sayim_listesi', [])
-    ss.setdefault('aktif_sayim_adi', None)
-    ss.setdefault('sayim_page', 'menu')
-    ss.setdefault('delete_confirm', None)
-    ss.setdefault('katalog_hafiza', [])
-    ss.setdefault('sayim_df_cache', {})
-    ss.setdefault('sayim_cache_initialized', False)
+    if 'sayim_page' not in st.session_state:
+        st.session_state.sayim_page = 'menu'
 
-    # input reset state (NEW)
-    ss.setdefault('ui_adres', "")
-    ss.setdefault('ui_urun', "MANUEL")
+    if 'delete_confirm' not in st.session_state:
+        st.session_state.delete_confirm = None
 
-    # ---------- HELPERS ----------
-    def _norm(x):
-        if x is None or (isinstance(x, float) and pd.isna(x)):
+    if 'katalog_hafiza' not in st.session_state:
+        st.session_state['katalog_hafiza'] = []
+
+    # ---- EKLENDİ: EKLE sonrası input temizliği için state ----
+    if 'giris_form_reset' not in st.session_state:
+        st.session_state['giris_form_reset'] = False
+
+    # -----------------------------
+    # HELPERS
+    # -----------------------------
+    def _norm_text(val):
+        if pd.isna(val):
             return ""
-        return str(x).strip()
+        return str(val).strip()
 
-    def _upper(x):
-        return _norm(x).upper()
+    def _upper_text(val):
+        return _norm_text(val).upper()
 
-    def _df(name, force=False):
-        cache = ss['sayim_df_cache']
-        if not force and name in cache:
-            return cache[name]
+    def _to_num(series):
+        return pd.to_numeric(series, errors='coerce').fillna(0)
 
+    def _get_df(table_name):
         try:
-            df = veritabani.get_internal_data(name)
-            df = pd.DataFrame() if df is None else (df if isinstance(df, pd.DataFrame) else pd.DataFrame(df))
+            df = veritabani.get_internal_data(table_name)
+            if df is None:
+                return pd.DataFrame()
+            if not isinstance(df, pd.DataFrame):
+                return pd.DataFrame(df)
+            return df.copy()
         except Exception:
+            return pd.DataFrame()
+
+    def _save_df(table_name, df):
+        if df is None:
             df = pd.DataFrame()
-
-        cache[name] = df
-        return df
-
-    def _save(name, df):
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
-        veritabani.update_data(name, df)
-        ss['sayim_df_cache'][name] = df
+        veritabani.update_data(table_name, df)
 
-    def _col(df, candidates):
+    def _find_col(df, candidates):
         if df is None or df.empty:
             return None
-        mp = {c.lower(): c for c in df.columns}
-        for c in candidates:
-            if c.lower() in mp:
-                return mp[c.lower()]
+        lower_map = {c.lower(): c for c in df.columns}
+        for cand in candidates:
+            if cand.lower() in lower_map:
+                return lower_map[cand.lower()]
         return None
 
-    def _dedupe(df):
-        return df.drop_duplicates().reset_index(drop=True) if not df.empty else df
+    def _ensure_columns(df, cols_with_defaults):
+        df = df.copy()
+        for col, default in cols_with_defaults.items():
+            if col not in df.columns:
+                df[col] = default
+        return df
 
-    def done_sessions():
-        df = _df("sayim_tamamlanan")
-        c = _col(df, ["Oturum_Adi"])
-        return df[c].dropna().astype(str).unique().tolist() if c else []
+    def _standardize_catalog_source(df, kod_col, isim_col):
+        katalog_listesi = []
+        if df.empty or kod_col is None or isim_col is None:
+            return katalog_listesi
 
-    def all_sessions():
-        out = []
-        for t in ("sayim", "sayim_snapshot"):
-            df = _df(t)
-            c = _col(df, ["Oturum_Adi"])
-            if c:
-                out.extend(df[c].dropna().astype(str).tolist())
-        return sorted(set(out))
+        temp = df[[kod_col, isim_col]].copy()
+        temp[kod_col] = temp[kod_col].astype(str).str.strip()
+        temp[isim_col] = temp[isim_col].astype(str).str.strip()
+        temp = temp[(temp[kod_col] != "") & (temp[kod_col].str.lower() != "nan")]
+        temp = temp.drop_duplicates(subset=[kod_col])
 
-    def open_sessions():
-        done = set(done_sessions())
-        return [x for x in all_sessions() if x not in done]
+        for _, row in temp.iterrows():
+            katalog_listesi.append(f"{_norm_text(row[kod_col])} | {_norm_text(row[isim_col])}")
+
+        return katalog_listesi
+
+    def get_dinamik_katalog():
+        if st.session_state.get('katalog_hafiza'):
+            return st.session_state['katalog_hafiza']
+
+        katalog_listesi = []
+
+        df_urun = _get_df("Urun_Listesi")
+        kod_col = _find_col(df_urun, ["kod", "Kod"])
+        isim_col = _find_col(df_urun, ["isim", "İsim", "ad", "Ad"])
+
+        if not df_urun.empty and kod_col and isim_col:
+            katalog_listesi = _standardize_catalog_source(df_urun, kod_col, isim_col)
+
+        if not katalog_listesi:
+            df_stok = _get_df("Stok")
+            kod_col = _find_col(df_stok, ["Kod", "kod"])
+            isim_col = _find_col(df_stok, ["İsim", "isim"])
+            if not df_stok.empty and kod_col and isim_col:
+                katalog_listesi = _standardize_catalog_source(df_stok, kod_col, isim_col)
+
+        katalog_listesi = sorted(list(set([x for x in katalog_listesi if x and x != " | "])))
+        st.session_state['katalog_hafiza'] = katalog_listesi
+        return katalog_listesi
+
+    def _session_completed_sessions():
+        df_tamamlanan = _get_df("sayim_tamamlanan")
+        if df_tamamlanan.empty:
+            return []
+        oturum_col = _find_col(df_tamamlanan, ["Oturum_Adi"])
+        if not oturum_col:
+            return []
+        return df_tamamlanan[oturum_col].dropna().astype(str).unique().tolist()
+
+    def _session_all_sessions():
+        tum = []
+        df_sayim = _get_df("sayim")
+        df_snapshot = _get_df("sayim_snapshot")
+
+        oturum_col = _find_col(df_sayim, ["Oturum_Adi"])
+        if not df_sayim.empty and oturum_col:
+            tum.extend(df_sayim[oturum_col].dropna().astype(str).unique().tolist())
+
+        oturum_col = _find_col(df_snapshot, ["Oturum_Adi"])
+        if not df_snapshot.empty and oturum_col:
+            tum.extend(df_snapshot[oturum_col].dropna().astype(str).unique().tolist())
+
+        return sorted(list(set(tum)))
+
+    def _open_sessions():
+        tamamlanan = set(_session_completed_sessions())
+        return [o for o in _session_all_sessions() if o not in tamamlanan]
+
+    def _snapshot_exists_for_session(oturum_adi):
+        df_snapshot = _get_df("sayim_snapshot")
+        if df_snapshot.empty:
+            return False
+        oc = _find_col(df_snapshot, ["Oturum_Adi"])
+        if not oc:
+            return False
+        return (df_snapshot[oc].astype(str) == str(oturum_adi)).any()
+
+    def _prepare_snapshot_for_session(oturum_adi):
+        df_stok = _get_df("Stok")
+        if df_stok.empty:
+            return pd.DataFrame()
+
+        df_stok = df_stok.copy()
+        df_stok["Oturum_Adi"] = oturum_adi
+        if "Tarih" not in df_stok.columns:
+            df_stok["Tarih"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        return df_stok
+
+    def _dedupe_exact(df):
+        if df.empty:
+            return df
+        return df.drop_duplicates().reset_index(drop=True)
 
     # =========================
     # MENU
     # =========================
-    if ss.sayim_page == 'menu':
+    if st.session_state.sayim_page == 'menu':
         st.subheader("⚖️ Sayım Kontrol Merkezi")
 
-        st.button("📁 OTURUM YÖNETİMİ", on_click=go_oturum)
-        st.button("📝 SAYIM GİRİŞİ", on_click=go_giris)
-        st.button("📊 FARK RAPORU", on_click=go_rapor)
-
     # =========================
-    # OTURUM (UPDATED - CLOSE SESSION ADDED)
+    # OTURUM
     # =========================
-    elif ss.sayim_page == 'oturum':
+    elif st.session_state.sayim_page == 'oturum':
 
-        df = _df("sayim")
-        snap = _df("sayim_snapshot")
+        df = _get_df("sayim")
+        snap = _get_df("sayim_snapshot")
 
-        ot = _col(df, ["Oturum_Adi"])
-        sp = _col(snap, ["Oturum_Adi"])
-
-        sessions = set()
-        if ot: sessions.update(df[ot].dropna().astype(str))
-        if sp: sessions.update(snap[sp].dropna().astype(str))
-
-        sessions = sorted(sessions)
-        done = set(done_sessions())
-        pending = [s for s in sessions if s not in done]
+        oturumlar = _session_all_sessions()
+        done = set(_session_completed_sessions())
+        pending = [s for s in oturumlar if s not in done]
 
         st.subheader("Oturum Yönetimi")
 
+        # ---------------- EKLENDİ: KAPATILACAK OTURUM SEÇ ----------------
+        if oturumlar:
+            kapat_sec = st.selectbox("Kapatılacak Oturum Seç", oturumlar)
+            if st.button("OTURUMU KAPAT"):
+                if st.session_state.aktif_sayim_adi == kapat_sec:
+                    st.session_state.aktif_sayim_adi = None
+                st.success("Oturum kapatıldı (aktiflik kaldırıldı).")
+
+        # mevcut akış bozulmadı
         new = st.text_input("Yeni oturum")
 
         if st.button("Başlat") and new:
-            ss.aktif_sayim_adi = new.upper()
-            ss.gecici_sayim_listesi = []
+            st.session_state.aktif_sayim_adi = new.upper()
+            st.session_state.gecici_sayim_listesi = []
             st.rerun()
 
         if pending:
             sec = st.selectbox("Bekleyen", pending)
             if st.button("Aktifleştir"):
-                ss.aktif_sayim_adi = sec
-                st.rerun()
-
-        # ---------------- NEW: CLOSE SESSION ----------------
-        st.markdown("---")
-        close_candidates = [s for s in sessions if s not in done]
-
-        if close_candidates:
-            kapat_sec = st.selectbox("Kapatılacak Oturum", close_candidates)
-
-            if st.button("OTURUMU KAPAT"):
-                df_done = _df("sayim_tamamlanan")
-
-                new_row = pd.DataFrame([{
-                    "Oturum_Adi": kapat_sec,
-                    "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-                    "Durum": "KAPATILDI"
-                }])
-
-                df_done = pd.concat([df_done, new_row], ignore_index=True)
-                df_done = _dedupe(df_done)
-
-                _save("sayim_tamamlanan", df_done)
-
-                if ss.aktif_sayim_adi == kapat_sec:
-                    ss.aktif_sayim_adi = None
-
-                st.success("Oturum kapatıldı")
+                st.session_state.aktif_sayim_adi = sec
                 st.rerun()
 
     # =========================
-    # GİRİŞ (UPDATED - RESET AFTER ADD)
+    # GİRİŞ
     # =========================
-    elif ss.sayim_page == 'giris':
+    elif st.session_state.sayim_page == 'giris':
 
-        open_s = open_sessions()
+        open_s = _open_sessions()
         if not open_s:
             st.warning("Açık oturum yok")
             return
 
         sec = st.selectbox("Oturum", open_s)
 
-        if sec != ss.aktif_sayim_adi:
-            ss.aktif_sayim_adi = sec
-            ss.gecici_sayim_listesi = []
+        if sec != st.session_state.aktif_sayim_adi:
+            st.session_state.aktif_sayim_adi = sec
+            st.session_state.gecici_sayim_listesi = []
             st.rerun()
 
-        # -------- INPUTS (CONTROLLED STATE) --------
-        ss.ui_adres = st.text_input("Adres", value=ss.ui_adres)
-        katalog = ["MANUEL"]  # simplified
-        ss.ui_urun = st.selectbox("Ürün", katalog, index=0)
+        # ---------------- EKLENDİ: FORM STATE ----------------
+        if st.session_state.get('giris_form_reset'):
+            adr_default = ""
+            kod_default = ""
+            isim_default = ""
+            st.session_state['giris_form_reset'] = False
+        else:
+            adr_default = ""
+            kod_default = ""
+            isim_default = ""
+
+        s_adr = st.text_input("Adres", value=adr_default).upper()
+
+        katalog = get_dinamik_katalog()
+        secim = st.selectbox("Ürün", ["+ MANUEL"] + katalog)
+
+        if secim != "+ MANUEL":
+            p = secim.split(" | ", 1)
+            s_kod = st.text_input("Kod", value=p[0], disabled=True)
+            s_isim = st.text_input("İsim", value=p[1] if len(p) > 1 else "", disabled=True)
+        else:
+            s_kod = st.text_input("Kod").upper()
+            s_isim = st.text_input("İsim").upper()
+
+        s_mik = st.number_input("Miktar", min_value=0.0, step=1.0)
+        s_durum = st.selectbox("Durum", ["Kullanılabilir", "Hasarlı", "İncelemede"])
 
         if st.button("EKLE"):
-            ss.gecici_sayim_listesi.append({
+            st.session_state.gecici_sayim_listesi.append({
                 "Oturum_Adi": sec,
-                "Adres": ss.ui_adres,
-                "Urun": ss.ui_urun,
-                "Miktar": 1
+                "Adres": s_adr,
+                "Kod": s_kod,
+                "İsim": s_isim,
+                "Miktar": s_mik,
+                "Durum": s_durum,
+                "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
             })
 
-            # ---------------- NEW: CLEAR INPUTS AFTER ADD ----------------
-            ss.ui_adres = ""
-            ss.ui_urun = "MANUEL"
-
+            # ---------------- EKLENDİ: SADECE ADRES KALSIN ----------------
+            st.session_state['giris_form_reset'] = True
             st.rerun()
 
         if st.button("KAYDET"):
-            new = pd.DataFrame(ss.gecici_sayim_listesi)
-            old = _df("sayim")
-
-            merged = pd.concat([old, new], ignore_index=True)
-            merged = _dedupe(merged)
-
-            _save("sayim", merged)
-
-            ss.gecici_sayim_listesi = []
-            st.success("Kaydedildi")
+            df = _dedupe_exact(pd.DataFrame(st.session_state.gecici_sayim_listesi))
+            eski = _get_df("sayim")
+            _save_df("sayim", pd.concat([eski, df], ignore_index=True))
+            st.session_state.gecici_sayim_listesi = []
             st.rerun()
-
-    # =========================
-    # RAPOR
-    # =========================
-    elif ss.sayim_page == 'rapor':
-
-        sayim = _df("sayim")
-        stok = _df("Stok")
-
-        if sayim.empty:
-            st.info("Veri yok")
-            return
-
-        sayim["Kod"] = sayim["Kod"].astype(str).str.upper()
-        sayim["Adres"] = sayim["Adres"].astype(str).str.upper()
-
-        s = sayim.groupby(["Adres", "Kod"], as_index=False)["Miktar"].sum()
-
-        stok["Kod"] = stok["Kod"].astype(str).str.upper()
-        stok["Adres"] = stok["Adres"].astype(str).str.upper()
-
-        st_ = stok.groupby(["Adres", "Kod"], as_index=False)["Miktar"].sum()
-
-        r = s.merge(st_, on=["Adres", "Kod"], how="outer").fillna(0)
-        r["FARK"] = r["Miktar_x"] - r["Miktar_y"]
-
-        st.dataframe(r, use_container_width=True)
