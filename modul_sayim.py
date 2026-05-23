@@ -30,24 +30,20 @@ def run(conn):
     # 3. Sayım Giriş Ekranı
     with st.container(border=True):
         col_adr, col_kod, col_isim, col_mik, col_durum = st.columns([1, 1.2, 1.8, 0.8, 1.2])
-        
         with col_adr:
             s_adres = st.text_input("📍 Adres", key="adr_box").upper()
-        
         with col_kod:
             new_kod = st.selectbox("📦 Ürün Kodu", [""] + kod_listesi, key="kod_sel")
             if new_kod != st.session_state['s_Kod']:
                 st.session_state['s_Kod'] = new_kod
                 st.session_state['s_Isim'] = kod_isim_dict.get(new_kod, "")
                 st.rerun()
-                
         with col_isim:
             new_isim = st.selectbox("📝 Ürün Adı", [""] + ad_listesi, key="isim_sel")
             if new_isim != st.session_state['s_Isim']:
                 st.session_state['s_Isim'] = new_isim
                 st.session_state['s_Kod'] = isim_kod_dict.get(new_isim, "")
                 st.rerun()
-        
         with col_mik:
             s_miktar = st.number_input("⚖️ Miktar", min_value=0.0, step=1.0, key="mik_box")
         with col_durum:
@@ -57,7 +53,7 @@ def run(conn):
             if s_adres and st.session_state['s_Kod']:
                 st.session_state['gecici_sayim_listesi'].append({
                     "Tarih": datetime.now().strftime("%d.%m.%Y"),
-                    "Personel": st.session_state.get('user_name', 'Patron'),
+                    "Personel": st.session_state.get('kullanici_adi', 'Patron'),
                     "Adres": s_adres,
                     "Kod": st.session_state['s_Kod'],
                     "Ürün Adı": st.session_state['s_Isim'],
@@ -68,13 +64,12 @@ def run(conn):
             else:
                 st.warning("Adres ve Ürün bilgisi zorunludur!")
 
-    # 4. Liste ve Gönderim
+    # 4. Liste ve Kayıt
     if st.session_state['gecici_sayim_listesi']:
         st.write("---")
         st.markdown("### 📥 Onay Bekleyen Sayımlar")
         df_temp = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
         st.dataframe(df_temp, use_container_width=True)
-        
         if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
             try:
                 df_db = conn.read(worksheet="sayim", ttl=0)
@@ -96,10 +91,8 @@ def run(conn):
             sistem.columns = ["Adres", "Kod", "Ürün Adı", "Sistem_Miktarı"]
             s_ozet = df_sayim_db.groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index()
             s_ozet.columns = ["Adres", "Kod", "Sayılan_Miktar"]
-            
             final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
             final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
-            
             st.dataframe(final_df, use_container_width=True)
-    except Exception as e:
+    except:
         st.info("Henüz sayım verisi bulunmuyor.")
