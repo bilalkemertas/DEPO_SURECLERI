@@ -1,38 +1,35 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import veritabani
 
-def run():
+def run(): # Fonksiyon adını 'run' olarak tuttum, app.py'da bunu çağır
     st.subheader("📝 Güncel Sayım Verisi Girişi")
     
-    # Veri bağlantısı (Ana uygulamadan veritabanı değişkenlerini aldığını varsayıyorum)
-    # Eğer veritabani modülünü kullanıyorsan import etmen gerekebilir
-    import veritabani
+    # Veri bağlantısı
     df_Stok = veritabani.get_internal_data("Stok")
     
-    # Veri Temizliği (Akıllı Eşleşme İçin)
-    df_Stok["Kod"] = df_Stok["Kod"].astype(str).str.strip()
-    df_Stok["İsim"] = df_Stok["İsim"].astype(str).str.strip()
+    # Bellek kontrolü
+    if 'gecici_sayim_listesi' not in st.session_state:
+        st.session_state['gecici_sayim_listesi'] = []
     
-    # Seçim Listeleri
-    kod_list = df_Stok["Kod"].tolist()
-    isim_list = df_Stok["İsim"].tolist()
-    
-    # Ürün eşleşme sözlükleri
-    kod_to_isim = dict(zip(df_Stok["Kod"], df_Stok["İsim"]))
-    isim_to_kod = dict(zip(df_Stok["İsim"], df_Stok["Kod"]))
+    # Sözlükleri oluştur (Seçim kutuları için)
+    kod_list = sorted(df_Stok["Kod"].astype(str).unique().tolist())
+    isim_list = sorted(df_Stok["İsim"].astype(str).unique().tolist())
+    kod_to_isim = dict(zip(df_Stok["Kod"].astype(str), df_Stok["İsim"]))
+    isim_to_kod = dict(zip(df_Stok["İsim"], df_Stok["Kod"].astype(str)))
 
     with st.container(border=True):
         col1, col2 = st.columns(2)
         
-        # 1. Adım: Ürün Seçimi (Akıllı Arama)
-        # Personel ister koddan seçer, ister isimden
-        secilen_kod = col1.selectbox("📦 Ürün Kodu Seç", [""] + kod_list, key="sayim_kod")
-        secilen_isim = col2.selectbox("📝 Ürün Adı Seç", [""] + isim_list, key="sayim_isim")
+        # 1. Adım: Ürün Seçimi (Key'ler session_state ile uyumlu)
+        secilen_kod = col1.selectbox("📦 Ürün Kodu", [""] + kod_list, key="sayim_kod")
+        secilen_isim = col2.selectbox("📝 Ürün Adı", [""] + isim_list, key="sayim_isim")
 
-        # Otomatik Doldurma Mantığı
+        # Otomatik Doldurma Mantığı (Keyler session_state'deki isimlerle aynı)
         if secilen_kod and secilen_kod != st.session_state.get("last_kod", ""):
             st.session_state.last_kod = secilen_kod
+            # Selectbox değerini session_state üzerinden güncellemek için
             st.session_state.sayim_isim = kod_to_isim.get(secilen_kod, "")
             st.rerun()
             
@@ -52,7 +49,7 @@ def run():
                 kayit = {
                     "Tarih": datetime.now().strftime("%d.%m.%Y"),
                     "Adres": s_adres,
-                    "Kod": secilen_kod if secilen_kod else secilen_isim, # İkisinden biri dolu
+                    "Kod": secilen_kod if secilen_kod else secilen_isim,
                     "Ürün Adı": secilen_isim if secilen_isim else kod_to_isim.get(secilen_kod),
                     "Miktar": s_miktar,
                     "Durum": s_durum
@@ -63,7 +60,7 @@ def run():
                 st.warning("Eksik bilgi girdin Patron!")
 
     # --- LİSTE VE ONAY ---
-    if 'gecici_sayim_listesi' in st.session_state and st.session_state['gecici_sayim_listesi']:
+    if st.session_state['gecici_sayim_listesi']:
         df_gecici = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
         st.dataframe(df_gecici, use_container_width=True)
         
