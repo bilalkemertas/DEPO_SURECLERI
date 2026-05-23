@@ -6,7 +6,8 @@ def goster(conn):
     # --- 1. TEK SEFERLİK VERİ YÜKLEME VE SESSION STATE KONTROLÜ ---
     if 'stok_df' not in st.session_state:
         with st.spinner("Veritabanı senkronize ediliyor..."):
-            df_temp = conn.read(worksheet="Stok", ttl=0)
+            # Sadece buradaki worksheet ismini "Urun_Listesi" olarak değiştirdim
+            df_temp = conn.read(worksheet="Urun_Listesi", ttl=0)
             df_temp = df_temp.dropna(subset=["Kod", "İsim"])
             df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
             
@@ -52,8 +53,10 @@ def goster(conn):
             
             c1, c2 = st.columns(2)
             with c1:
+                # Widgetlar burada oluşuyor
                 s_kod = st.text_input("📦 Malzeme Kodu:", key="manual_s_kod").upper().strip()
                 s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
+                
             with c2:
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
                 s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur")
@@ -106,12 +109,14 @@ def goster(conn):
             final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
             final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
             
+            # Renklendirme stili
             def style_f(v):
                 if v < 0: return 'background-color: #ffcccc; color: red'
                 if v > 0: return 'background-color: #ccffcc; color: green'
                 return ''
             
             st.dataframe(final_df.style.map(style_f, subset=['FARK']), use_container_width=True)
+            
             m1, m2, m3 = st.columns(3)
             m1.metric("Toplam Sistem", f"{final_df['Sistem_Miktarı'].sum():,.0f}")
             m2.metric("Toplam Sayılan", f"{final_df['Sayılan_Miktar'].sum():,.0f}")
