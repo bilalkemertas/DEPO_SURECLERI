@@ -26,9 +26,10 @@ def goster(conn=None):
     # --- 0. ANA MENÜ ---
     if st.session_state.sayim_page == 'menu':
         # YAN YANA BUTONLAR VE BAŞLIK
-        c_btn1, c_title = st.columns([1.5, 4])
+        c_btn1, c_btn2, c_title = st.columns([1.5, 4])
         with c_btn1:
             if st.button("🏠 ANA MENÜYE DÖN", use_container_width=True): go_home(); st.rerun()
+            if st.button("Geri", use_container_width=true); go_sayim_menu(); st.rerun()
         with c_title:
             st.subheader("⚖️ Sayım Kontrol Merkezi")
         st.markdown("---")
