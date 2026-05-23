@@ -92,7 +92,7 @@ if 'kullanici_adi' not in st.session_state:
 if 'page' not in st.session_state:
     st.session_state['page'] = 'main'
 
-# Herhangi bir modül yanlış bir sayfa ismi gönderirse sistemi kurtarıp ana menüye atar
+# Güvenli Yönlendirme Kontrolü
 gecerli_sayfalar = ['main', 'home', 'mal_kabul', 'blok_kesim', 'uretim', 'stok', 'sayim', 'rapor']
 if st.session_state['page'] not in gecerli_sayfalar:
     st.session_state['page'] = 'main'
@@ -101,15 +101,11 @@ if st.session_state['page'] not in gecerli_sayfalar:
 if not st.session_state['logged_in']:
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        st.write("")
-        st.write("")
-        st.write("") 
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center; color: #0b3c5d; margin-bottom: 10px;'>🏢 BRN WMS Giriş</h2>", unsafe_allow_html=True)
             st.divider()
             kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adınızı girin")
             sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
-            st.write("") 
             if st.button("Sisteme Giriş Yap", use_container_width=True):
                 if "users" in st.secrets:
                     kullanici_listesi = st.secrets["users"]
@@ -131,11 +127,9 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
-    # --- ANA MENÜ (TILE EKRANI) ---
+    # --- ANA MENÜ ---
     if st.session_state['page'] in ['main', 'home']:
         st.subheader("Uygulama Menüsü")
-        st.write("") 
-        
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("📦\nMal Kabul", type="primary", use_container_width=True):
@@ -150,8 +144,6 @@ else:
                 st.session_state['page'] = 'uretim'
                 st.rerun()
 
-        st.write("") 
-        
         col4, col5, col6 = st.columns(3)
         with col4:
             if st.button("📍\nStok & Adresleme", type="primary", use_container_width=True):
@@ -167,31 +159,27 @@ else:
                 st.rerun()
                 
         st.divider()
-        col_cikis, _ = st.columns([1, 4]) 
-        with col_cikis:
-            if st.button("🚪 Güvenli Çıkış Yap", use_container_width=True):
-                st.session_state['logged_in'] = False
-                st.session_state['kullanici_adi'] = ""
-                st.rerun()
+        if st.button("🚪 Güvenli Çıkış Yap"):
+            st.session_state.update({'logged_in': False, 'kullanici_adi': ""})
+            st.rerun()
 
-    # --- MODÜL SAYFALARI YÖNLENDİRMELERİ ---
+    # --- MODÜL YÖNLENDİRMELERİ ---
+    else:
+        if st.button("⬅️ Ana Menüye Dön"):
+            st.session_state['page'] = 'main'
+            st.rerun()
+        st.write("---")
 
-    elif st.session_state['page'] == 'mal_kabul':
-        # MODÜL İÇİNDEKİ BUTON YETERLİ, BURADAKİ KALDIRILDI
-        teslim_alma.run(conn)
-
-    elif st.session_state['page'] == 'blok_kesim':
-        # MODÜL İÇİNDEKİ BUTON YETERLİ, BURADAKİ KALDIRILDI
-        blok_kesim.run_blok_kesim(conn)
-
-    elif st.session_state['page'] == 'uretim':
-        modul_uretim.goster() 
-
-    elif st.session_state['page'] == 'stok':
-        modul_stok.goster() 
-
-    elif st.session_state['page'] == 'sayim':
-        modul_sayim.goster() 
-
-    elif st.session_state['page'] == 'rapor':
-        modul_rapor.goster()
+        if st.session_state['page'] == 'mal_kabul':
+            teslim_alma.run(conn)
+        elif st.session_state['page'] == 'blok_kesim':
+            blok_kesim.run_blok_kesim(conn)
+        elif st.session_state['page'] == 'uretim':
+            modul_uretim.goster() 
+        elif st.session_state['page'] == 'stok':
+            modul_stok.goster() 
+        elif st.session_state['page'] == 'sayim':
+            # conn parametresini buraya aktardım
+            modul_sayim.goster(conn)
+        elif st.session_state['page'] == 'rapor':
+            modul_rapor.goster()
