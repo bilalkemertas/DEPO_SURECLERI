@@ -3,17 +3,23 @@ import pandas as pd
 from datetime import datetime
 
 def goster(conn):
-    # --- 1. TEK SEFERLİK VERİ YÜKLEME (CACHE) ---
-    # Eğer veriler yoksa, sadece bir kez veritabanına git
+    # --- 1. TEK SEFERLİK VERİ YÜKLEME VE GÜVENLİK ZIRHI ---
     if 'stok_df' not in st.session_state:
         with st.spinner("Veritabanı senkronize ediliyor..."):
             try:
+                # Sütun isimlerini sabitleme ve temizleme zırhı
                 df_temp = conn.read(worksheet="Urun_Listesi", ttl=0)
+                df_temp.columns = [str(c).strip() for c in df_temp.columns]
+                
+                # Kod/İsim kontrolü
+                k_col = 'Kod' if 'Kod' in df_temp.columns else df_temp.columns[0]
+                n_col = 'İsim' if 'İsim' in df_temp.columns else df_temp.columns[1]
+                df_temp = df_temp.rename(columns={k_col: 'Kod', n_col: 'İsim'})
+                
                 df_temp = df_temp.dropna(subset=["Kod", "İsim"])
                 df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
-                st.session_state['stok_df'] = df_temp
                 
-                # Katalogu bir kez oluştur ve session_state'e kaydet
+                st.session_state['stok_df'] = df_temp
                 st.session_state['kod_isim_dict'] = pd.Series(df_temp.İsim.values, index=df_temp.Kod).to_dict()
                 st.session_state['katalog'] = [f"{k} | {v}" for k, v in st.session_state['kod_isim_dict'].items()]
             except Exception as e:
@@ -44,14 +50,7 @@ def goster(conn):
     with tab1:
         st.subheader("📍 Yeni Veri Girişi")
         with st.container(border=True):
-            st.selectbox(
-                "🔍 Ürün Seç:", 
-                options=katalog,
-                index=None,
-                placeholder="Ürün seçmek için tıklayın...",
-                key="sec_box",
-                on_change=urun_secildi
-            )
+            st.selectbox("🔍 Ürün Seç:", options=katalog, index=None, placeholder="Ürün seçmek için tıklayın...", key="sec_box", on_change=urun_secildi)
             
             c1, c2 = st.columns(2)
             with c1:
@@ -68,11 +67,7 @@ def goster(conn):
                     st.session_state['gecici_sayim_listesi'].append({
                         "Tarih": datetime.now().strftime("%d.%m.%Y"),
                         "Personel": st.session_state.get('kullanici_adi', 'Patron'),
-                        "Adres": s_adres,
-                        "Kod": s_kod,
-                        "Lot": s_lot,
-                        "Miktar": s_mik,
-                        "Durum": s_dur
+                        "Adres": s_adres, "Kod": s_kod, "Lot": s_lot, "Miktar": s_mik, "Durum": s_dur
                     })
                     st.rerun()
 
@@ -80,23 +75,19 @@ def goster(conn):
             st.markdown("### 📥 Onay Bekleyen Sayımlar")
             for index, item in enumerate(st.session_state['gecici_sayim_listesi']):
                 r_col1, r_col2, r_col3, r_col4, r_col5, r_col6 = st.columns([1, 1, 1.5, 0.8, 1.2, 0.5])
-                r_col1.write(item["Adres"])
-                r_col2.write(item["Kod"])
-                r_col3.write(item["Lot"])
+                r_col1.write(item["Adres"]); r_col2.write(item["Kod"]); r_col3.write(item["Lot"])
                 r_col4.write(f"{item['Miktar']:,.0f}")
                 status_color = "🔴" if item["Durum"] == "Hasarlı" else "🟢"
                 r_col5.write(f"{status_color} {item['Durum']}")
                 if r_col6.button("🗑️", key=f"del_{index}"):
-                    st.session_state['gecici_sayim_listesi'].pop(index)
-                    st.rerun()
+                    st.session_state['gecici_sayim_listesi'].pop(index); st.rerun()
 
             if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
                 df_son = pd.concat([st.session_state['sayim_db'], pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True)
                 conn.update(worksheet="sayim", data=df_son)
                 st.session_state['sayim_db'] = df_son
                 st.session_state['gecici_sayim_listesi'] = []
-                st.success("Tüm veriler kaydedildi!")
-                st.rerun()
+                st.success("Veriler kaydedildi!"); st.rerun()
 
     with tab2:
         st.subheader("🔍 Sayım ve Fark Analizi")
@@ -112,7 +103,6 @@ def goster(conn):
                 if v < 0: return 'background-color: #ffcccc; color: red'
                 if v > 0: return 'background-color: #ccffcc; color: green'
                 return ''
-            
             st.dataframe(final_df.style.map(style_f, subset=['FARK']), use_container_width=True)
             m1, m2, m3 = st.columns(3)
             m1.metric("Toplam Sistem", f"{final_df['Sistem_Miktarı'].sum():,.0f}")
