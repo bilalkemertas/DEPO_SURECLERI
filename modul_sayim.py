@@ -13,7 +13,8 @@ def go_oturum(): st.session_state.sayim_page = 'oturum'
 def go_giris(): st.session_state.sayim_page = 'giris'
 def go_rapor(): st.session_state.sayim_page = 'rapor'
 
-def goster():
+# Hatanın Çözüldüğü Satır (conn=None eklendi)
+def goster(conn=None):
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
     if 'aktif_sayim_adi' not in st.session_state:
