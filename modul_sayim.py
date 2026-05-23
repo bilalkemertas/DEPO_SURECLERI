@@ -183,7 +183,7 @@ def goster(conn=None):
                         
                         veritabani.update_data("Stok", pd.concat([stok_kalan, yeni_stok_verisi[yeni_stok_verisi['Miktar']>0]], ignore_index=True))
                         
-                        log_yeni = pd.DataFrame([{"Oturum_Adi": aktif, "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M")}])
+                        log_yeni = pd.DataFrame([{"Oturum_Adi": aktif, "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S")}])
                         veritabani.update_data("sayim_tamamlanan", pd.concat([df_tamamlanan, log_yeni], ignore_index=True))
                         
                         st.session_state.aktif_sayim_adi = None
@@ -264,15 +264,18 @@ def goster(conn=None):
                     if not s_kod:
                         st.error("Lütfen bir ürün kodu giriniz veya listeden seçiniz.")
                     else:
+                        # GİRİŞ YAPAN KULLANICIYI DİNAMİK YAKALAMA (HATA BURADA DÜZELTİLDİ)
+                        aktif_kullanici = st.session_state.get('user', st.session_state.get('kullanici', st.session_state.get('username', 'Giriş Yapılmamış')))
+                        
                         st.session_state['gecici_sayim_listesi'].append({
                             "Oturum_Adi": st.session_state.aktif_sayim_adi,
-                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"), # <-- HATA BURADA DÜZELTİLDİ
+                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                             "Adres": s_adr, 
                             "Kod": s_kod, 
                             "İsim": s_isim, 
                             "Miktar": s_mik, 
                             "Birim": "-", 
-                            "Personel": st.session_state.user if 'user' in st.session_state else "Personel", 
+                            "Personel": aktif_kullanici, 
                             "Durum": s_durum
                         })
                         st.toast("Eklendi")
@@ -329,7 +332,7 @@ def goster(conn=None):
                 
                 st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
                 if not df_snapshot_ana.empty:
-                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana['Oturum_Adi'] == secilen_oturum].copy()
+                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_oturum['Oturum_Adi'] == secilen_oturum].copy()
                     if not df_snapshot_oturum.empty:
                         df_snapshot_oturum['Miktar'] = pd.to_numeric(df_snapshot_oturum['Miktar'], errors='coerce').fillna(0)
                         st_ozet = df_snapshot_oturum.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
