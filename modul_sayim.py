@@ -2,63 +2,80 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-def run(df_Stok_ana, conn):
-    """
-    Ana uygulamadan (app.py) gelen stok verisi ve veritabanı bağlantısı ile çalışır.
-    """
+def run(conn):
     st.subheader("📝 Güncel Sayım Verisi Girişi")
-    
-    # Veri Hazırlığı
-    df_Stok_ana["Kod"] = df_Stok_ana["Kod"].astype(str).str.strip()
-    kod_isim_dict = pd.Series(df_Stok_ana.İsim.values, index=df_Stok_ana.Kod).to_dict()
-    kod_listesi = sorted(list(kod_isim_dict.keys()))
-    ad_listesi = sorted(df_Stok_ana["İsim"].unique().tolist())
-    durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "Kayıp", "İncelemede"]
 
-    # Bellek kontrolü
+    # 1. Veri Okuma
+    try:
+        df_Stok_ana = conn.read(worksheet="Stok", ttl=0)
+        df_Stok_ana = df_Stok_ana.dropna(subset=["Kod", "İsim"])
+        df_Stok_ana["Kod"] = df_Stok_ana["Kod"].astype(str).str.strip()
+        
+        kod_isim_dict = pd.Series(df_Stok_ana.İsim.values, index=df_Stok_ana.Kod).to_dict()
+        isim_kod_dict = pd.Series(df_Stok_ana.Kod.values, index=df_Stok_ana.İsim).to_dict()
+        
+        kod_listesi = sorted(list(kod_isim_dict.keys()))
+        ad_listesi = sorted(list(isim_kod_dict.keys()))
+        durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "Kayıp", "İncelemede"]
+    except Exception as e:
+        st.error(f"Veri yüklenemedi: {e}")
+        return
+
+    # 2. State Yönetimi
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
+    if 's_Kod' not in st.session_state: st.session_state['s_Kod'] = ""
+    if 's_Isim' not in st.session_state: st.session_state['s_Isim'] = ""
 
-    # 1. GİRİŞ EKRANI
+    # 3. Sayım Giriş Ekranı
     with st.container(border=True):
         col_adr, col_kod, col_isim, col_mik, col_durum = st.columns([1, 1.2, 1.8, 0.8, 1.2])
         
         with col_adr:
             s_adres = st.text_input("📍 Adres", key="adr_box").upper()
+        
         with col_kod:
-            s_Kod = st.selectbox("📦 Ürün Kodu", [""] + kod_listesi, key="kod_box")
+            new_kod = st.selectbox("📦 Ürün Kodu", [""] + kod_listesi, key="kod_sel")
+            if new_kod != st.session_state['s_Kod']:
+                st.session_state['s_Kod'] = new_kod
+                st.session_state['s_Isim'] = kod_isim_dict.get(new_kod, "")
+                st.rerun()
+                
         with col_isim:
-            current_name = kod_isim_dict.get(str(s_Kod), "")
-            st.text_input("📝 Ürün Adı", value=current_name, disabled=True)
+            new_isim = st.selectbox("📝 Ürün Adı", [""] + ad_listesi, key="isim_sel")
+            if new_isim != st.session_state['s_Isim']:
+                st.session_state['s_Isim'] = new_isim
+                st.session_state['s_Kod'] = isim_kod_dict.get(new_isim, "")
+                st.rerun()
+        
         with col_mik:
             s_miktar = st.number_input("⚖️ Miktar", min_value=0.0, step=1.0, key="mik_box")
         with col_durum:
             s_durum = st.selectbox("🛠️ Ürün Durumu", durum_opsiyonlari, key="durum_box")
         
         if st.button("➕ Listeye Ekle", use_container_width=True):
-            if s_adres and s_Kod:
+            if s_adres and st.session_state['s_Kod']:
                 st.session_state['gecici_sayim_listesi'].append({
                     "Tarih": datetime.now().strftime("%d.%m.%Y"),
                     "Personel": st.session_state.get('user_name', 'Patron'),
                     "Adres": s_adres,
-                    "Kod": s_Kod,
-                    "Ürün Adı": current_name,
+                    "Kod": st.session_state['s_Kod'],
+                    "Ürün Adı": st.session_state['s_Isim'],
                     "Miktar": s_miktar,
                     "Durum": s_durum
                 })
-                st.toast(f"{s_Kod} eklendi.")
+                st.toast(f"{st.session_state['s_Kod']} listeye eklendi.")
             else:
-                st.warning("Adres ve Kod alanları zorunludur!")
+                st.warning("Adres ve Ürün bilgisi zorunludur!")
 
-    # 2. LİSTE VE ONAY
+    # 4. Liste ve Gönderim
     if st.session_state['gecici_sayim_listesi']:
         st.write("---")
         st.markdown("### 📥 Onay Bekleyen Sayımlar")
         df_temp = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
         st.dataframe(df_temp, use_container_width=True)
         
-        c_onay, c_iptal = st.columns(2)
-        if c_onay.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
+        if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
             try:
                 df_db = conn.read(worksheet="sayim", ttl=0)
                 df_son = pd.concat([df_db, df_temp], ignore_index=True)
@@ -68,7 +85,21 @@ def run(df_Stok_ana, conn):
                 st.rerun()
             except Exception as e:
                 st.error(f"Hata: {e}")
-        
-        if c_iptal.button("⚠️ Tüm Listeyi Boşalt", use_container_width=True):
-            st.session_state['gecici_sayim_listesi'] = []
-            st.rerun()
+
+    # 5. Sayım Fark Raporu
+    st.write("---")
+    st.subheader("📊 Sayım ve Fark Analizi")
+    try:
+        df_sayim_db = conn.read(worksheet="sayim", ttl=0)
+        if not df_sayim_db.empty:
+            sistem = df_Stok_ana[['Adres', 'Kod', 'İsim', 'Miktar']].copy()
+            sistem.columns = ["Adres", "Kod", "Ürün Adı", "Sistem_Miktarı"]
+            s_ozet = df_sayim_db.groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index()
+            s_ozet.columns = ["Adres", "Kod", "Sayılan_Miktar"]
+            
+            final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
+            final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
+            
+            st.dataframe(final_df, use_container_width=True)
+    except Exception as e:
+        st.info("Henüz sayım verisi bulunmuyor.")
