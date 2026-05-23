@@ -25,7 +25,7 @@ def goster(conn):
     if 's_Kod' not in st.session_state: st.session_state['s_Kod'] = ""
     if 's_Isim' not in st.session_state: st.session_state['s_Isim'] = ""
 
-    st.title("🚀 Gelişmiş Sayım ve Durum Takibi")
+    st.title("🚀 Sayım ve Durum Takibi")
     tab1, tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
 
     # --- TAB 1: SAYIM GİRİŞ EKRANI ---
