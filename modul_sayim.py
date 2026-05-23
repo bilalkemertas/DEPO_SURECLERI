@@ -52,10 +52,22 @@ def goster(conn=None):
 
         df_sayim_ana = veritabani.get_internal_data("sayim")
         df_tamamlanan = veritabani.get_internal_data("sayim_tamamlanan")
+        # --- KRİTİK EKLEME: SNAPSHOT'LARI DA OKU ---
+        df_snapshot_ana = veritabani.get_internal_data("sayim_snapshot")
         
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty and 'Oturum_Adi' in df_tamamlanan.columns:
             tamamlanmis_oturumlar = df_tamamlanan['Oturum_Adi'].dropna().unique().tolist()
+
+        # --- AÇIK OTURUMLARI MERKEZİ VERİTABANINDAN ÇEKME (KAYBOLMAYI ÖNLER) ---
+        tum_oturumlar = []
+        if not df_sayim_ana.empty and 'Oturum_Adi' in df_sayim_ana.columns:
+            tum_oturumlar.extend(df_sayim_ana['Oturum_Adi'].dropna().unique().tolist())
+        if not df_snapshot_ana.empty and 'Oturum_Adi' in df_snapshot_ana.columns:
+            tum_oturumlar.extend(df_snapshot_ana['Oturum_Adi'].dropna().unique().tolist())
+            
+        tum_oturumlar = list(set(tum_oturumlar)) # Tekrar edenleri temizle
+        bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
 
         if st.session_state.aktif_sayim_adi is None:
             # YENİ OTURUM
@@ -78,15 +90,12 @@ def goster(conn=None):
                         st.rerun()
             
             # BEKLEYENLERİ DİRİLTME
-            if not df_sayim_ana.empty:
-                tum_oturumlar = df_sayim_ana['Oturum_Adi'].unique().tolist()
-                bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
-                if bekleyenler:
-                    with st.expander("⏳ Bekleyen (Aktarılmamış) Oturumlar", expanded=True):
-                        secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
-                        if st.button("🔄 OTURUMU GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
-                            st.session_state.aktif_sayim_adi = secilen_bekleyen
-                            st.rerun()
+            if bekleyenler:
+                with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=True):
+                    secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
+                    if st.button("🔄 OTURUMU GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
+                        st.session_state.aktif_sayim_adi = secilen_bekleyen
+                        st.rerun()
         else:
             st.success(f"📡 Şuan Çalışılan Oturum: **{st.session_state.aktif_sayim_adi}**")
             with st.container(border=True):
