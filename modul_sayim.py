@@ -3,25 +3,28 @@ import pandas as pd
 from datetime import datetime
 
 def goster(conn):
-    # --- 1. TEK SEFERLİK VERİ YÜKLEME VE SESSION STATE KONTROLÜ ---
+    # --- 1. TEK SEFERLİK VERİ YÜKLEME (CACHE) ---
+    # Eğer veriler yoksa, sadece bir kez veritabanına git
     if 'stok_df' not in st.session_state:
         with st.spinner("Veritabanı senkronize ediliyor..."):
-            # Sadece buradaki worksheet ismini "Urun_Listesi" olarak değiştirdim
-            df_temp = conn.read(worksheet="Urun_Listesi", ttl=0)
-            df_temp = df_temp.dropna(subset=["Kod", "İsim"])
-            df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
-            
-            st.session_state['stok_df'] = df_temp
-            # Tüm katalog ve sözlükleri session state'e yaz
-            st.session_state['kod_isim_dict'] = pd.Series(df_temp.İsim.values, index=df_temp.Kod).to_dict()
-            st.session_state['isim_kod_dict'] = pd.Series(df_temp.Kod.values, index=df_temp.İsim).to_dict()
-            st.session_state['katalog'] = [f"{k} | {v}" for k, v in st.session_state['kod_isim_dict'].items()]
+            try:
+                df_temp = conn.read(worksheet="Urun_Listesi", ttl=0)
+                df_temp = df_temp.dropna(subset=["Kod", "İsim"])
+                df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
+                st.session_state['stok_df'] = df_temp
+                
+                # Katalogu bir kez oluştur ve session_state'e kaydet
+                st.session_state['kod_isim_dict'] = pd.Series(df_temp.İsim.values, index=df_temp.Kod).to_dict()
+                st.session_state['katalog'] = [f"{k} | {v}" for k, v in st.session_state['kod_isim_dict'].items()]
+            except Exception as e:
+                st.error(f"Veri çekme hatası: {e}")
+                return
 
     if 'sayim_db' not in st.session_state:
         st.session_state['sayim_db'] = conn.read(worksheet="sayim", ttl=0)
 
-    # --- 2. DEĞİŞKENLER (KeyError almamak için güvenli erişim) ---
-    df_Stok_ana = st.session_state.get('stok_df')
+    # --- 2. DEĞİŞKENLER ---
+    df_Stok_ana = st.session_state.get('stok_df', pd.DataFrame())
     katalog = st.session_state.get('katalog', [])
 
     # --- 3. FONKSİYONLAR ---
@@ -31,7 +34,7 @@ def goster(conn):
             kod = str(sec_val).split(" | ")[0]
             st.session_state["manual_s_kod"] = kod
 
-    # --- 4. ARAYÜZ VE SESSION STATE ---
+    # --- 4. ARAYÜZ ---
     if 'gecici_sayim_listesi' not in st.session_state: st.session_state['gecici_sayim_listesi'] = []
     if 'manual_s_kod' not in st.session_state: st.session_state['manual_s_kod'] = ""
 
@@ -41,7 +44,6 @@ def goster(conn):
     with tab1:
         st.subheader("📍 Yeni Veri Girişi")
         with st.container(border=True):
-            # ÜRÜN SEÇİMİ
             st.selectbox(
                 "🔍 Ürün Seç:", 
                 options=katalog,
@@ -53,10 +55,8 @@ def goster(conn):
             
             c1, c2 = st.columns(2)
             with c1:
-                # Widgetlar burada oluşuyor
                 s_kod = st.text_input("📦 Malzeme Kodu:", key="manual_s_kod").upper().strip()
                 s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
-                
             with c2:
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
                 s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur")
@@ -76,7 +76,6 @@ def goster(conn):
                     })
                     st.rerun()
 
-        # DİNAMİK SİLİNEBİLİR LİSTE
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("### 📥 Onay Bekleyen Sayımlar")
             for index, item in enumerate(st.session_state['gecici_sayim_listesi']):
@@ -109,14 +108,12 @@ def goster(conn):
             final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
             final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
             
-            # Renklendirme stili
             def style_f(v):
                 if v < 0: return 'background-color: #ffcccc; color: red'
                 if v > 0: return 'background-color: #ccffcc; color: green'
                 return ''
             
             st.dataframe(final_df.style.map(style_f, subset=['FARK']), use_container_width=True)
-            
             m1, m2, m3 = st.columns(3)
             m1.metric("Toplam Sistem", f"{final_df['Sistem_Miktarı'].sum():,.0f}")
             m2.metric("Toplam Sayılan", f"{final_df['Sayılan_Miktar'].sum():,.0f}")
