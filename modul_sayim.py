@@ -1,136 +1,246 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import veritabani
+import io
+from datetime import datetime
 
-def goster(conn):
-    # --- 1. TEK SEFERLİK VERİ YÜKLEME ---
-    df_stok = veritabani.get_internal_data("Stok")
-    df_k = veritabani.get_internal_data("Urun_Listesi")
-    
-    if df_k is None or df_k.empty:
-        df_k = veritabani.get_internal_data("Katalog")
+def go_home(): 
+    st.session_state.page = 'home'
+    st.session_state.sayim_page = 'menu'
 
-    if df_k is None or df_k.empty:
-        katalog = []
-        kod_isim_dict = {}
-    else:
-        df_k.columns = [str(c).strip() for c in df_k.columns]
-        k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
-        n_col = 'İsim' if 'İsim' in df_k.columns else df_k.columns[1]
-        katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
-        kod_isim_dict = pd.Series(df_k[n_col].values, index=df_k[k_col].astype(str)).to_dict()
+def go_sayim_menu(): st.session_state.sayim_page = 'menu'
+def go_oturum(): st.session_state.sayim_page = 'oturum'
+def go_giris(): st.session_state.sayim_page = 'giris'
+def go_rapor(): st.session_state.sayim_page = 'rapor'
 
-    if 'sayim_db' not in st.session_state:
-        st.session_state['sayim_db'] = veritabani.get_internal_data("sayim")
+def goster():
+    if 'gecici_sayim_listesi' not in st.session_state:
+        st.session_state['gecici_sayim_listesi'] = []
+    if 'aktif_sayim_adi' not in st.session_state:
+        st.session_state.aktif_sayim_adi = None
+    if 'sayim_page' not in st.session_state:
+        st.session_state.sayim_page = 'menu'
+    if 'delete_confirm' not in st.session_state:
+        st.session_state.delete_confirm = None
 
-    # --- 2. DEĞİŞKENLER VE OTURUM YÖNETİMİ ---
-    if st.session_state['sayim_db'] is None: st.session_state['sayim_db'] = pd.DataFrame()
-    if 'aktif_sayim_oturumu' not in st.session_state: st.session_state['aktif_sayim_oturumu'] = False
-    if 'sayim_info' not in st.session_state: st.session_state['sayim_info'] = {}
-
-    def urun_secildi():
-        sec_val = st.session_state.get("sec_box")
-        if sec_val:
-            kod = str(sec_val).split(" | ")[0]
-            st.session_state["manual_s_kod"] = kod
-
-    # --- 4. ARAYÜZ VE SESSION STATE ---
-    if 'gecici_sayim_listesi' not in st.session_state: st.session_state['gecici_sayim_listesi'] = []
-    if 'manual_s_kod' not in st.session_state: st.session_state['manual_s_kod'] = ""
-
-    st.title("🚀 Sayım ve Durum Takibi")
-    tab1, tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
-
-    with tab1:
-        # --- YENİ SAYIM MENÜSÜ ---
-        st.subheader("⚙️ Sayım Oturumu Yönetimi")
-        if not st.session_state['aktif_sayim_oturumu']:
-            with st.expander("➕ Sayım Başlatma Menüsü"):
-                c_tarih, c_belge = st.columns(2)
-                s_tarih = c_tarih.date_input("Sayım Günü", datetime.now())
-                s_belge = c_belge.text_input("Sayım Belge No")
-                if st.button("🚀 Oturumu Başlat"):
-                    if s_belge:
-                        st.session_state['aktif_sayim_oturumu'] = True
-                        st.session_state['sayim_info'] = {"Tarih": str(s_tarih), "Belge_No": s_belge}
-                        st.rerun()
-                    else:
-                        st.warning("Lütfen Belge Numarası girin!")
+    # --- 0. ANA MENÜ ---
+    if st.session_state.sayim_page == 'menu':
+        c_nav, c_title = st.columns([1, 4])
+        with c_nav:
+            if st.button("⬅️ GERİ"): go_home(); st.rerun()
+        with c_title:
+            st.subheader("⚖️ Sayım Kontrol Merkezi")
+        st.markdown("---")
+        c1, c2, c3 = st.columns(3)
+        with c1: st.button("📁 OTURUM YÖNETİMİ", use_container_width=True, type="primary", on_click=go_oturum)
+        with c2: st.button("📝 SAYIM GİRİŞİ", use_container_width=True, type="primary", on_click=go_giris)
+        with c3: st.button("📊 FARK RAPORU", use_container_width=True, type="primary", on_click=go_rapor)
+        st.markdown("---")
+        if st.session_state.aktif_sayim_adi:
+            st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
         else:
-            st.success(f"🟢 Aktif Sayım: {st.session_state['sayim_info']['Belge_No']} | {st.session_state['sayim_info']['Tarih']}")
-            m1, m2, m3 = st.columns(3)
-            m1.button("🔍 Sayım Okutma Modu (Aktif)")
-            if m3.button("🛑 Sayımı Tamamla"):
-                st.session_state['aktif_sayim_oturumu'] = False
-                st.session_state['sayim_info'] = {}
-                st.rerun()
+            st.info("ℹ️ Açık oturum yok. İşlem için oturum başlatın veya bekleyen bir oturumu aktifleştirin.")
 
-        st.divider()
-        st.subheader("📍 Yeni Veri Girişi")
-        with st.container(border=True):
-            st.selectbox("🔍 Ürün Seç:", options=katalog, index=None, placeholder="Ürün seçmek için tıklayın...", key="sec_box", on_change=urun_secildi)
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                s_kod = st.text_input("📦 Malzeme Kodu:", key="manual_s_kod").upper().strip()
-                s_lot = st.text_input("🔢 Parti/Lot No:", key="s_lot").upper().strip()
-            with c2:
-                s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
-                s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur")
-            
-            s_adres = st.text_input("📍 Adres", key="adr_box").upper()
+    # --- 1. OTURUM YÖNETİMİ ---
+    elif st.session_state.sayim_page == 'oturum':
+        c_nav, c_title = st.columns([1, 4])
+        with c_nav:
+            if st.button("⬅️ GERİ"): go_sayim_menu(); st.rerun()
+        with c_title:
+            st.subheader("📁 Oturum Yönetimi")
+        st.markdown("---")
 
-            if st.button("➕ Listeye Ekle", use_container_width=True):
-                if s_adres and s_kod:
-                    # Oturum bilgileri varsa listeye ekle
-                    yeni_kayit = {
-                        "Tarih": datetime.now().strftime("%d.%m.%Y"),
-                        "Personel": st.session_state.get('kullanici_adi', 'Patron'),
-                        "Adres": s_adres, "Kod": s_kod, "Lot": s_lot, "Miktar": s_mik, "Durum": s_dur
-                    }
-                    if st.session_state['aktif_sayim_oturumu']:
-                        yeni_kayit.update(st.session_state['sayim_info'])
+        df_sayim_ana = veritabani.get_internal_data("sayim")
+        df_tamamlanan = veritabani.get_internal_data("sayim_tamamlanan")
+        
+        tamamlanmis_oturumlar = []
+        if not df_tamamlanan.empty and 'Oturum_Adi' in df_tamamlanan.columns:
+            tamamlanmis_oturumlar = df_tamamlanan['Oturum_Adi'].dropna().unique().tolist()
+
+        if st.session_state.aktif_sayim_adi is None:
+            # YENİ OTURUM
+            with st.expander("🆕 Yeni Sayım Oturumu Başlat", expanded=True):
+                sayim_etiketi = st.text_input("Oturum İsmi:", placeholder="Örn: A_Blok")
+                if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True, type="primary"):
+                    if sayim_etiketi:
+                        zaman = datetime.now().strftime("%d%m_%H%M")
+                        yeni_oturum_id = f"{sayim_etiketi}_{zaman}"
                         
-                    st.session_state['gecici_sayim_listesi'].append(yeni_kayit)
+                        # --- KRİTİK EKLEME: SAYIM BAŞLANGIÇ STOĞUNU (SNAPSHOT) KAYDET ---
+                        df_stok_anlik = veritabani.get_internal_data("Stok")
+                        if not df_stok_anlik.empty:
+                            df_stok_anlik['Oturum_Adi'] = yeni_oturum_id
+                            mevcut_snapshots = veritabani.get_internal_data("sayim_snapshot")
+                            yeni_snapshots = pd.concat([mevcut_snapshots, df_stok_anlik], ignore_index=True)
+                            veritabani.update_data("sayim_snapshot", yeni_snapshots)
+                        
+                        st.session_state.aktif_sayim_adi = yeni_oturum_id
+                        st.rerun()
+            
+            # BEKLEYENLERİ DİRİLTME
+            if not df_sayim_ana.empty:
+                tum_oturumlar = df_sayim_ana['Oturum_Adi'].unique().tolist()
+                bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
+                if bekleyenler:
+                    with st.expander("⏳ Bekleyen (Aktarılmamış) Oturumlar", expanded=True):
+                        secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
+                        if st.button("🔄 OTURUMU GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
+                            st.session_state.aktif_sayim_adi = secilen_bekleyen
+                            st.rerun()
+        else:
+            st.success(f"📡 Şuan Çalışılan Oturum: **{st.session_state.aktif_sayim_adi}**")
+            with st.container(border=True):
+                if st.button("🛑 OTURUMU SADECE KAPAT (GÜNCELLEME YAPMA)", use_container_width=True):
+                    st.session_state.aktif_sayim_adi = None
+                    st.session_state['gecici_sayim_listesi'] = []
                     st.rerun()
+                st.markdown("---")
+                st.warning("⚠️ STOK GÜNCELLEME: Bu işlem seçili oturumdaki kalemleri stoğa işler.")
+                onay = st.checkbox("Sayım verilerinin doğruluğunu onaylıyorum.")
+                if st.button("🚀 STOKLARI GÜNCELLE VE ARŞİVLE", type="primary", use_container_width=True, disabled=not onay):
+                    df_stok = veritabani.get_internal_data("Stok")
+                    df_urun = veritabani.get_internal_data("Urun_Listesi")
+                    aktif = st.session_state.aktif_sayim_adi
+                    df_bu_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == aktif].copy()
+                    if not df_bu_sayim.empty:
+                        df_bu_sayim['Miktar'] = pd.to_numeric(df_bu_sayim['Miktar'], errors='coerce').fillna(0)
+                        s_ozet = df_bu_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
+                        isim_sozlugu = {}
+                        if not df_urun.empty: isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
+                        if not df_stok.empty: isim_sozlugu.update(df_stok.drop_duplicates('Kod').set_index('Kod')['İsim'].to_dict())
+                        
+                        sayilan_kodlar = s_ozet['Kod'].unique().tolist()
+                        stok_kalan = df_stok[~df_stok['Kod'].isin(sayilan_kodlar)]
+                        yeni_stok_verisi = s_ozet[['Kod', 'Miktar', 'Adres', 'Durum']].copy()
+                        yeni_stok_verisi['İsim'] = yeni_stok_verisi['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
+                        
+                        veritabani.update_data("Stok", pd.concat([stok_kalan, yeni_stok_verisi[yeni_stok_verisi['Miktar']>0]], ignore_index=True))
+                        log_yeni = pd.DataFrame([{"Oturum_Adi": aktif, "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M")}])
+                        veritabani.update_data("sayim_tamamlanan", pd.concat([df_tamamlanan, log_yeni], ignore_index=True))
+                        
+                        st.session_state.aktif_sayim_adi = None
+                        st.success("Stoklar güncellendi ve oturum arşivlendi!"); st.cache_data.clear(); st.rerun()
 
-        # DİNAMİK SİLİNEBİLİR LİSTE
-        if st.session_state['gecici_sayim_listesi']:
-            st.markdown("### 📥 Onay Bekleyen Sayımlar")
-            for index, item in enumerate(st.session_state['gecici_sayim_listesi']):
-                r_col1, r_col2, r_col3, r_col4, r_col5, r_col6 = st.columns([1, 1, 1.5, 0.8, 1.2, 0.5])
-                r_col1.write(item["Adres"]); r_col2.write(item["Kod"]); r_col3.write(item["Lot"])
-                r_col4.write(f"{item['Miktar']:,.0f}")
-                status_color = "🔴" if item["Durum"] == "Hasarlı" else "🟢"
-                r_col5.write(f"{status_color} {item['Durum']}")
-                if r_col6.button("🗑️", key=f"del_{index}"):
-                    st.session_state['gecici_sayim_listesi'].pop(index); st.rerun()
+    # --- 2. SAYIM GİRİŞİ ---
+    elif st.session_state.sayim_page == 'giris':
+        c_nav, c_title = st.columns([1, 4])
+        with c_nav:
+            if st.button("⬅️ GERİ"): go_sayim_menu(); st.rerun()
+        with c_title:
+            st.subheader("📝 Sayım Girişi")
+        st.markdown("---")
+        if st.session_state.aktif_sayim_adi is None:
+            st.warning("⚠️ Önce oturum başlatın!")
+        else:
+            with st.container(border=True):
+                s_adr = st.text_input("📍 Adres:").upper()
+                katalog = veritabani.get_katalog() 
+                sec = st.selectbox("🔍 Ürün:", ["+ MANUEL"] + katalog)
+                s_kod = st.text_input("📦 Kod:", value=sec.split(" | ")[0] if sec != "+ MANUEL" else "").upper()
+                s_isim = sec.split(" | ")[1] if sec != "+ MANUEL" and len(sec.split(" | ")) > 1 else ""
+                s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0)
+                s_durum = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
+                if st.button("➕ EKLE", use_container_width=True):
+                    st.session_state['gecici_sayim_listesi'].append({
+                        "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                        "Tarih": veritabani.get_local_time(), "Adres": s_adr, "Kod": s_kod, 
+                        "İsim": s_isim, "Miktar": s_mik, "Birim": "-", 
+                        "Personel": st.session_state.user, "Durum": s_durum
+                    })
+                    st.toast("Eklendi")
+            if st.session_state['gecici_sayim_listesi']:
+                for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
+                    cols = st.columns([3, 1])
+                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {int(item['Miktar'])}")
+                    if cols[1].button("🗑️", key=f"d_{idx}"): st.session_state['gecici_sayim_listesi'].pop(idx); st.rerun()
+                if st.button("📤 KAYDET", type="primary", use_container_width=True):
+                    eski = veritabani.get_internal_data("sayim")
+                    veritabani.update_data("sayim", pd.concat([eski, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
+                    st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
 
-            if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
-                df_son = pd.concat([st.session_state['sayim_db'], pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True)
-                veritabani.update_data("sayim", df_son)
-                st.session_state['sayim_db'] = df_son
-                st.session_state['gecici_sayim_listesi'] = []
-                st.success("Tüm veriler kaydedildi!"); st.rerun()
+    # --- 3. GÖRKEMLİ FARK RAPORU ---
+    elif st.session_state.sayim_page == 'rapor':
+        c_nav, c_title = st.columns([1, 4])
+        with c_nav:
+            if st.button("⬅️ GERİ"): go_sayim_menu(); st.rerun()
+        with c_title:
+            st.subheader("📊 Görkemli Fark Raporu")
+        st.markdown("---")
+        
+        df_sayim_ana = veritabani.get_internal_data("sayim")
+        df_urun = veritabani.get_internal_data("Urun_Listesi")
+        # --- KRİTİK DEĞİŞİKLİK: CANLI STOK YERİNE SNAPSHOT KULLANIMI ---
+        df_snapshot_ana = veritabani.get_internal_data("sayim_snapshot")
 
-    with tab2:
-        st.subheader("🔍 Sayım ve Fark Analizi")
-        if not st.session_state['sayim_db'].empty and df_stok is not None:
-            sistem = df_stok[['Adres', 'Kod', 'İsim', 'Miktar']].copy()
-            sistem.columns = ["Adres", "Kod", "Ürün Adı", "Sistem_Miktarı"]
-            s_ozet = st.session_state['sayim_db'].groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index()
-            s_ozet.columns = ["Adres", "Kod", "Sayılan_Miktar"]
-            final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
-            final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
+        if not df_sayim_ana.empty:
+            if 'Oturum_Adi' not in df_sayim_ana.columns: df_sayim_ana['Oturum_Adi'] = "ESKI_SAYIMLAR"
             
-            def style_f(v):
-                if v < 0: return 'background-color: #ffcccc; color: red'
-                if v > 0: return 'background-color: #ccffcc; color: green'
-                return ''
+            mevcut_oturumlar = df_sayim_ana['Oturum_Adi'].dropna().unique().tolist()
+            v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
+            secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx)
             
-            st.dataframe(final_df.style.map(style_f, subset=['FARK']), use_container_width=True)
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Toplam Sistem", f"{final_df['Sistem_Miktarı'].sum():,.0f}")
-            m2.metric("Toplam Sayılan", f"{final_df['Sayılan_Miktar'].sum():,.0f}")
-            m3.metric("Toplam Fark", f"{final_df['FARK'].sum():,.0f}")
+            df_sayim = df_sayim_ana[df_sayim_ana['Oturum_Adi'] == secilen_oturum].copy()
+            
+            if not df_sayim.empty:
+                # Sayım verisi işleme
+                df_sayim['Miktar'] = pd.to_numeric(df_sayim['Miktar'], errors='coerce').fillna(0)
+                s_ozet = df_sayim.groupby(['Adres', 'Kod', 'Durum'], sort=False)['Miktar'].sum().reset_index()
+                s_ozet.rename(columns={'Miktar': 'Miktar_Sayilan'}, inplace=True)
+                
+                # Snapshot verisi işleme (Sorgu anındaki canlı stok değil, oturum başındaki stok)
+                st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
+                if not df_snapshot_ana.empty:
+                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana['Oturum_Adi'] == secilen_oturum].copy()
+                    if not df_snapshot_oturum.empty:
+                        df_snapshot_oturum['Miktar'] = pd.to_numeric(df_snapshot_oturum['Miktar'], errors='coerce').fillna(0)
+                        st_ozet = df_snapshot_oturum.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+                        st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
+                    else:
+                        # Eğer snapshot bulunamazsa (eski oturumlar için) canlı stoğa bak (fail-safe)
+                        df_stok_canli = veritabani.get_internal_data("Stok")
+                        df_stok_canli['Miktar'] = pd.to_numeric(df_stok_canli['Miktar'], errors='coerce').fillna(0)
+                        st_ozet = df_stok_canli.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
+                        st_ozet.rename(columns={'Miktar': 'Miktar_Sistem'}, inplace=True)
+                
+                rapor = pd.merge(s_ozet, st_ozet, on=['Adres', 'Kod'], how='left').fillna(0)
+                rapor['FARK'] = rapor['Miktar_Sayilan'] - rapor['Miktar_Sistem']
+                
+                isim_sozlugu = {}
+                if not df_urun.empty: isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
+                # Isim bilgisini snapshot veya urun listesinden al
+                rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
+                rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
+
+                # --- GÜÇLÜ FİLTRELER ---
+                with st.container(border=True):
+                    katalog = veritabani.get_katalog()
+                    f_sec = st.selectbox("🔍 Ürün Filtrele:", ["+ TÜMÜ"] + katalog)
+                    rf1, rf2, rf3 = st.columns(3)
+                    f_adr = rf1.text_input("📍 Adres Filtre:", placeholder="📍 Adres")
+                    o_kod = f_sec.split(" | ")[0] if f_sec != "+ TÜMÜ" else ""
+                    o_isi = f_sec.split(" | ")[1] if f_sec != "+ TÜMÜ" and len(f_sec.split(" | ")) > 1 else ""
+                    f_kod = rf2.text_input("📦 Kod Filtre:", value=o_kod, placeholder="📦 Kod")
+                    f_isi = rf3.text_input("📝 İsim Filtre:", value=o_isi, placeholder="📝 İsim")
+                    
+                    if f_adr: rapor = rapor[rapor['Adres'].str.contains(f_adr, case=False, na=False)]
+                    if f_kod: rapor = rapor[rapor['Kod'].str.contains(f_kod, case=False, na=False)]
+                    if f_isi: rapor = rapor[rapor['İsim'].str.contains(f_isi, case=False, na=False)]
+
+                # --- GÖSTERGELER ---
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
+                m2.metric("Sistem Stoğu (Referans)", f"{int(rapor['Miktar_Sistem'].sum())}")
+                m3.metric("Toplam Fark", f"{int(rapor['FARK'].sum())}", delta=int(rapor['FARK'].sum()))
+                
+                # --- RENKLİ TABLO ---
+                st.dataframe(rapor.style.map(lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '', subset=['FARK']).format({
+                    'Miktar_Sayilan': '{:,.0f}', 'Miktar_Sistem': '{:,.0f}', 'FARK': '{:,.0f}'
+                }), use_container_width=True, hide_index=True)
+
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as wr: rapor.to_excel(wr, index=False)
+                st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
+            else:
+                st.info("Oturumda veri yok.")
+        else:
+            st.warning("Veritabanında sayım verisi bulunamadı.")
