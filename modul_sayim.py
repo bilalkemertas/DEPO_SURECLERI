@@ -25,12 +25,12 @@ def goster(conn=None):
 
     # --- 0. ANA MENÜ ---
     if st.session_state.sayim_page == 'menu':
-        # YAN YANA BUTONLAR VE BAŞLIK
+        # Menü seviyesinde geri gidilecek alt sayfa olmadığı için iki buton da ana evrene döner ama görsel uyum korunur
         c_btn1, c_btn2, c_title = st.columns([1.5, 1.5, 4])
         with c_btn1:
-            if st.button("🏠 ANA MENÜYE DÖN", use_container_width=True): go_home(); st.rerun()
-           with c_btn2:
-            if st.button("⬅️ GERİ", use_container_width=True): go_sayim_menu(); st.rerun()
+            if st.button("🏠 ANA MENÜ", use_container_width=True, key="nav_home_main_menu"): go_home(); st.rerun()
+        with c_btn2:
+            if st.button("⬅️ GERİ", use_container_width=True, key="nav_back_main_menu"): go_home(); st.rerun()
         with c_title:
             st.subheader("⚖️ Sayım Kontrol Merkezi")
         st.markdown("---")
@@ -47,12 +47,12 @@ def goster(conn=None):
 
     # --- 1. OTURUM YÖNETİMİ ---
     elif st.session_state.sayim_page == 'oturum':
-        # YAN YANA BUTONLAR VE BAŞLIK
+        # Yan yana konumlandırılmış butonlar (Benzersiz Key'ler eklendi)
         c_btn1, c_btn2, c_title = st.columns([1.5, 1.5, 4])
         with c_btn1:
-            if st.button("🏠 ANA MENÜ", use_container_width=True): go_home(); st.rerun()
+            if st.button("🏠 ANA MENÜ", use_container_width=True, key="nav_home_oturum_page"): go_home(); st.rerun()
         with c_btn2:
-            if st.button("⬅️ GERİ", use_container_width=True): go_sayim_menu(); st.rerun()
+            if st.button("⬅️ GERİ", use_container_width=True, key="nav_back_oturum_page"): go_sayim_menu(); st.rerun()
         with c_title:
             st.subheader("📁 Oturum Yönetimi")
         st.markdown("---")
@@ -74,7 +74,7 @@ def goster(conn=None):
         tum_oturumlar = list(set(tum_oturumlar))
         bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
 
-        # --- YENİ OTURUM (ARTIK HER ZAMAN GÖRÜNECEK) ---
+        # Yeni oturum alanı (Her zaman aktif ve görünür)
         with st.expander("🆕 Yeni Sayım Oturumu Başlat", expanded=(st.session_state.aktif_sayim_adi is None)):
             sayim_etiketi = st.text_input("Oturum İsmi:", placeholder="Örn: A_Blok")
             if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True, type="primary"):
@@ -92,7 +92,7 @@ def goster(conn=None):
                     st.session_state.aktif_sayim_adi = yeni_oturum_id
                     st.rerun()
         
-        # --- BEKLEYENLERİ DİRİLTME (ARTIK HER ZAMAN GÖRÜNECEK) ---
+        # Bekleyen oturum havuzu (Her zaman aktif ve görünür)
         if bekleyenler:
             with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=False):
                 secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
@@ -100,7 +100,7 @@ def goster(conn=None):
                     st.session_state.aktif_sayim_adi = secilen_bekleyen
                     st.rerun()
         
-        # --- AKTİF OTURUMU KAPATMA / ARŞİVLEME ---
+        # Aktif oturum yönetim aksiyonları
         if st.session_state.aktif_sayim_adi:
             st.success(f"📡 Şuan Çalışılan Oturum: **{st.session_state.aktif_sayim_adi}**")
             with st.container(border=True):
@@ -137,12 +137,12 @@ def goster(conn=None):
 
     # --- 2. SAYIM GİRİŞİ ---
     elif st.session_state.sayim_page == 'giris':
-        # YAN YANA BUTONLAR VE BAŞLIK
+        # Yan yana konumlandırılmış butonlar (Benzersiz Key'ler eklendi)
         c_btn1, c_btn2, c_title = st.columns([1.5, 1.5, 4])
         with c_btn1:
-            if st.button("🏠 ANA MENÜ", use_container_width=True): go_home(); st.rerun()
+            if st.button("🏠 ANA MENÜ", use_container_width=True, key="nav_home_giris_page"): go_home(); st.rerun()
         with c_btn2:
-            if st.button("⬅️ GERİ", use_container_width=True): go_sayim_menu(); st.rerun()
+            if st.button("⬅️ GERİ", use_container_width=True, key="nav_back_giris_page"): go_sayim_menu(); st.rerun()
         with c_title:
             st.subheader("📝 Sayım Girişi")
         st.markdown("---")
@@ -211,12 +211,12 @@ def goster(conn=None):
 
     # --- 3. FARK RAPORU ---
     elif st.session_state.sayim_page == 'rapor':
-        # YAN YANA BUTONLAR VE BAŞLIK
+        # Yan yana konumlandırılmış butonlar (Benzersiz Key'ler eklendi)
         c_btn1, c_btn2, c_title = st.columns([1.5, 1.5, 4])
         with c_btn1:
-            if st.button("🏠 ANA MENÜ", use_container_width=True): go_home(); st.rerun()
+            if st.button("🏠 ANA MENÜ", use_container_width=True, key="nav_home_rapor_page"): go_home(); st.rerun()
         with c_btn2:
-            if st.button("⬅️ GERİ", use_container_width=True): go_sayim_menu(); st.rerun()
+            if st.button("⬅️ GERİ", use_container_width=True, key="nav_back_rapor_page"): go_sayim_menu(); st.rerun()
         with c_title:
             st.subheader("📊Fark Raporu")
         st.markdown("---")
