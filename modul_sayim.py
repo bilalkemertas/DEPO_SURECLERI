@@ -4,10 +4,10 @@ from datetime import datetime
 import veritabani
 
 def goster(conn):
-    # --- 1. VERİ YÜKLEME ---
+    # --- VERİ YÜKLEME ---
     df_stok = veritabani.get_internal_data("Stok")
     df_k = veritabani.get_internal_data("Urun_Listesi")
-    
+
     if not isinstance(df_stok, pd.DataFrame):
         df_stok = pd.DataFrame()
 
@@ -16,13 +16,11 @@ def goster(conn):
 
     if not isinstance(df_k, pd.DataFrame) or df_k.empty:
         katalog = []
-        kod_isim_dict = {}
     else:
         df_k.columns = [str(c).strip() for c in df_k.columns]
         k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
         n_col = 'İsim' if 'İsim' in df_k.columns else df_k.columns[1]
         katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
-        kod_isim_dict = pd.Series(df_k[n_col].values, index=df_k[k_col].astype(str)).to_dict()
 
     if 'sayim_db' not in st.session_state:
         st.session_state['sayim_db'] = veritabani.get_internal_data("sayim")
@@ -45,44 +43,23 @@ def goster(conn):
             kod = str(sec_val).split(" | ")[0]
             st.session_state["manual_s_kod"] = kod
 
-    st.title("🚀 Sayım ve Durum Takibi")
+    st.title("🚀 Depo Sayım")
 
-    # --- ÜST MENÜ ---
-    st.subheader("🛠️ Sayım Yönetim Merkezi")
-    m1, m2, m3 = st.columns(3)
+    # --- SAYFA SEÇİMİ (TEK KONTROL NOKTASI) ---
+    sayfa = st.radio(
+        "İşlem Seçin",
+        ["🟢 Sayım Başlat", "📥 Sayım Okut", "📊 Rapor"],
+        horizontal=True
+    )
 
-    if m1.button("🟢 Sayım Başlatma"):
-        st.session_state.sayim_mod = "SAYIM"
+    # =========================================================
+    # 🟢 SAYIM BAŞLAT (AYRI SAYFA)
+    # =========================================================
+    if sayfa == "🟢 Sayım Başlat":
 
-    if m2.button("📝 Sayım Okutma"):
-        st.session_state.sayim_mod = "SAYIM"
+        st.subheader("🟢 Yeni Sayım Belgesi")
 
-    if m3.button("📊 Sayım Rapor"):
-        st.session_state.sayim_mod = "SAYIM"
-
-    st.markdown("---")
-
-    # --- ALT MENÜ ---
-    if "sayim_mod" in st.session_state:
-        st.subheader("📌 İşlem Seçimi")
-
-        a1, a2, a3 = st.columns(3)
-
-        if a1.button("🟢 Sayım Başlat"):
-            st.session_state.sayim_alt_mod = "BASLAT"
-
-        if a2.button("📥 Ürün Okut"):
-            st.session_state.sayim_alt_mod = "OKUT"
-
-        if a3.button("📊 Rapor Gör"):
-            st.session_state.sayim_alt_mod = "RAPOR"
-
-    # --- SAYIM BAŞLAT ---
-    if st.session_state.get("sayim_alt_mod") == "BASLAT":
-
-        st.markdown("### 🟢 Sayım Belgesi Oluştur")
-
-        if st.button("📄 Yeni Sayım Başlat"):
+        if st.button("📄 Sayım Başlat"):
             belge_no = f"SYM-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
             st.session_state['sayim_info'] = {
                 "Belge": belge_no,
@@ -91,7 +68,8 @@ def goster(conn):
             }
             st.success(f"Oluşturuldu: {belge_no}")
 
-        st.markdown("### 🔒 Açık Sayımları Kapat")
+        st.markdown("---")
+        st.subheader("🔒 Açık Sayımları Kapat")
 
         if not st.session_state['sayim_db'].empty:
 
@@ -114,42 +92,41 @@ def goster(conn):
                     st.success(f"{sec} kapatıldı")
                     st.rerun()
 
-    # --- SAYIM OKUT ---
-    if st.session_state.get("sayim_alt_mod") == "OKUT":
+    # =========================================================
+    # 📥 SAYIM OKUT (AYRI SAYFA)
+    # =========================================================
+    elif sayfa == "📥 Sayım Okut":
 
-        st.markdown("### 📥 Sayım Okutma")
+        st.subheader("📥 Sayım Okutma")
 
         if not st.session_state['sayim_db'].empty:
             belgeler = st.session_state['sayim_db']["Oturum"].dropna().unique()
 
             if len(belgeler) > 0:
-                sec_belge = st.selectbox("Sayım Belgesi Seç", belgeler)
+                sec_belge = st.selectbox("Sayım Belgesi", belgeler)
                 st.session_state['sayim_info']["Belge"] = sec_belge
                 st.info(f"Aktif Belge: {sec_belge}")
 
         st.markdown("### 📍 Veri Girişi")
 
-        sec_index = 0 if katalog else None
-
         st.selectbox(
-            "🔍 Ürün Seç:",
-            options=katalog,
-            index=sec_index,
+            "Ürün",
+            katalog,
             key="sec_box",
             on_change=urun_secildi
         )
 
         c1, c2 = st.columns(2)
         with c1:
-            s_kod = st.text_input("Kod:", key="manual_s_kod").upper().strip()
-            s_lot = st.text_input("Lot:", key="s_lot").upper().strip()
+            s_kod = st.text_input("Kod", key="manual_s_kod").upper().strip()
+            s_lot = st.text_input("Lot", key="s_lot").upper().strip()
         with c2:
-            s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0, key="s_mik")
-            s_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "Karantina"], key="s_dur")
+            s_mik = st.number_input("Miktar", min_value=0.0, step=1.0)
+            s_dur = st.selectbox("Durum", ["Kullanılabilir", "Hasarlı", "Karantina"])
 
-        s_adres = st.text_input("Adres:", key="adr_box").upper()
+        s_adres = st.text_input("Adres").upper()
 
-        if st.button("➕ Listeye Ekle"):
+        if st.button("➕ Ekle"):
             if s_adres and s_kod:
                 st.session_state['gecici_sayim_listesi'].append({
                     "Tarih": datetime.now().strftime("%d.%m.%Y"),
@@ -163,6 +140,8 @@ def goster(conn):
                 st.rerun()
 
         if st.session_state['gecici_sayim_listesi']:
+            st.markdown("### 📥 Bekleyenler")
+
             for i, item in enumerate(st.session_state['gecici_sayim_listesi']):
                 c1, c2, c3, c4, c5, c6 = st.columns([1,1,1,1,1,0.5])
                 c1.write(item["Adres"])
@@ -187,10 +166,12 @@ def goster(conn):
                 st.success("Kaydedildi")
                 st.rerun()
 
-    # --- RAPOR ---
-    if st.session_state.get("sayim_alt_mod") == "RAPOR":
+    # =========================================================
+    # 📊 RAPOR (AYRI SAYFA)
+    # =========================================================
+    elif sayfa == "📊 Rapor":
 
-        st.markdown("### 📊 Sayım Raporu")
+        st.subheader("📊 Sayım Raporu")
 
         if not st.session_state['sayim_db'].empty and not df_stok.empty:
 
@@ -211,7 +192,6 @@ def goster(conn):
                 sayilan.columns = ["Adres", "Kod", "Sayılan_Miktar"]
 
                 final = pd.merge(sistem, sayilan, on=['Adres','Kod'], how='outer').fillna(0)
-
                 final["FARK"] = final["Sayılan_Miktar"] - final["Sistem_Miktarı"]
 
                 st.dataframe(final, use_container_width=True)
