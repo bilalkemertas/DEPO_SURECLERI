@@ -4,36 +4,30 @@ from datetime import datetime
 import veritabani
 
 def goster(conn):
-    # --- 1. VERİ YÜKLEME VE GÜVENLİK ZIRHI ---
-    if 'stok_df' not in st.session_state:
-        with st.spinner("Veritabanı senkronize ediliyor..."):
-            try:
-                df_temp = veritabani.get_internal_data("Urun_Listesi")
-                if df_temp is None or df_temp.empty:
-                    df_temp = veritabani.get_internal_data("Stok")
-                
-                df_temp.columns = [str(c).strip() for c in df_temp.columns]
-                # İsimlendirme zırhı
-                k_col = 'Kod' if 'Kod' in df_temp.columns else df_temp.columns[0]
-                n_col = 'İsim' if 'İsim' in df_temp.columns else df_temp.columns[1]
-                df_temp = df_temp.rename(columns={k_col: 'Kod', n_col: 'İsim'})
-                
-                df_temp = df_temp.dropna(subset=["Kod", "İsim"])
-                df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
-                
-                st.session_state['stok_df'] = df_temp
-                st.session_state['kod_isim_dict'] = pd.Series(df_temp['İsim'].values, index=df_temp['Kod']).to_dict()
-                st.session_state['katalog'] = [f"{k} | {v}" for k, v in st.session_state['kod_isim_dict'].items()]
-            except Exception as e:
-                st.error(f"Veri çekme hatası: {e}")
-                return
+    # --- 1. TEK SEFERLİK VERİ YÜKLEME ---
+    # Sayfa açıldığı an veritabanından listeyi çekiyoruz
+    df_stok = veritabani.get_internal_data("Stok")
+    df_k = veritabani.get_internal_data("Urun_Listesi")
+    
+    if df_k is None or df_k.empty:
+        df_k = veritabani.get_internal_data("Katalog")
+
+    if df_k is None or df_k.empty:
+        katalog = []
+        kod_isim_dict = {}
+    else:
+        df_k.columns = [str(c).strip() for c in df_k.columns]
+        k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
+        n_col = 'İsim' if 'İsim' in df_k.columns else df_k.columns[1]
+        katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
+        kod_isim_dict = pd.Series(df_k[n_col].values, index=df_k[k_col].astype(str)).to_dict()
 
     if 'sayim_db' not in st.session_state:
         st.session_state['sayim_db'] = veritabani.get_internal_data("sayim")
 
     # --- 2. DEĞİŞKENLER ---
-    df_Stok_ana = st.session_state.get('stok_df', pd.DataFrame())
-    katalog = st.session_state.get('katalog', [])
+    # Eğer sayım_db boşsa boş dataframe oluştur
+    if st.session_state['sayim_db'] is None: st.session_state['sayim_db'] = pd.DataFrame()
 
     # --- 3. FONKSİYONLAR ---
     def urun_secildi():
@@ -42,7 +36,7 @@ def goster(conn):
             kod = str(sec_val).split(" | ")[0]
             st.session_state["manual_s_kod"] = kod
 
-    # --- 4. ARAYÜZ ---
+    # --- 4. ARAYÜZ VE SESSION STATE ---
     if 'gecici_sayim_listesi' not in st.session_state: st.session_state['gecici_sayim_listesi'] = []
     if 'manual_s_kod' not in st.session_state: st.session_state['manual_s_kod'] = ""
 
@@ -52,7 +46,15 @@ def goster(conn):
     with tab1:
         st.subheader("📍 Yeni Veri Girişi")
         with st.container(border=True):
-            st.selectbox("🔍 Ürün Seç:", options=katalog, index=None, placeholder="Ürün seçmek için tıklayın...", key="sec_box", on_change=urun_secildi)
+            # ÜRÜN SEÇİMİ
+            st.selectbox(
+                "🔍 Ürün Seç:", 
+                options=katalog,
+                index=None,
+                placeholder="Ürün seçmek için tıklayın...",
+                key="sec_box",
+                on_change=urun_secildi
+            )
             
             c1, c2 = st.columns(2)
             with c1:
@@ -69,33 +71,41 @@ def goster(conn):
                     st.session_state['gecici_sayim_listesi'].append({
                         "Tarih": datetime.now().strftime("%d.%m.%Y"),
                         "Personel": st.session_state.get('kullanici_adi', 'Patron'),
-                        "Adres": s_adres, "Kod": s_kod, "Lot": s_lot, "Miktar": s_mik, "Durum": s_dur
+                        "Adres": s_adres,
+                        "Kod": s_kod,
+                        "Lot": s_lot,
+                        "Miktar": s_mik,
+                        "Durum": s_dur
                     })
                     st.rerun()
 
-        # DİNAMİK SİLİNEBİLİR LİSTE (Referans Kod)
+        # DİNAMİK SİLİNEBİLİR LİSTE
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("### 📥 Onay Bekleyen Sayımlar")
             for index, item in enumerate(st.session_state['gecici_sayim_listesi']):
                 r_col1, r_col2, r_col3, r_col4, r_col5, r_col6 = st.columns([1, 1, 1.5, 0.8, 1.2, 0.5])
-                r_col1.write(item["Adres"]); r_col2.write(item["Kod"]); r_col3.write(item["Lot"])
+                r_col1.write(item["Adres"])
+                r_col2.write(item["Kod"])
+                r_col3.write(item["Lot"])
                 r_col4.write(f"{item['Miktar']:,.0f}")
                 status_color = "🔴" if item["Durum"] == "Hasarlı" else "🟢"
                 r_col5.write(f"{status_color} {item['Durum']}")
                 if r_col6.button("🗑️", key=f"del_{index}"):
-                    st.session_state['gecici_sayim_listesi'].pop(index); st.rerun()
+                    st.session_state['gecici_sayim_listesi'].pop(index)
+                    st.rerun()
 
             if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
                 df_son = pd.concat([st.session_state['sayim_db'], pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True)
                 veritabani.update_data("sayim", df_son)
                 st.session_state['sayim_db'] = df_son
                 st.session_state['gecici_sayim_listesi'] = []
-                st.success("Tüm veriler kaydedildi!"); st.rerun()
+                st.success("Tüm veriler kaydedildi!")
+                st.rerun()
 
     with tab2:
         st.subheader("🔍 Sayım ve Fark Analizi")
-        if not st.session_state['sayim_db'].empty:
-            sistem = df_Stok_ana[['Adres', 'Kod', 'İsim', 'Miktar']].copy()
+        if not st.session_state['sayim_db'].empty and df_stok is not None:
+            sistem = df_stok[['Adres', 'Kod', 'İsim', 'Miktar']].copy()
             sistem.columns = ["Adres", "Kod", "Ürün Adı", "Sistem_Miktarı"]
             s_ozet = st.session_state['sayim_db'].groupby(['Adres', 'Kod'])['Miktar'].sum().reset_index()
             s_ozet.columns = ["Adres", "Kod", "Sayılan_Miktar"]
