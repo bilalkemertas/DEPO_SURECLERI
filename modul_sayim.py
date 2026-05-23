@@ -30,9 +30,7 @@ def goster(conn=None):
     if 'delete_confirm' not in st.session_state:
         st.session_state.delete_confirm = None
 
-    # --- Ürün Kataloğunu Çekme Fonksiyonu (Dinamik ve Eksiksiz - HAFIZALI) ---
     def get_dinamik_katalog():
-        # Eğer katalog zaten hafızaya alınmışsa veritabanına gitme, direkt hafızadan ver! (HIZ İÇİN)
         if 'katalog_hafiza' in st.session_state and st.session_state['katalog_hafiza']:
             return st.session_state['katalog_hafiza']
 
@@ -50,12 +48,11 @@ def goster(conn=None):
              if not df_stok.empty and 'Kod' in df_stok.columns and 'İsim' in df_stok.columns:
                  benzersiz_stok = df_stok.drop_duplicates(subset=['Kod'])
                  for idx, row in benzersiz_stok.iterrows():
-                    kod = str(row['Kod']).strip()
-                    isim = str(row['İsim']).strip()
-                    if kod != "nan" and kod != "":
+                     kod = str(row['Kod']).strip()
+                     isim = str(row['İsim']).strip()
+                     if kod != "nan" and kod != "":
                          katalog_listesi.append(f"{kod} | {isim}")
                          
-        # Sonucu hafızaya kaydet ve döndür
         st.session_state['katalog_hafiza'] = sorted(list(set(katalog_listesi)))
         return st.session_state['katalog_hafiza']
 
@@ -120,7 +117,6 @@ def goster(conn=None):
         tum_oturumlar = list(set(tum_oturumlar))
         bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
 
-        # Yeni oturum alanı
         with st.expander("🆕 Yeni Sayım Oturumu Başlat", expanded=(st.session_state.aktif_sayim_adi is None)):
             sayim_etiketi = st.text_input("Oturum İsmi:", placeholder="Örn: A_Blok")
             if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True, type="primary"):
@@ -138,7 +134,6 @@ def goster(conn=None):
                     st.session_state.aktif_sayim_adi = yeni_oturum_id
                     st.rerun()
         
-        # Bekleyen oturum havuzu
         if bekleyenler:
             with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=False):
                 secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
@@ -146,7 +141,6 @@ def goster(conn=None):
                     st.session_state.aktif_sayim_adi = secilen_bekleyen
                     st.rerun()
         
-        # Aktif oturum yönetim aksiyonları
         if st.session_state.aktif_sayim_adi:
             st.success(f"📡 Şuan Çalışılan Oturum: **{st.session_state.aktif_sayim_adi}**")
             with st.container(border=True):
@@ -239,18 +233,13 @@ def goster(conn=None):
 
             with st.container(border=True):
                 s_adr = st.text_input("📍 Adres:").upper()
-                
-                # Dinamik olarak oluşturduğumuz kataloğu kullanıyoruz (Artık hafızadan anında geliyor)
                 katalog = get_dinamik_katalog() 
-                
                 sec = st.selectbox("🔍 Ürün:", ["+ MANUEL"] + katalog)
                 
-                # Seçilen ürüne göre Kod ve İsim alanlarını doldur ve kilitle
                 if sec != "+ MANUEL":
                     sec_parcalar = sec.split(" | ")
                     varsayilan_kod = sec_parcalar[0].strip()
                     varsayilan_isim = sec_parcalar[1].strip() if len(sec_parcalar) > 1 else ""
-                    
                     s_kod = st.text_input("📦 Kod:", value=varsayilan_kod, disabled=True)
                     s_isim = st.text_input("📝 İsim:", value=varsayilan_isim, disabled=True)
                 else:
@@ -264,8 +253,12 @@ def goster(conn=None):
                     if not s_kod:
                         st.error("Lütfen bir ürün kodu giriniz veya listeden seçiniz.")
                     else:
-                        # GİRİŞ YAPAN KULLANICIYI DİNAMİK YAKALAMA (HATA BURADA DÜZELTİLDİ)
-                        aktif_kullanici = st.session_state.get('user', st.session_state.get('kullanici', st.session_state.get('username', 'Giriş Yapılmamış')))
+                        # Dinamik kullanıcı yakalama
+                        aktif_kullanici = st.session_state.get('user') or \
+                                          st.session_state.get('kullanici') or \
+                                          st.session_state.get('username') or \
+                                          st.session_state.get('kullanici_adi') or \
+                                          "Tanımsız"
                         
                         st.session_state['gecici_sayim_listesi'].append({
                             "Oturum_Adi": st.session_state.aktif_sayim_adi,
@@ -332,7 +325,7 @@ def goster(conn=None):
                 
                 st_ozet = pd.DataFrame(columns=['Adres', 'Kod', 'Miktar_Sistem'])
                 if not df_snapshot_ana.empty:
-                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_oturum['Oturum_Adi'] == secilen_oturum].copy()
+                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana['Oturum_Adi'] == secilen_oturum].copy()
                     if not df_snapshot_oturum.empty:
                         df_snapshot_oturum['Miktar'] = pd.to_numeric(df_snapshot_oturum['Miktar'], errors='coerce').fillna(0)
                         st_ozet = df_snapshot_oturum.groupby(['Adres', 'Kod'], sort=False)['Miktar'].sum().reset_index()
@@ -349,7 +342,7 @@ def goster(conn=None):
                 isim_sozlugu = {}
                 if not df_urun.empty: 
                     isim_sozlugu.update(df_urun.drop_duplicates('kod').set_index('kod')['isim'].to_dict())
-                    
+                
                 rapor['İsim'] = rapor['Kod'].map(isim_sozlugu).fillna("TANIMSIZ")
                 rapor = rapor[['Adres', 'Kod', 'İsim', 'Durum', 'Miktar_Sayilan', 'Miktar_Sistem', 'FARK']]
 
