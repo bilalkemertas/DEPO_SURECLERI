@@ -4,34 +4,31 @@ from datetime import datetime
 
 def goster(conn):
     # --- 1. TEK SEFERLİK VERİ YÜKLEME (CACHE) ---
-    # Stok verisi
     if 'stok_df' not in st.session_state:
-        with st.spinner("Stok verisi yükleniyor..."):
-            st.session_state['stok_df'] = conn.read(worksheet="Stok", ttl=0)
-            df = st.session_state['stok_df'].dropna(subset=["Kod", "İsim"])
-            df["Kod"] = df["Kod"].astype(str).str.strip()
+        with st.spinner("Veritabanı senkronize ediliyor..."):
+            df_temp = conn.read(worksheet="Stok", ttl=0)
+            df_temp = df_temp.dropna(subset=["Kod", "İsim"])
+            df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
             
-            st.session_state['kod_isim_dict'] = pd.Series(df.İsim.values, index=df.Kod).to_dict()
-            st.session_state['isim_kod_dict'] = pd.Series(df.Kod.values, index=df.İsim).to_dict()
+            st.session_state['stok_df'] = df_temp
+            st.session_state['kod_isim_dict'] = pd.Series(df_temp.İsim.values, index=df_temp.Kod).to_dict()
+            st.session_state['isim_kod_dict'] = pd.Series(df_temp.Kod.values, index=df_temp.İsim).to_dict()
             st.session_state['kod_listesi'] = sorted(list(st.session_state['kod_isim_dict'].keys()))
             st.session_state['ad_listesi'] = sorted(list(st.session_state['isim_kod_dict'].keys()))
 
-    # Sayım verisi (Raporlama için)
     if 'sayim_db' not in st.session_state:
         st.session_state['sayim_db'] = conn.read(worksheet="sayim", ttl=0)
 
-    # --- 2. DEĞİŞKENLERİ HAZIRLA ---
+    # --- 2. DEĞİŞKENLER ---
     df_Stok_ana = st.session_state['stok_df']
-    kod_isim_dict = st.session_state['kod_isim_dict']
-    isim_kod_dict = st.session_state['isim_kod_dict']
-    kod_listesi = st.session_state['kod_listesi']
-    ad_listesi = st.session_state['ad_listesi']
     durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "Kayıp", "İncelemede"]
 
     # --- 3. ARAYÜZ ---
     if 'gecici_sayim_listesi' not in st.session_state: st.session_state['gecici_sayim_listesi'] = []
-    if 's_Kod' not in st.session_state: st.session_state['s_Kod'] = ""
-    if 's_Isim' not in st.session_state: st.session_state['s_Isim'] = ""
+    
+    # Session state'de tutulan seçimler
+    if 's_Kod' not in st.session_state: st.session_state['s_Kod'] = None
+    if 's_Isim' not in st.session_state: st.session_state['s_Isim'] = None
 
     st.title("🚀 Sayım ve Durum Takibi")
     tab1, tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
@@ -42,18 +39,23 @@ def goster(conn):
             
             s_adres = col_adr.text_input("📍 Adres", key="adr_box").upper()
             
-            new_kod = col_kod.selectbox("📦 Ürün Kodu", [""] + kod_listesi, key="kod_sel")
-            if new_kod != st.session_state['s_Kod']:
+            # --- AKILLI ARAMA: SELECTBOX ---
+            # Kullanıcı burada yazmaya başladığı an filtreleme başlar
+            new_kod = col_kod.selectbox("📦 Ürün Kodu", [""] + st.session_state['kod_listesi'], key="kod_sel")
+            new_isim = col_isim.selectbox("📝 Ürün Adı", [""] + st.session_state['ad_listesi'], key="isim_sel")
+
+            # Kod değiştiyse isim otomatik güncellenir
+            if new_kod and new_kod != st.session_state['s_Kod']:
                 st.session_state['s_Kod'] = new_kod
-                st.session_state['s_Isim'] = kod_isim_dict.get(new_kod, "")
+                st.session_state['s_Isim'] = st.session_state['kod_isim_dict'].get(new_kod)
                 st.rerun()
-                
-            new_isim = col_isim.selectbox("📝 Ürün Adı", [""] + ad_listesi, key="isim_sel")
-            if new_isim != st.session_state['s_Isim']:
+            
+            # İsim değiştiyse kod otomatik güncellenir
+            if new_isim and new_isim != st.session_state['s_Isim']:
                 st.session_state['s_Isim'] = new_isim
-                st.session_state['s_Kod'] = isim_kod_dict.get(new_isim, "")
+                st.session_state['s_Kod'] = st.session_state['isim_kod_dict'].get(new_isim)
                 st.rerun()
-                
+
             s_miktar = col_mik.number_input("⚖️ Miktar", min_value=0.0, step=1.0, key="mik_box")
             s_durum = col_durum.selectbox("🛠️ Ürün Durumu", durum_opsiyonlari, key="durum_box")
             
@@ -70,16 +72,19 @@ def goster(conn):
                     })
                     st.rerun()
 
+        # Liste Görüntüleme
         if st.session_state['gecici_sayim_listesi']:
             st.dataframe(pd.DataFrame(st.session_state['gecici_sayim_listesi']), use_container_width=True)
             if st.button("📤 DRIVE'A GÖNDER"):
                 df_son = pd.concat([st.session_state['sayim_db'], pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True)
                 conn.update(worksheet="sayim", data=df_son)
+                st.session_state['sayim_db'] = df_son
                 st.session_state['gecici_sayim_listesi'] = []
-                st.session_state['sayim_db'] = df_son # Hafızayı güncelle
+                st.success("Veriler Drive'a aktarıldı!")
                 st.rerun()
 
     with tab2:
+        # Analiz kısmı (Sadece ilk yüklemede veya manuel yenilemede çalışır)
         if not st.session_state['sayim_db'].empty:
             sistem = df_Stok_ana[['Adres', 'Kod', 'İsim', 'Miktar']].copy()
             sistem.columns = ["Adres", "Kod", "Ürün Adı", "Sistem_Miktarı"]
@@ -88,5 +93,3 @@ def goster(conn):
             final_df = pd.merge(sistem, s_ozet, on=['Adres', 'Kod'], how='outer').fillna(0)
             final_df['FARK'] = final_df['Sayılan_Miktar'] - final_df['Sistem_Miktarı']
             st.dataframe(final_df, use_container_width=True)
-        else:
-            st.info("Sayım verisi boş.")
