@@ -3,21 +3,32 @@ import pandas as pd
 from datetime import datetime
 
 def goster(conn):
-    # --- 1. VERİTABANI BAĞLANTISI VE HAZIRLIK ---
-    try:
-        df_Stok_ana = conn.read(worksheet="Stok", ttl=0)
-        df_Stok_ana = df_Stok_ana.dropna(subset=["Kod", "İsim"])
-        df_Stok_ana["Kod"] = df_Stok_ana["Kod"].astype(str).str.strip()
-        
-        kod_isim_dict = pd.Series(df_Stok_ana.İsim.values, index=df_Stok_ana.Kod).to_dict()
-        isim_kod_dict = pd.Series(df_Stok_ana.Kod.values, index=df_Stok_ana.İsim).to_dict()
-        
-        kod_listesi = sorted(list(kod_isim_dict.keys()))
-        ad_listesi = sorted(list(isim_kod_dict.keys()))
-        durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "Kayıp", "İncelemede"]
-    except Exception as e:
-        st.error(f"Veri yüklenemedi: {e}")
-        return
+    # --- 1. SESSION STATE İLE VERİ KİLİTLEME ---
+    # Stok verisini bir kez çek, session_state'de tut.
+    if 'cached_stok_df' not in st.session_state:
+        try:
+            with st.spinner("Veritabanı senkronize ediliyor..."):
+                df_temp = conn.read(worksheet="Stok", ttl=0)
+                df_temp = df_temp.dropna(subset=["Kod", "İsim"])
+                df_temp["Kod"] = df_temp["Kod"].astype(str).str.strip()
+                st.session_state['cached_stok_df'] = df_temp
+                
+                # Arama ve sözlükleri de bir kez oluştur
+                st.session_state['kod_isim_dict'] = pd.Series(df_temp.İsim.values, index=df_temp.Kod).to_dict()
+                st.session_state['isim_kod_dict'] = pd.Series(df_temp.Kod.values, index=df_temp.İsim).to_dict()
+                st.session_state['kod_listesi'] = sorted(list(st.session_state['kod_isim_dict'].keys()))
+                st.session_state['ad_listesi'] = sorted(list(st.session_state['isim_kod_dict'].keys()))
+        except Exception as e:
+            st.error(f"Veri yüklenemedi: {e}")
+            return
+
+    # Kısayollar
+    df_Stok_ana = st.session_state['cached_stok_df']
+    kod_isim_dict = st.session_state['kod_isim_dict']
+    isim_kod_dict = st.session_state['isim_kod_dict']
+    kod_listesi = st.session_state['kod_listesi']
+    ad_listesi = st.session_state['ad_listesi']
+    durum_opsiyonlari = ["Kullanılabilir", "Hasarlı", "Kayıp", "İncelemede"]
 
     # --- 2. GİRİŞ VE BELLEK SİSTEMİ ---
     if 'gecici_sayim_listesi' not in st.session_state:
@@ -64,29 +75,26 @@ def goster(conn):
                         "Miktar": s_miktar,
                         "Durum": s_durum
                     })
-                    st.toast(f"{st.session_state['s_Kod']} listeye eklendi.")
+                    st.toast(f"{st.session_state['s_Kod']} eklendi.")
                 else:
-                    st.warning("Adres ve Kod alanları zorunludur!")
+                    st.warning("Adres ve Ürün bilgisi zorunludur!")
 
         if st.session_state['gecici_sayim_listesi']:
             st.markdown("### 📥 Onay Bekleyen Sayımlar")
-            df_temp = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
-            st.dataframe(df_temp, use_container_width=True)
-            if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
-                try:
-                    df_db = conn.read(worksheet="sayim", ttl=0)
-                    df_son = pd.concat([df_db, df_temp], ignore_index=True)
-                    conn.update(worksheet="sayim", data=df_son)
-                    st.session_state['gecici_sayim_listesi'] = []
-                    st.success("Tüm veriler Drive'a kaydedildi!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Hata: {e}")
+            st.dataframe(pd.DataFrame(st.session_state['gecici_sayim_listesi']), use_container_width=True)
+            if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary"):
+                df_db = conn.read(worksheet="sayim", ttl=0)
+                df_son = pd.concat([df_db, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True)
+                conn.update(worksheet="sayim", data=df_son)
+                st.session_state['gecici_sayim_listesi'] = []
+                st.success("Veriler kaydedildi!")
+                st.rerun()
 
     # --- TAB 2: ANALİZ ---
     with tab2:
         st.subheader("🔍 Sayım ve Fark Analizi")
         try:
+            # Raporlama için bir kez okuma yeterli
             df_sayim_db = conn.read(worksheet="sayim", ttl=0)
             if not df_sayim_db.empty:
                 sistem = df_Stok_ana[['Adres', 'Kod', 'İsim', 'Miktar']].copy()
