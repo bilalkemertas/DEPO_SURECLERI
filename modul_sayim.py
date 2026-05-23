@@ -30,8 +30,12 @@ def goster(conn=None):
     if 'delete_confirm' not in st.session_state:
         st.session_state.delete_confirm = None
 
-    # --- Ürün Kataloğunu Çekme Fonksiyonu (Dinamik ve Eksiksiz) ---
+    # --- Ürün Kataloğunu Çekme Fonksiyonu (Dinamik ve Eksiksiz - HAFIZALI) ---
     def get_dinamik_katalog():
+        # Eğer katalog zaten hafızaya alınmışsa veritabanına gitme, direkt hafızadan ver! (HIZ İÇİN)
+        if 'katalog_hafiza' in st.session_state and st.session_state['katalog_hafiza']:
+            return st.session_state['katalog_hafiza']
+
         df_urun = veritabani.get_internal_data("Urun_Listesi")
         katalog_listesi = []
         if not df_urun.empty and 'kod' in df_urun.columns and 'isim' in df_urun.columns:
@@ -51,7 +55,9 @@ def goster(conn=None):
                     if kod != "nan" and kod != "":
                          katalog_listesi.append(f"{kod} | {isim}")
                          
-        return sorted(list(set(katalog_listesi)))
+        # Sonucu hafızaya kaydet ve döndür
+        st.session_state['katalog_hafiza'] = sorted(list(set(katalog_listesi)))
+        return st.session_state['katalog_hafiza']
 
     # --- 0. ANA MENÜ ---
     if st.session_state.sayim_page == 'menu':
@@ -234,7 +240,7 @@ def goster(conn=None):
             with st.container(border=True):
                 s_adr = st.text_input("📍 Adres:").upper()
                 
-                # Dinamik olarak oluşturduğumuz kataloğu kullanıyoruz
+                # Dinamik olarak oluşturduğumuz kataloğu kullanıyoruz (Artık hafızadan anında geliyor)
                 katalog = get_dinamik_katalog() 
                 
                 sec = st.selectbox("🔍 Ürün:", ["+ MANUEL"] + katalog)
@@ -260,13 +266,13 @@ def goster(conn=None):
                     else:
                         st.session_state['gecici_sayim_listesi'].append({
                             "Oturum_Adi": st.session_state.aktif_sayim_adi,
-                            "Tarih": veritabani.get_local_time(), 
+                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"), # <-- HATA BURADA DÜZELTİLDİ
                             "Adres": s_adr, 
                             "Kod": s_kod, 
                             "İsim": s_isim, 
                             "Miktar": s_mik, 
                             "Birim": "-", 
-                            "Personel": st.session_state.user, 
+                            "Personel": st.session_state.user if 'user' in st.session_state else "Personel", 
                             "Durum": s_durum
                         })
                         st.toast("Eklendi")
