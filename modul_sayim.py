@@ -13,7 +13,6 @@ def go_oturum(): st.session_state.sayim_page = 'oturum'
 def go_giris(): st.session_state.sayim_page = 'giris'
 def go_rapor(): st.session_state.sayim_page = 'rapor'
 
-# Hatanın Çözüldüğü Satır (conn=None eklendi)
 def goster(conn=None):
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
@@ -130,9 +129,45 @@ def goster(conn=None):
         with c_title:
             st.subheader("📝 Sayım Girişi")
         st.markdown("---")
-        if st.session_state.aktif_sayim_adi is None:
-            st.warning("⚠️ Önce oturum başlatın!")
+
+        # --- YENİ EKLENEN AKTİF OTURUM SEÇİCİ ---
+        df_sayim_ana = veritabani.get_internal_data("sayim")
+        df_tamamlanan = veritabani.get_internal_data("sayim_tamamlanan")
+        df_snapshot = veritabani.get_internal_data("sayim_snapshot")
+        
+        tamamlanmis_oturumlar = []
+        if not df_tamamlanan.empty and 'Oturum_Adi' in df_tamamlanan.columns:
+            tamamlanmis_oturumlar = df_tamamlanan['Oturum_Adi'].dropna().unique().tolist()
+            
+        tum_oturumlar = []
+        # Sayım yapılmış verilerden oturumları çek
+        if not df_sayim_ana.empty and 'Oturum_Adi' in df_sayim_ana.columns:
+            tum_oturumlar.extend(df_sayim_ana['Oturum_Adi'].dropna().unique().tolist())
+        # Yeni başlatılmış ama hiç sayım yapılmamış oturumları snapshot'tan çek
+        if not df_snapshot.empty and 'Oturum_Adi' in df_snapshot.columns:
+            tum_oturumlar.extend(df_snapshot['Oturum_Adi'].dropna().unique().tolist())
+            
+        tum_oturumlar = list(set(tum_oturumlar)) # Tekrar edenleri temizle
+        bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
+
+        # Eğer oturum kalmamışsa kullanıcıyı uyar
+        if not bekleyenler:
+            st.warning("⚠️ Açık (Bekleyen) bir sayım oturumu bulunamadı. Lütfen 'Oturum Yönetimi' menüsünden yeni bir oturum başlatın.")
         else:
+            # Seçili olanı dropdown'da varsayılan yapmak için index tespiti
+            v_idx = 0
+            if st.session_state.aktif_sayim_adi in bekleyenler:
+                v_idx = bekleyenler.index(st.session_state.aktif_sayim_adi)
+                
+            secilen_oturum = st.selectbox("📡 Çalışılacak Sayım Belgesini (Oturum) Seçin:", bekleyenler, index=v_idx)
+            
+            # Seçim değiştiyse Session State'i güncelle ve sayfayı yenile
+            if secilen_oturum != st.session_state.aktif_sayim_adi:
+                st.session_state.aktif_sayim_adi = secilen_oturum
+                st.session_state['gecici_sayim_listesi'] = [] # Oturum değişince eski listedeki geçici verileri boşalt
+                st.rerun()
+
+            # --- STANDART VERİ GİRİŞ ALANI ---
             with st.container(border=True):
                 s_adr = st.text_input("📍 Adres:").upper()
                 katalog = veritabani.get_katalog() 
@@ -141,6 +176,7 @@ def goster(conn=None):
                 s_isim = sec.split(" | ")[1] if sec != "+ MANUEL" and len(sec.split(" | ")) > 1 else ""
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0)
                 s_durum = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
+                
                 if st.button("➕ EKLE", use_container_width=True):
                     st.session_state['gecici_sayim_listesi'].append({
                         "Oturum_Adi": st.session_state.aktif_sayim_adi,
@@ -149,15 +185,20 @@ def goster(conn=None):
                         "Personel": st.session_state.user, "Durum": s_durum
                     })
                     st.toast("Eklendi")
+                    
+            # EKLENENLER LİSTESİ VE KAYDET
             if st.session_state['gecici_sayim_listesi']:
                 for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                     cols = st.columns([3, 1])
                     cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {int(item['Miktar'])}")
                     if cols[1].button("🗑️", key=f"d_{idx}"): st.session_state['gecici_sayim_listesi'].pop(idx); st.rerun()
+                
                 if st.button("📤 KAYDET", type="primary", use_container_width=True):
                     eski = veritabani.get_internal_data("sayim")
                     veritabani.update_data("sayim", pd.concat([eski, pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True))
-                    st.session_state['gecici_sayim_listesi'] = []; st.success("Kaydedildi!"); st.rerun()
+                    st.session_state['gecici_sayim_listesi'] = []
+                    st.success("Kaydedildi!")
+                    st.rerun()
 
     # --- 3. FARK RAPORU ---
     elif st.session_state.sayim_page == 'rapor':
