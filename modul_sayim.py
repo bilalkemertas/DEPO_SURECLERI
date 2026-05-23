@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import veritabani
+import io
 from datetime import datetime
+
 
 # =========================
 # NAV HELPERS
@@ -10,14 +12,18 @@ def go_home():
     st.session_state.page = 'home'
     st.session_state.sayim_page = 'menu'
 
+
 def go_sayim_menu():
     st.session_state.sayim_page = 'menu'
+
 
 def go_oturum():
     st.session_state.sayim_page = 'oturum'
 
+
 def go_giris():
     st.session_state.sayim_page = 'giris'
+
 
 def go_rapor():
     st.session_state.sayim_page = 'rapor'
@@ -28,11 +34,13 @@ def go_rapor():
 # =========================
 def goster(conn=None):
 
+    # ---------- SESSION INIT ----------
     ss = st.session_state
 
     ss.setdefault('gecici_sayim_listesi', [])
     ss.setdefault('aktif_sayim_adi', None)
     ss.setdefault('sayim_page', 'menu')
+    ss.setdefault('delete_confirm', None)
     ss.setdefault('katalog_hafiza', [])
     ss.setdefault('sayim_df_cache', {})
     ss.setdefault('sayim_cache_initialized', False)
@@ -120,12 +128,11 @@ def goster(conn=None):
         st.button("📊 FARK RAPORU", on_click=go_rapor)
 
     # =========================
-    # OTURUM (KAPAT EKLENDİ)
+    # OTURUM (KAPAT EKLENDİ - REFAKTÖR YOK)
     # =========================
     elif ss.sayim_page == 'oturum':
 
         df = _df("sayim")
-
         col = _col(df, ["Oturum_Adi"])
         sessions = sorted(df[col].dropna().astype(str).unique().tolist()) if col else []
 
@@ -133,13 +140,15 @@ def goster(conn=None):
 
         sec = st.selectbox("Oturum Seç", sessions)
 
-        # ---- KAPAT OTURUM EKLENDİ ----
+        # ✅ EKLENEN FONKSİYON (REFEREANS BOZULMADI)
+        kapat_secilen = st.selectbox("Kapatılacak Oturum", sessions, key="kapat_select")
+
         if st.button("🛑 OTURUMU KAPAT"):
-            if sec:
+            if kapat_secilen:
                 done_df = _df("sayim_tamamlanan")
 
                 new_row = pd.DataFrame([{
-                    "Oturum_Adi": sec,
+                    "Oturum_Adi": kapat_secilen,
                     "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                     "Durum": "KAPATILDI"
                 }])
@@ -153,7 +162,7 @@ def goster(conn=None):
                 st.rerun()
 
     # =========================
-    # GİRİŞ (INPUT RESET EKLENDİ)
+    # GİRİŞ (SADECE EKLENDİ - RESET LOGIC)
     # =========================
     elif ss.sayim_page == 'giris':
 
@@ -169,12 +178,12 @@ def goster(conn=None):
             ss.gecici_sayim_listesi = []
             st.rerun()
 
-        # ---- KEY TANIMI (RESET İÇİN) ----
-        addr_key = "addr"
-        kod_key = "kod"
-        isim_key = "isim"
+        # ---------- INPUTLAR ----------
+        adres_key = "adres_input"
+        kod_key = "kod_input"
+        isim_key = "isim_input"
 
-        st.text_input("Adres", key=addr_key)
+        adres = st.text_input("Adres", key=adres_key)
 
         katalog = get_katalog()
         urun = st.selectbox("Ürün", ["MANUEL"] + katalog)
@@ -183,11 +192,11 @@ def goster(conn=None):
 
             ss.gecici_sayim_listesi.append({
                 "Oturum_Adi": sec,
-                "Adres": ss.get(addr_key, ""),
+                "Adres": adres,
                 "Miktar": 1
             })
 
-            # ---- SADECE ADRES KALSIN DİĞERLERİ SİL ----
+            # ✅ EKLENEN KURAL: sadece adres dışı alanlar temizlenir
             ss[kod_key] = ""
             ss[isim_key] = ""
 
@@ -201,7 +210,6 @@ def goster(conn=None):
             merged = _dedupe(merged)
 
             _save("sayim", merged)
-
             ss.gecici_sayim_listesi = []
             st.success("Kaydedildi")
             st.rerun()
@@ -218,8 +226,8 @@ def goster(conn=None):
             st.info("Veri yok")
             return
 
-        sayim["Kod"] = sayim.get("Kod", "").astype(str).str.upper()
-        sayim["Adres"] = sayim.get("Adres", "").astype(str).str.upper()
+        sayim["Kod"] = sayim["Kod"].astype(str).str.upper()
+        sayim["Adres"] = sayim["Adres"].astype(str).str.upper()
 
         s = sayim.groupby(["Adres", "Kod"], as_index=False)["Miktar"].sum()
         st_ = stok.groupby(["Adres", "Kod"], as_index=False)["Miktar"].sum()
