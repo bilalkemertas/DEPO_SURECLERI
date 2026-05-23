@@ -253,7 +253,6 @@ def goster(conn=None):
                     if not s_kod:
                         st.error("Lütfen bir ürün kodu giriniz veya listeden seçiniz.")
                     else:
-                        # Dinamik kullanıcı yakalama
                         aktif_kullanici = st.session_state.get('user') or \
                                           st.session_state.get('kullanici') or \
                                           st.session_state.get('username') or \
@@ -281,12 +280,23 @@ def goster(conn=None):
                         st.session_state['gecici_sayim_listesi'].pop(idx)
                         st.rerun()
                 
+                # --- DÜZELTİLMİŞ KAYDET BUTONU ---
                 if st.button("📤 KAYDET", type="primary", use_container_width=True):
-                    eski = veritabani.get_internal_data("sayim")
-                    yeni_veri = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
-                    veritabani.update_data("sayim", pd.concat([eski, yeni_veri], ignore_index=True))
+                    # 1. Mevcut veritabanındaki veriyi çek
+                    eski_df = veritabani.get_internal_data("sayim")
+                    
+                    # 2. Yeni girilen verileri DataFrame yap
+                    yeni_veri_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])
+                    
+                    # 3. Eski ile yeniyi birleştir
+                    guncel_df = pd.concat([eski_df, yeni_veri_df], ignore_index=True)
+                    
+                    # 4. Veritabanını güncelle
+                    veritabani.update_data("sayim", guncel_df)
+                    
+                    # 5. Temizlik ve onay
                     st.session_state['gecici_sayim_listesi'] = []
-                    st.success("Kaydedildi!")
+                    st.success("Tüm veriler başarıyla kaydedildi!")
                     st.rerun()
 
     # --- 3. FARK RAPORU ---
