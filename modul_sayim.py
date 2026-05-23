@@ -29,7 +29,8 @@ def goster(conn=None):
         c_btn1, c_btn2, c_title = st.columns([1.5, 1.5, 4])
         with c_btn1:
             if st.button("🏠 ANA MENÜYE DÖN", use_container_width=True): go_home(); st.rerun()
-            if st.button("Geri", use_container_width=true); go_sayim_menu(); st.rerun()
+           with c_btn2:
+            if st.button("⬅️ GERİ", use_container_width=True): go_sayim_menu(); st.rerun()
         with c_title:
             st.subheader("⚖️ Sayım Kontrol Merkezi")
         st.markdown("---")
