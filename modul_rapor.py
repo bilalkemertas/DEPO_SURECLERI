@@ -1,7 +1,7 @@
 import streamlit as st
 import veritabani
 import pandas as pd
-import io  # Excel yazımı
+import io  # Excel yazımı için gerekli
 
 def go_home(): 
     st.session_state.page = 'home'
@@ -41,7 +41,8 @@ def goster():
             m_col = next((c for c in cols_s if "Miktar" in c), None)
             
             is_completely_empty = False
-                 if m_col and not df_stok.empty:
+            
+            if m_col and not df_stok.empty:
                 df_stok[m_col] = pd.to_numeric(df_stok[m_col], errors='coerce').fillna(0)
                 df_stok = df_stok[df_stok[m_col] > 0]
                 
@@ -52,7 +53,6 @@ def goster():
                 st.error("🚫 STOK YOK (Veya aradığınız kriterlere uygun ürün bulunamadı)")
             else:
                 st.markdown(f"**Güncel Stok Listesi:** {len(df_stok)} kalem ürün listeleniyor.")
-                
                 st.dataframe(df_stok, use_container_width=True, hide_index=True)
             
             # Excel İndirme Butonu
