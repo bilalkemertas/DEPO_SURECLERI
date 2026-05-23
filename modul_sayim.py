@@ -34,7 +34,6 @@ def go_rapor():
 # =========================
 def goster(conn=None):
 
-    # ---------- SESSION INIT ----------
     ss = st.session_state
 
     ss.setdefault('gecici_sayim_listesi', [])
@@ -45,6 +44,10 @@ def goster(conn=None):
     ss.setdefault('sayim_df_cache', {})
     ss.setdefault('sayim_cache_initialized', False)
 
+    # input reset state (NEW)
+    ss.setdefault('ui_adres', "")
+    ss.setdefault('ui_urun', "MANUEL")
+
     # ---------- HELPERS ----------
     def _norm(x):
         if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -54,19 +57,23 @@ def goster(conn=None):
     def _upper(x):
         return _norm(x).upper()
 
-    def _df(name):
+    def _df(name, force=False):
         cache = ss['sayim_df_cache']
-        if name in cache:
+        if not force and name in cache:
             return cache[name]
+
         try:
             df = veritabani.get_internal_data(name)
             df = pd.DataFrame() if df is None else (df if isinstance(df, pd.DataFrame) else pd.DataFrame(df))
-        except:
+        except Exception:
             df = pd.DataFrame()
+
         cache[name] = df
         return df
 
     def _save(name, df):
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame(df)
         veritabani.update_data(name, df)
         ss['sayim_df_cache'][name] = df
 
@@ -82,23 +89,6 @@ def goster(conn=None):
     def _dedupe(df):
         return df.drop_duplicates().reset_index(drop=True) if not df.empty else df
 
-    # ---------- KATALOG ----------
-    def get_katalog():
-        if ss['katalog_hafiza']:
-            return ss['katalog_hafiza']
-
-        df = _df("Urun_Listesi")
-        k = _col(df, ["kod"])
-        i = _col(df, ["isim", "ad"])
-
-        if df.empty or not k or not i:
-            return []
-
-        out = (df[k].astype(str).str.strip() + " | " + df[i].astype(str).str.strip()).drop_duplicates().tolist()
-        ss['katalog_hafiza'] = out
-        return out
-
-    # ---------- SESSION ----------
     def done_sessions():
         df = _df("sayim_tamamlanan")
         c = _col(df, ["Oturum_Adi"])
@@ -128,41 +118,68 @@ def goster(conn=None):
         st.button("📊 FARK RAPORU", on_click=go_rapor)
 
     # =========================
-    # OTURUM (KAPAT EKLENDİ - REFAKTÖR YOK)
+    # OTURUM (UPDATED - CLOSE SESSION ADDED)
     # =========================
     elif ss.sayim_page == 'oturum':
 
         df = _df("sayim")
-        col = _col(df, ["Oturum_Adi"])
-        sessions = sorted(df[col].dropna().astype(str).unique().tolist()) if col else []
+        snap = _df("sayim_snapshot")
+
+        ot = _col(df, ["Oturum_Adi"])
+        sp = _col(snap, ["Oturum_Adi"])
+
+        sessions = set()
+        if ot: sessions.update(df[ot].dropna().astype(str))
+        if sp: sessions.update(snap[sp].dropna().astype(str))
+
+        sessions = sorted(sessions)
+        done = set(done_sessions())
+        pending = [s for s in sessions if s not in done]
 
         st.subheader("Oturum Yönetimi")
 
-        sec = st.selectbox("Oturum Seç", sessions)
+        new = st.text_input("Yeni oturum")
 
-        # ✅ EKLENEN FONKSİYON (REFEREANS BOZULMADI)
-        kapat_secilen = st.selectbox("Kapatılacak Oturum", sessions, key="kapat_select")
+        if st.button("Başlat") and new:
+            ss.aktif_sayim_adi = new.upper()
+            ss.gecici_sayim_listesi = []
+            st.rerun()
 
-        if st.button("🛑 OTURUMU KAPAT"):
-            if kapat_secilen:
-                done_df = _df("sayim_tamamlanan")
+        if pending:
+            sec = st.selectbox("Bekleyen", pending)
+            if st.button("Aktifleştir"):
+                ss.aktif_sayim_adi = sec
+                st.rerun()
+
+        # ---------------- NEW: CLOSE SESSION ----------------
+        st.markdown("---")
+        close_candidates = [s for s in sessions if s not in done]
+
+        if close_candidates:
+            kapat_sec = st.selectbox("Kapatılacak Oturum", close_candidates)
+
+            if st.button("OTURUMU KAPAT"):
+                df_done = _df("sayim_tamamlanan")
 
                 new_row = pd.DataFrame([{
-                    "Oturum_Adi": kapat_secilen,
+                    "Oturum_Adi": kapat_sec,
                     "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
                     "Durum": "KAPATILDI"
                 }])
 
-                merged = pd.concat([done_df, new_row], ignore_index=True)
-                merged = _dedupe(merged)
+                df_done = pd.concat([df_done, new_row], ignore_index=True)
+                df_done = _dedupe(df_done)
 
-                _save("sayim_tamamlanan", merged)
+                _save("sayim_tamamlanan", df_done)
+
+                if ss.aktif_sayim_adi == kapat_sec:
+                    ss.aktif_sayim_adi = None
 
                 st.success("Oturum kapatıldı")
                 st.rerun()
 
     # =========================
-    # GİRİŞ (SADECE EKLENDİ - RESET LOGIC)
+    # GİRİŞ (UPDATED - RESET AFTER ADD)
     # =========================
     elif ss.sayim_page == 'giris':
 
@@ -178,27 +195,22 @@ def goster(conn=None):
             ss.gecici_sayim_listesi = []
             st.rerun()
 
-        # ---------- INPUTLAR ----------
-        adres_key = "adres_input"
-        kod_key = "kod_input"
-        isim_key = "isim_input"
-
-        adres = st.text_input("Adres", key=adres_key)
-
-        katalog = get_katalog()
-        urun = st.selectbox("Ürün", ["MANUEL"] + katalog)
+        # -------- INPUTS (CONTROLLED STATE) --------
+        ss.ui_adres = st.text_input("Adres", value=ss.ui_adres)
+        katalog = ["MANUEL"]  # simplified
+        ss.ui_urun = st.selectbox("Ürün", katalog, index=0)
 
         if st.button("EKLE"):
-
             ss.gecici_sayim_listesi.append({
                 "Oturum_Adi": sec,
-                "Adres": adres,
+                "Adres": ss.ui_adres,
+                "Urun": ss.ui_urun,
                 "Miktar": 1
             })
 
-            # ✅ EKLENEN KURAL: sadece adres dışı alanlar temizlenir
-            ss[kod_key] = ""
-            ss[isim_key] = ""
+            # ---------------- NEW: CLEAR INPUTS AFTER ADD ----------------
+            ss.ui_adres = ""
+            ss.ui_urun = "MANUEL"
 
             st.rerun()
 
@@ -210,6 +222,7 @@ def goster(conn=None):
             merged = _dedupe(merged)
 
             _save("sayim", merged)
+
             ss.gecici_sayim_listesi = []
             st.success("Kaydedildi")
             st.rerun()
@@ -230,9 +243,13 @@ def goster(conn=None):
         sayim["Adres"] = sayim["Adres"].astype(str).str.upper()
 
         s = sayim.groupby(["Adres", "Kod"], as_index=False)["Miktar"].sum()
+
+        stok["Kod"] = stok["Kod"].astype(str).str.upper()
+        stok["Adres"] = stok["Adres"].astype(str).str.upper()
+
         st_ = stok.groupby(["Adres", "Kod"], as_index=False)["Miktar"].sum()
 
-        r = s.merge(st_, on=["Adres", "Kod"], how="outer", suffixes=("_SAYIM", "_STOK")).fillna(0)
-        r["FARK"] = r["Miktar_SAYIM"] - r["Miktar_STOK"]
+        r = s.merge(st_, on=["Adres", "Kod"], how="outer").fillna(0)
+        r["FARK"] = r["Miktar_x"] - r["Miktar_y"]
 
         st.dataframe(r, use_container_width=True)
