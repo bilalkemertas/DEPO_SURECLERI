@@ -5,7 +5,6 @@ import veritabani
 
 def goster(conn):
     # --- 1. TEK SEFERLİK VERİ YÜKLEME ---
-    # Sayfa açıldığı an veritabanından listeyi çekiyoruz
     df_stok = veritabani.get_internal_data("Stok")
     df_k = veritabani.get_internal_data("Urun_Listesi")
     
@@ -25,11 +24,11 @@ def goster(conn):
     if 'sayim_db' not in st.session_state:
         st.session_state['sayim_db'] = veritabani.get_internal_data("sayim")
 
-    # --- 2. DEĞİŞKENLER ---
-    # Eğer sayım_db boşsa boş dataframe oluştur
+    # --- 2. DEĞİŞKENLER VE OTURUM YÖNETİMİ ---
     if st.session_state['sayim_db'] is None: st.session_state['sayim_db'] = pd.DataFrame()
+    if 'aktif_sayim_oturumu' not in st.session_state: st.session_state['aktif_sayim_oturumu'] = False
+    if 'sayim_info' not in st.session_state: st.session_state['sayim_info'] = {}
 
-    # --- 3. FONKSİYONLAR ---
     def urun_secildi():
         sec_val = st.session_state.get("sec_box")
         if sec_val:
@@ -44,17 +43,33 @@ def goster(conn):
     tab1, tab2 = st.tabs(["📝 Sayım Girişi", "📊 Sayım Raporu"])
 
     with tab1:
+        # --- YENİ SAYIM MENÜSÜ ---
+        st.subheader("⚙️ Sayım Oturumu Yönetimi")
+        if not st.session_state['aktif_sayim_oturumu']:
+            with st.expander("➕ Sayım Başlatma Menüsü"):
+                c_tarih, c_belge = st.columns(2)
+                s_tarih = c_tarih.date_input("Sayım Günü", datetime.now())
+                s_belge = c_belge.text_input("Sayım Belge No")
+                if st.button("🚀 Oturumu Başlat"):
+                    if s_belge:
+                        st.session_state['aktif_sayim_oturumu'] = True
+                        st.session_state['sayim_info'] = {"Tarih": str(s_tarih), "Belge_No": s_belge}
+                        st.rerun()
+                    else:
+                        st.warning("Lütfen Belge Numarası girin!")
+        else:
+            st.success(f"🟢 Aktif Sayım: {st.session_state['sayim_info']['Belge_No']} | {st.session_state['sayim_info']['Tarih']}")
+            m1, m2, m3 = st.columns(3)
+            m1.button("🔍 Sayım Okutma Modu (Aktif)")
+            if m3.button("🛑 Sayımı Tamamla"):
+                st.session_state['aktif_sayim_oturumu'] = False
+                st.session_state['sayim_info'] = {}
+                st.rerun()
+
+        st.divider()
         st.subheader("📍 Yeni Veri Girişi")
         with st.container(border=True):
-            # ÜRÜN SEÇİMİ
-            st.selectbox(
-                "🔍 Ürün Seç:", 
-                options=katalog,
-                index=None,
-                placeholder="Ürün seçmek için tıklayın...",
-                key="sec_box",
-                on_change=urun_secildi
-            )
+            st.selectbox("🔍 Ürün Seç:", options=katalog, index=None, placeholder="Ürün seçmek için tıklayın...", key="sec_box", on_change=urun_secildi)
             
             c1, c2 = st.columns(2)
             with c1:
@@ -68,15 +83,16 @@ def goster(conn):
 
             if st.button("➕ Listeye Ekle", use_container_width=True):
                 if s_adres and s_kod:
-                    st.session_state['gecici_sayim_listesi'].append({
+                    # Oturum bilgileri varsa listeye ekle
+                    yeni_kayit = {
                         "Tarih": datetime.now().strftime("%d.%m.%Y"),
                         "Personel": st.session_state.get('kullanici_adi', 'Patron'),
-                        "Adres": s_adres,
-                        "Kod": s_kod,
-                        "Lot": s_lot,
-                        "Miktar": s_mik,
-                        "Durum": s_dur
-                    })
+                        "Adres": s_adres, "Kod": s_kod, "Lot": s_lot, "Miktar": s_mik, "Durum": s_dur
+                    }
+                    if st.session_state['aktif_sayim_oturumu']:
+                        yeni_kayit.update(st.session_state['sayim_info'])
+                        
+                    st.session_state['gecici_sayim_listesi'].append(yeni_kayit)
                     st.rerun()
 
         # DİNAMİK SİLİNEBİLİR LİSTE
@@ -84,23 +100,19 @@ def goster(conn):
             st.markdown("### 📥 Onay Bekleyen Sayımlar")
             for index, item in enumerate(st.session_state['gecici_sayim_listesi']):
                 r_col1, r_col2, r_col3, r_col4, r_col5, r_col6 = st.columns([1, 1, 1.5, 0.8, 1.2, 0.5])
-                r_col1.write(item["Adres"])
-                r_col2.write(item["Kod"])
-                r_col3.write(item["Lot"])
+                r_col1.write(item["Adres"]); r_col2.write(item["Kod"]); r_col3.write(item["Lot"])
                 r_col4.write(f"{item['Miktar']:,.0f}")
                 status_color = "🔴" if item["Durum"] == "Hasarlı" else "🟢"
                 r_col5.write(f"{status_color} {item['Durum']}")
                 if r_col6.button("🗑️", key=f"del_{index}"):
-                    st.session_state['gecici_sayim_listesi'].pop(index)
-                    st.rerun()
+                    st.session_state['gecici_sayim_listesi'].pop(index); st.rerun()
 
             if st.button("📤 DRIVE'A GÖNDER VE KAYDET", type="primary", use_container_width=True):
                 df_son = pd.concat([st.session_state['sayim_db'], pd.DataFrame(st.session_state['gecici_sayim_listesi'])], ignore_index=True)
                 veritabani.update_data("sayim", df_son)
                 st.session_state['sayim_db'] = df_son
                 st.session_state['gecici_sayim_listesi'] = []
-                st.success("Tüm veriler kaydedildi!")
-                st.rerun()
+                st.success("Tüm veriler kaydedildi!"); st.rerun()
 
     with tab2:
         st.subheader("🔍 Sayım ve Fark Analizi")
