@@ -316,6 +316,52 @@ def goster(conn=None):
         df_stok["Durum"] = df_stok["Durum"].astype(str).str.strip()
         df_stok["Miktar"] = _to_num(df_stok["Miktar"])
 
+        # ---------------------------------------------------------
+        # YENİ EKLENEN KISIM: HAREKETLER (JOURNAL) TABLOSUNA FARK FİŞİ KESME
+        # ---------------------------------------------------------
+        df_hareketler = _get_df("Hareketler")
+        if df_hareketler.empty:
+            df_hareketler = pd.DataFrame(columns=["Tarih", "İşlem", "Adres", "Kod", "İsim", "Miktar", "Birim", "Personel", "Belge_No"])
+        else:
+            # Eksik sütunları tamamla
+            df_hareketler = _ensure_columns(df_hareketler, {
+                "Tarih": "", "İşlem": "", "Adres": "", "Kod": "", "İsim": "", 
+                "Miktar": 0.0, "Birim": "-", "Personel": "", "Belge_No": ""
+            })
+
+        fark_hareketleri = []
+        for _, row in s_ozet.iterrows():
+            sayim_adres = row["Adres"]
+            sayim_kod = row["Kod"]
+            sayilan_miktar = float(row["Miktar"])
+            
+            # Sistemdeki mevcut stoğu bul
+            eski_stok_sorgu = df_stok[(df_stok["Adres"] == sayim_adres) & (df_stok["Kod"] == sayim_kod)]
+            sistem_miktari = float(eski_stok_sorgu["Miktar"].sum()) if not eski_stok_sorgu.empty else 0.0
+            
+            fark = sayilan_miktar - sistem_miktari
+            
+            # Sadece fark varsa hareket yaz (0 ise sayım tutmuştur, fişe gerek yok)
+            if fark != 0:
+                islem_tipi = "SAYIM_GİRİŞİ" if fark > 0 else "SAYIM_ÇIKIŞI"
+                fark_hareketleri.append({
+                    "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                    "İşlem": islem_tipi,
+                    "Adres": sayim_adres,
+                    "Kod": sayim_kod,
+                    "İsim": isim_sozlugu.get(sayim_kod, "TANIMSIZ"),
+                    "Miktar": abs(fark), # Hareket tablosuna pozitif miktar yazılır
+                    "Birim": "-",
+                    "Personel": "SİSTEM_SAYIM",
+                    "Belge_No": aktif_oturum # Hangi sayımdan dolayı bu fark fişi kesildi
+                })
+
+        if fark_hareketleri:
+            yeni_hareketler_df = pd.DataFrame(fark_hareketleri)
+            guncel_hareketler = pd.concat([df_hareketler, yeni_hareketler_df], ignore_index=True)
+            _save_df("Hareketler", guncel_hareketler)
+        # ---------------------------------------------------------
+
         # Replace only counted address+code pairs, preserve all untouched stock records
         sayilan_anahtarlar = set(zip(s_ozet["Adres"], s_ozet["Kod"]))
         mask_untouched = ~df_stok.apply(lambda r: (r.get("Adres", ""), r.get("Kod", "")) in sayilan_anahtarlar, axis=1)
