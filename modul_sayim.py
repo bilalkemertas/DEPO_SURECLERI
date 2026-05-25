@@ -30,6 +30,18 @@ def go_rapor():
 
 def goster(conn=None):
     # -----------------------------
+    # AKTİF KULLANICI BELİRLEME
+    # -----------------------------
+    aktif_kullanici = st.session_state.get('user') or \
+                      st.session_state.get('kullanici') or \
+                      st.session_state.get('username') or \
+                      st.session_state.get('kullanici_adi') or \
+                      "Tanımsız"
+
+    if 'user' not in st.session_state:
+        st.session_state['user'] = aktif_kullanici
+
+    # -----------------------------
     # SESSION STATE INIT
     # -----------------------------
     if 'gecici_sayim_listesi' not in st.session_state:
@@ -151,6 +163,11 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
         if df_tamamlanan.empty:
             return []
+        
+        # Kullanıcı bazlı filtre
+        if "Personel" in df_tamamlanan.columns:
+            df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+
         oturum_col = _find_col(df_tamamlanan, ["Oturum_Adi"])
         if not oturum_col:
             return []
@@ -160,6 +177,12 @@ def goster(conn=None):
         tum = []
         df_sayim = _get_df("sayim")
         df_snapshot = _get_df("sayim_snapshot")
+
+        # Kullanıcı bazlı filtre
+        if not df_sayim.empty and "Personel" in df_sayim.columns:
+            df_sayim = df_sayim[df_sayim["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+        if not df_snapshot.empty and "Personel" in df_snapshot.columns:
+            df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         oturum_col = _find_col(df_sayim, ["Oturum_Adi"])
         if not df_sayim.empty and oturum_col:
@@ -179,6 +202,11 @@ def goster(conn=None):
         df_snapshot = _get_df("sayim_snapshot")
         if df_snapshot.empty:
             return False
+        
+        # Kullanıcı bazlı filtre
+        if "Personel" in df_snapshot.columns:
+            df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+
         oc = _find_col(df_snapshot, ["Oturum_Adi"])
         if not oc:
             return False
@@ -191,6 +219,7 @@ def goster(conn=None):
 
         df_stok = df_stok.copy()
         df_stok["Oturum_Adi"] = oturum_adi
+        df_stok["Personel"] = aktif_kullanici
         if "Tarih" not in df_stok.columns:
             df_stok["Tarih"] = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
         return df_stok
@@ -260,6 +289,10 @@ def goster(conn=None):
 
         if df_sayim_ana.empty:
             return False, "Sayım verisi bulunamadı."
+
+        # Kullanıcı bazlı filtre
+        if "Personel" in df_sayim_ana.columns:
+            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         oturum_col = _find_col(df_sayim_ana, ["Oturum_Adi"])
         if not oturum_col:
@@ -375,14 +408,21 @@ def goster(conn=None):
         # Completion log
         tamamlanmis_sayimlar = set()
         if not df_tamamlanan.empty:
-            tamamlanan_oturum_col = _find_col(df_tamamlanan, ["Oturum_Adi"])
+            # Kullanıcı bazlı filtre
+            if "Personel" in df_tamamlanan.columns:
+                df_tamamlanan_f = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+            else:
+                df_tamamlanan_f = df_tamamlanan
+                
+            tamamlanan_oturum_col = _find_col(df_tamamlanan_f, ["Oturum_Adi"])
             if tamamlanan_oturum_col:
-                tamamlanmis_sayimlar = set(df_tamamlanan[tamamlanan_oturum_col].astype(str).tolist())
+                tamamlanmis_sayimlar = set(df_tamamlanan_f[tamamlanan_oturum_col].astype(str).tolist())
 
         if aktif_oturum not in tamamlanmis_sayimlar:
             log_yeni = pd.DataFrame([{
                 "Oturum_Adi": aktif_oturum,
                 "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                "Personel": aktif_kullanici,
                 "Toplam_Kalem": int(len(df_bu_sayim)),
                 "Toplam_Satir": int(len(s_ozet)),
                 "Durum": "POST_EDILDI"
@@ -454,6 +494,14 @@ def goster(conn=None):
         df_sayim_ana = _get_df("sayim")
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot_ana = _get_df("sayim_snapshot")
+
+        # Kullanıcı bazlı filtreler
+        if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
+            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+        if not df_tamamlanan.empty and "Personel" in df_tamamlanan.columns:
+            df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+        if not df_snapshot_ana.empty and "Personel" in df_snapshot_ana.columns:
+            df_snapshot_ana = df_snapshot_ana[df_snapshot_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty:
@@ -551,6 +599,14 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot = _get_df("sayim_snapshot")
 
+        # Kullanıcı bazlı filtreler
+        if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
+            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+        if not df_tamamlanan.empty and "Personel" in df_tamamlanan.columns:
+            df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+        if not df_snapshot.empty and "Personel" in df_snapshot.columns:
+            df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty:
             oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
@@ -618,12 +674,6 @@ def goster(conn=None):
                     if not _norm_text(s_kod):
                         st.error("Lütfen bir ürün kodu giriniz veya listeden seçiniz.")
                     else:
-                        aktif_kullanici = st.session_state.get('user') or \
-                                          st.session_state.get('kullanici') or \
-                                          st.session_state.get('username') or \
-                                          st.session_state.get('kullanici_adi') or \
-                                          "Tanımsız"
-
                         yeni_satir = {
                             "Oturum_Adi": st.session_state.aktif_sayim_adi,
                             "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
@@ -728,6 +778,12 @@ def goster(conn=None):
         df_urun = _get_df("Urun_Listesi")
         df_snapshot_ana = _get_df("sayim_snapshot")
 
+        # Kullanıcı bazlı filtreler
+        if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
+            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+        if not df_snapshot_ana.empty and "Personel" in df_snapshot_ana.columns:
+            df_snapshot_ana = df_snapshot_ana[df_snapshot_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+
         if not df_sayim_ana.empty:
             df_sayim_ana = _ensure_columns(df_sayim_ana, {
                 "Oturum_Adi": "ESKI_SAYIMLAR",
@@ -740,46 +796,66 @@ def goster(conn=None):
 
             mevcut_oturumlar = df_sayim_ana["Oturum_Adi"].dropna().astype(str).unique().tolist()
             v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
-            secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx)
+            
+            if mevcut_oturumlar:
+                secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx)
 
-            df_sayim = df_sayim_ana[df_sayim_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
+                df_sayim = df_sayim_ana[df_sayim_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
 
-            if not df_sayim.empty:
-                df_sayim["Adres"] = df_sayim["Adres"].astype(str).str.strip().str.upper()
-                df_sayim["Kod"] = df_sayim["Kod"].astype(str).str.strip().str.upper()
-                df_sayim["Durum"] = df_sayim["Durum"].astype(str).str.strip()
-                df_sayim["Miktar"] = _to_num(df_sayim["Miktar"])
+                if not df_sayim.empty:
+                    df_sayim["Adres"] = df_sayim["Adres"].astype(str).str.strip().str.upper()
+                    df_sayim["Kod"] = df_sayim["Kod"].astype(str).str.strip().str.upper()
+                    df_sayim["Durum"] = df_sayim["Durum"].astype(str).str.strip()
+                    df_sayim["Miktar"] = _to_num(df_sayim["Miktar"])
 
-                s_ozet = (
-                    df_sayim
-                    .groupby(["Adres", "Kod", "Durum"], sort=False, dropna=False)["Miktar"]
-                    .sum()
-                    .reset_index()
-                    .rename(columns={"Miktar": "Miktar_Sayilan"})
-                )
+                    s_ozet = (
+                        df_sayim
+                        .groupby(["Adres", "Kod", "Durum"], sort=False, dropna=False)["Miktar"]
+                        .sum()
+                        .reset_index()
+                        .rename(columns={"Miktar": "Miktar_Sayilan"})
+                    )
 
-                st_ozet = pd.DataFrame(columns=["Adres", "Kod", "Miktar_Sistem"])
-                if not df_snapshot_ana.empty:
-                    df_snapshot_ana = _ensure_columns(df_snapshot_ana, {
-                        "Oturum_Adi": "",
-                        "Adres": "",
-                        "Kod": "",
-                        "Miktar": 0,
-                    })
-                    df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
+                    st_ozet = pd.DataFrame(columns=["Adres", "Kod", "Miktar_Sistem"])
+                    if not df_snapshot_ana.empty:
+                        df_snapshot_ana = _ensure_columns(df_snapshot_ana, {
+                            "Oturum_Adi": "",
+                            "Adres": "",
+                            "Kod": "",
+                            "Miktar": 0,
+                        })
+                        df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
 
-                    if not df_snapshot_oturum.empty:
-                        df_snapshot_oturum["Adres"] = df_snapshot_oturum["Adres"].astype(str).str.strip().str.upper()
-                        df_snapshot_oturum["Kod"] = df_snapshot_oturum["Kod"].astype(str).str.strip().str.upper()
-                        df_snapshot_oturum["Miktar"] = _to_num(df_snapshot_oturum["Miktar"])
+                        if not df_snapshot_oturum.empty:
+                            df_snapshot_oturum["Adres"] = df_snapshot_oturum["Adres"].astype(str).str.strip().str.upper()
+                            df_snapshot_oturum["Kod"] = df_snapshot_oturum["Kod"].astype(str).str.strip().str.upper()
+                            df_snapshot_oturum["Miktar"] = _to_num(df_snapshot_oturum["Miktar"])
 
-                        st_ozet = (
-                            df_snapshot_oturum
-                            .groupby(["Adres", "Kod"], sort=False, dropna=False)["Miktar"]
-                            .sum()
-                            .reset_index()
-                            .rename(columns={"Miktar": "Miktar_Sistem"})
-                        )
+                            st_ozet = (
+                                df_snapshot_oturum
+                                .groupby(["Adres", "Kod"], sort=False, dropna=False)["Miktar"]
+                                .sum()
+                                .reset_index()
+                                .rename(columns={"Miktar": "Miktar_Sistem"})
+                            )
+                        else:
+                            df_stok_canli = _get_df("Stok")
+                            if not df_stok_canli.empty:
+                                df_stok_canli = _ensure_columns(df_stok_canli, {
+                                    "Adres": "",
+                                    "Kod": "",
+                                    "Miktar": 0,
+                                })
+                                df_stok_canli["Adres"] = df_stok_canli["Adres"].astype(str).str.strip().str.upper()
+                                df_stok_canli["Kod"] = df_stok_canli["Kod"].astype(str).str.strip().str.upper()
+                                df_stok_canli["Miktar"] = _to_num(df_stok_canli["Miktar"])
+                                st_ozet = (
+                                    df_stok_canli
+                                    .groupby(["Adres", "Kod"], sort=False, dropna=False)["Miktar"]
+                                    .sum()
+                                    .reset_index()
+                                    .rename(columns={"Miktar": "Miktar_Sistem"})
+                                )
                     else:
                         df_stok_canli = _get_df("Stok")
                         if not df_stok_canli.empty:
@@ -798,98 +874,82 @@ def goster(conn=None):
                                 .reset_index()
                                 .rename(columns={"Miktar": "Miktar_Sistem"})
                             )
-                else:
-                    df_stok_canli = _get_df("Stok")
-                    if not df_stok_canli.empty:
-                        df_stok_canli = _ensure_columns(df_stok_canli, {
-                            "Adres": "",
-                            "Kod": "",
-                            "Miktar": 0,
-                        })
-                        df_stok_canli["Adres"] = df_stok_canli["Adres"].astype(str).str.strip().str.upper()
-                        df_stok_canli["Kod"] = df_stok_canli["Kod"].astype(str).str.strip().str.upper()
-                        df_stok_canli["Miktar"] = _to_num(df_stok_canli["Miktar"])
-                        st_ozet = (
-                            df_stok_canli
-                            .groupby(["Adres", "Kod"], sort=False, dropna=False)["Miktar"]
-                            .sum()
-                            .reset_index()
-                            .rename(columns={"Miktar": "Miktar_Sistem"})
+
+                    rapor = pd.merge(s_ozet, st_ozet, on=["Adres", "Kod"], how="outer")
+                    rapor["Miktar_Sayilan"] = _to_num(rapor.get("Miktar_Sayilan", 0))
+                    rapor["Miktar_Sistem"] = _to_num(rapor.get("Miktar_Sistem", 0))
+                    rapor["FARK"] = rapor["Miktar_Sayilan"] - rapor["Miktar_Sistem"]
+
+                    isim_sozlugu = {}
+                    urun_kod_col = _find_col(df_urun, ["kod", "Kod"])
+                    urun_isim_col = _find_col(df_urun, ["isim", "İsim"])
+                    if not df_urun.empty and urun_kod_col and urun_isim_col:
+                        tmp = df_urun[[urun_kod_col, urun_isim_col]].drop_duplicates(subset=[urun_kod_col])
+                        isim_sozlugu.update(
+                            {
+                                str(k).strip().upper(): str(v).strip()
+                                for k, v in zip(tmp[urun_kod_col], tmp[urun_isim_col])
+                                if str(k).strip() != "" and str(k).strip().lower() != "nan"
+                            }
                         )
 
-                rapor = pd.merge(s_ozet, st_ozet, on=["Adres", "Kod"], how="outer")
-                rapor["Miktar_Sayilan"] = _to_num(rapor.get("Miktar_Sayilan", 0))
-                rapor["Miktar_Sistem"] = _to_num(rapor.get("Miktar_Sistem", 0))
-                rapor["FARK"] = rapor["Miktar_Sayilan"] - rapor["Miktar_Sistem"]
+                    rapor["İsim"] = rapor["Kod"].map(isim_sozlugu).fillna("TANIMSIZ")
 
-                isim_sozlugu = {}
-                urun_kod_col = _find_col(df_urun, ["kod", "Kod"])
-                urun_isim_col = _find_col(df_urun, ["isim", "İsim"])
-                if not df_urun.empty and urun_kod_col and urun_isim_col:
-                    tmp = df_urun[[urun_kod_col, urun_isim_col]].drop_duplicates(subset=[urun_kod_col])
-                    isim_sozlugu.update(
-                        {
-                            str(k).strip().upper(): str(v).strip()
-                            for k, v in zip(tmp[urun_kod_col], tmp[urun_isim_col])
-                            if str(k).strip() != "" and str(k).strip().lower() != "nan"
-                        }
+                    # Prefer counted status when available
+                    durum_map = (
+                        df_sayim.groupby(["Adres", "Kod"], sort=False, dropna=False)["Durum"]
+                        .agg(lambda x: x.dropna().astype(str).iloc[0] if len(x.dropna()) else "")
+                        .to_dict()
+                    )
+                    rapor["Durum"] = rapor.apply(lambda r: durum_map.get((r["Adres"], r["Kod"]), ""), axis=1)
+
+                    rapor = rapor[["Adres", "Kod", "İsim", "Durum", "Miktar_Sayilan", "Miktar_Sistem", "FARK"]]
+                    rapor = rapor.sort_values(["Adres", "Kod"], kind="stable").reset_index(drop=True)
+
+                    with st.container(border=True):
+                        katalog = get_dinamik_katalog()
+                        f_sec = st.selectbox("🔍 Ürün Filtrele:", ["+ TÜMÜ"] + katalog)
+
+                        rf1, rf2, rf3 = st.columns(3)
+                        f_adr = rf1.text_input("📍 Adres Filtre:", placeholder="📍 Adres")
+                        o_kod = f_sec.split(" | ")[0] if f_sec != "+ TÜMÜ" else ""
+                        o_isi = f_sec.split(" | ")[1] if f_sec != "+ TÜMÜ" and len(f_sec.split(" | ")) > 1 else ""
+
+                        f_kod = rf2.text_input("📦 Kod Filtre:", value=o_kod, placeholder="📦 Kod")
+                        f_isi = rf3.text_input("📝 İsim Filtre:", value=o_isi, placeholder="📝 İsim")
+
+                        if _norm_text(f_adr):
+                            rapor = rapor[rapor["Adres"].astype(str).str.contains(f_adr, case=False, na=False)]
+                        if _norm_text(f_kod):
+                            rapor = rapor[rapor["Kod"].astype(str).str.contains(f_kod, case=False, na=False)]
+                        if _norm_text(f_isi):
+                            rapor = rapor[rapor["İsim"].astype(str).str.contains(f_isi, case=False, na=False)]
+
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
+                    m2.metric("Sistem Stoğu (Referans)", f"{int(rapor['Miktar_Sistem'].sum())}")
+                    toplam_fark = int(rapor["FARK"].sum())
+                    m3.metric("Toplam Fark", f"{toplam_fark}", delta=toplam_fark)
+
+                    st.dataframe(
+                        rapor.style.map(
+                            lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '',
+                            subset=['FARK']
+                        ).format({
+                            'Miktar_Sayilan': '{:,.0f}',
+                            'Miktar_Sistem': '{:,.0f}',
+                            'FARK': '{:,.0f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
                     )
 
-                rapor["İsim"] = rapor["Kod"].map(isim_sozlugu).fillna("TANIMSIZ")
-
-                # Prefer counted status when available
-                durum_map = (
-                    df_sayim.groupby(["Adres", "Kod"], sort=False, dropna=False)["Durum"]
-                    .agg(lambda x: x.dropna().astype(str).iloc[0] if len(x.dropna()) else "")
-                    .to_dict()
-                )
-                rapor["Durum"] = rapor.apply(lambda r: durum_map.get((r["Adres"], r["Kod"]), ""), axis=1)
-
-                rapor = rapor[["Adres", "Kod", "İsim", "Durum", "Miktar_Sayilan", "Miktar_Sistem", "FARK"]]
-                rapor = rapor.sort_values(["Adres", "Kod"], kind="stable").reset_index(drop=True)
-
-                with st.container(border=True):
-                    katalog = get_dinamik_katalog()
-                    f_sec = st.selectbox("🔍 Ürün Filtrele:", ["+ TÜMÜ"] + katalog)
-
-                    rf1, rf2, rf3 = st.columns(3)
-                    f_adr = rf1.text_input("📍 Adres Filtre:", placeholder="📍 Adres")
-                    o_kod = f_sec.split(" | ")[0] if f_sec != "+ TÜMÜ" else ""
-                    o_isi = f_sec.split(" | ")[1] if f_sec != "+ TÜMÜ" and len(f_sec.split(" | ")) > 1 else ""
-
-                    f_kod = rf2.text_input("📦 Kod Filtre:", value=o_kod, placeholder="📦 Kod")
-                    f_isi = rf3.text_input("📝 İsim Filtre:", value=o_isi, placeholder="📝 İsim")
-
-                    if _norm_text(f_adr):
-                        rapor = rapor[rapor["Adres"].astype(str).str.contains(f_adr, case=False, na=False)]
-                    if _norm_text(f_kod):
-                        rapor = rapor[rapor["Kod"].astype(str).str.contains(f_kod, case=False, na=False)]
-                    if _norm_text(f_isi):
-                        rapor = rapor[rapor["İsim"].astype(str).str.contains(f_isi, case=False, na=False)]
-
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
-                m2.metric("Sistem Stoğu (Referans)", f"{int(rapor['Miktar_Sistem'].sum())}")
-                toplam_fark = int(rapor["FARK"].sum())
-                m3.metric("Toplam Fark", f"{toplam_fark}", delta=toplam_fark)
-
-                st.dataframe(
-                    rapor.style.map(
-                        lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '',
-                        subset=['FARK']
-                    ).format({
-                        'Miktar_Sayilan': '{:,.0f}',
-                        'Miktar_Sistem': '{:,.0f}',
-                        'FARK': '{:,.0f}'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
-                    rapor.to_excel(wr, index=False)
-                st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
+                    buf = io.BytesIO()
+                    with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
+                        rapor.to_excel(wr, index=False)
+                    st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
+                else:
+                    st.info("Oturumda veri yok.")
             else:
                 st.info("Oturumda veri yok.")
         else:
