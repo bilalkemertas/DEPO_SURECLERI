@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import veritabani
 import io
+import time
+import random
 from datetime import datetime
 
 
@@ -60,22 +62,34 @@ def goster(conn=None):
         return pd.to_numeric(series, errors='coerce').fillna(0)
 
     def _get_df(table_name):
-        try:
-            df = veritabani.get_internal_data(table_name)
-            if df is None:
-                return pd.DataFrame()
-            if not isinstance(df, pd.DataFrame):
-                return pd.DataFrame(df)
-            return df.copy()
-        except Exception:
-            return pd.DataFrame()
+        # Database Lock Fix: Eşzamanlı işlemlerde çakışmayı önlemek için rastgele beklemeli 15 deneme
+        for i in range(15):
+            try:
+                df = veritabani.get_internal_data(table_name)
+                if df is None:
+                    return pd.DataFrame()
+                if not isinstance(df, pd.DataFrame):
+                    return pd.DataFrame(df)
+                return df.copy()
+            except Exception:
+                if i == 14:
+                    return pd.DataFrame()
+                time.sleep(random.uniform(0.2, 0.7))
 
     def _save_df(table_name, df):
         if df is None:
             df = pd.DataFrame()
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
-        veritabani.update_data(table_name, df)
+        # Database Lock Fix: Eşzamanlı işlemlerde çakışmayı önlemek için rastgele beklemeli 15 deneme
+        for i in range(15):
+            try:
+                veritabani.update_data(table_name, df)
+                break
+            except Exception:
+                if i == 14:
+                    pass
+                time.sleep(random.uniform(0.2, 0.7))
 
     def _find_col(df, candidates):
         if df is None or df.empty:
@@ -558,6 +572,7 @@ def goster(conn=None):
 
         if not bekleyenler:
             st.warning("⚠️ Açık (Bekleyen) bir sayım oturumu bulunamadı. Lütfen 'Oturum Yönetimi' menüsünden yeni bir oturum başlatın.")
+            # Sayfa hataya düşmesin diye session None yapıldı
             st.session_state.aktif_sayim_adi = None
         else:
             # Session Drop Fix: Eğer mevcut aktif oturum bekleyenler listesinde yoksa ilk elemana sabitle
@@ -566,18 +581,20 @@ def goster(conn=None):
                 
             v_idx = bekleyenler.index(st.session_state.aktif_sayim_adi)
 
-            # Session Drop Fix: Selectbox'a sabit key verilerek state kayıpları engellendi
+            # Kayıt anında sayfanın yeniden render olmasından kaynaklı session kaybını önler
+            def on_oturum_degisti():
+                yeni_secim = st.session_state.sayim_giris_oturum_secici
+                if yeni_secim != st.session_state.aktif_sayim_adi:
+                    st.session_state.aktif_sayim_adi = yeni_secim
+                    st.session_state['gecici_sayim_listesi'] = []
+
             secilen_oturum = st.selectbox(
                 "📡 Çalışılacak Sayım Belgesini (Oturum) Seçin:", 
                 bekleyenler, 
-                index=v_idx, 
-                key="sayim_giris_oturum_secici"
+                index=v_idx,
+                key="sayim_giris_oturum_secici",
+                on_change=on_oturum_degisti
             )
-
-            if secilen_oturum != st.session_state.aktif_sayim_adi:
-                st.session_state.aktif_sayim_adi = secilen_oturum
-                st.session_state['gecici_sayim_listesi'] = []
-                st.rerun()
 
             with st.container(border=True):
                 s_adr = st.text_input("📍 Adres:").upper()
@@ -659,12 +676,10 @@ def goster(conn=None):
                     if yeni_veri_df.empty:
                         st.error("Kaydedilecek geçerli satır bulunamadı.")
                     else:
-                        # Concurrency Fix: Kayıt işleminden hemen önce önbelleği temizle ve veritabanının en güncel halini çek
                         try:
                             st.cache_data.clear()
                         except Exception:
                             pass
-                        
                         eski_df = _get_df("sayim")
                         if not eski_df.empty:
                             eski_df = _ensure_columns(eski_df, {
