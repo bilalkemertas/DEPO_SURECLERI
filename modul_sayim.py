@@ -522,6 +522,11 @@ def goster(conn=None):
         tum_oturumlar = sorted(list(set(tum_oturumlar)))
         bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
 
+        # DB LATENCY FIX (VERİTABANI GECİKME KORUMASI)
+        if st.session_state.aktif_sayim_adi and (st.session_state.aktif_sayim_adi not in tamamlanmis_oturumlar):
+            if st.session_state.aktif_sayim_adi not in bekleyenler:
+                bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
+
         with st.expander("🆕 Yeni Sayım Oturumu Başlat", expanded=(st.session_state.aktif_sayim_adi is None)):
             sayim_etiketi = st.text_input("Oturum İsmi:", placeholder="Örn: A_Blok")
             if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True, type="primary"):
@@ -625,6 +630,11 @@ def goster(conn=None):
 
         tum_oturumlar = sorted(list(set(tum_oturumlar)))
         bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
+
+        # DB LATENCY FIX (VERİTABANI GECİKME KORUMASI)
+        if st.session_state.aktif_sayim_adi and (st.session_state.aktif_sayim_adi not in tamamlanmis_oturumlar):
+            if st.session_state.aktif_sayim_adi not in bekleyenler:
+                bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
 
         if not bekleyenler:
             st.warning("⚠️ Açık (Bekleyen) bir sayım oturumu bulunamadı. Lütfen 'Oturum Yönetimi' menüsünden yeni bir oturum başlatın.")
@@ -795,6 +805,11 @@ def goster(conn=None):
             })
 
             mevcut_oturumlar = df_sayim_ana["Oturum_Adi"].dropna().astype(str).unique().tolist()
+            
+            # DB LATENCY FIX FOR REPORT PAGE
+            if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in mevcut_oturumlar:
+                mevcut_oturumlar.insert(0, st.session_state.aktif_sayim_adi)
+                
             v_idx = mevcut_oturumlar.index(st.session_state.aktif_sayim_adi) if st.session_state.aktif_sayim_adi in mevcut_oturumlar else 0
             
             if mevcut_oturumlar:
