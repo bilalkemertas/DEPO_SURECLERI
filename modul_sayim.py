@@ -71,10 +71,12 @@ def goster(conn=None):
         return _norm_text(val).upper()
 
     def _to_num(series):
-        return pd.to_numeric(series, errors='coerce').fillna(0)
+        # Küsürat Koruma: Eğer gelen veri metinse, virgülleri noktaya çevirip float güvenliğini sağlıyoruz
+        if series.dtype == object:
+            series = series.astype(str).str.replace(",", ".", regex=False)
+        return pd.to_numeric(series, errors='coerce').fillna(0.0).astype(float)
 
     def _get_df(table_name):
-        # Database Lock Fix: Eşzamanlı işlemlerde çakışmayı önlemek için rastgele beklemeli 15 deneme
         for i in range(15):
             try:
                 df = veritabani.get_internal_data(table_name)
@@ -93,7 +95,6 @@ def goster(conn=None):
             df = pd.DataFrame()
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
-        # Database Lock Fix: Eşzamanlı işlemlerde çakışmayı önlemek için rastgele beklemeli 15 deneme
         for i in range(15):
             try:
                 veritabani.update_data(table_name, df)
@@ -145,7 +146,7 @@ def goster(conn=None):
         kod_col = _find_col(df_urun, ["kod", "Kod"])
         isim_col = _find_col(df_urun, ["isim", "İsim", "ad", "Ad"])
 
-        if not df_urun.empty and kod_col and isim_col:
+        if not df_urun.empty and kod_col and_isim_col:
             katalog_listesi = _standardize_catalog_source(df_urun, kod_col, isim_col)
 
         if not katalog_listesi:
@@ -164,7 +165,6 @@ def goster(conn=None):
         if df_tamamlanan.empty:
             return []
         
-        # Kullanıcı bazlı filtre
         if "Personel" in df_tamamlanan.columns:
             df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
@@ -178,7 +178,6 @@ def goster(conn=None):
         df_sayim = _get_df("sayim")
         df_snapshot = _get_df("sayim_snapshot")
 
-        # Kullanıcı bazlı filtre
         if not df_sayim.empty and "Personel" in df_sayim.columns:
             df_sayim = df_sayim[df_sayim["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
         if not df_snapshot.empty and "Personel" in df_snapshot.columns:
@@ -203,7 +202,6 @@ def goster(conn=None):
         if df_snapshot.empty:
             return False
         
-        # Kullanıcı bazlı filtre
         if "Personel" in df_snapshot.columns:
             df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
@@ -290,7 +288,6 @@ def goster(conn=None):
         if df_sayim_ana.empty:
             return False, "Sayım verisi bulunamadı."
 
-        # Kullanıcı bazlı filtre
         if "Personel" in df_sayim_ana.columns:
             df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
@@ -302,12 +299,11 @@ def goster(conn=None):
         if df_bu_sayim.empty:
             return False, "Bu oturuma ait kayıt bulunamadı."
 
-        # Normalize count rows
         df_bu_sayim = _ensure_columns(df_bu_sayim, {
             "Adres": "",
             "Kod": "",
             "İsim": "",
-            "Miktar": 0,
+            "Miktar": 0.0,
             "Durum": "Kullanılabilir",
             "Birim": "-",
             "Personel": "",
@@ -319,7 +315,6 @@ def goster(conn=None):
         df_bu_sayim["Durum"] = df_bu_sayim["Durum"].astype(str).str.strip()
         df_bu_sayim["Miktar"] = _to_num(df_bu_sayim["Miktar"])
 
-        # ERP-style aggregation: same address + code + status
         s_ozet = (
             df_bu_sayim
             .groupby(["Adres", "Kod", "Durum"], sort=False, dropna=False)["Miktar"]
@@ -327,7 +322,6 @@ def goster(conn=None):
             .reset_index()
         )
 
-        # Name dictionary
         isim_sozlugu = {}
         urun_kod_col = _find_col(df_urun, ["kod", "Kod"])
         urun_isim_col = _find_col(df_urun, ["isim", "İsim"])
@@ -354,7 +348,6 @@ def goster(conn=None):
                 }
             )
 
-        # If stock table has no columns, prevent crash
         if df_stok.empty:
             df_stok = pd.DataFrame(columns=["Adres", "Kod", "İsim", "Miktar", "Durum", "Birim"])
 
@@ -362,7 +355,7 @@ def goster(conn=None):
             "Adres": "",
             "Kod": "",
             "İsim": "",
-            "Miktar": 0,
+            "Miktar": 0.0,
             "Durum": "Kullanılabilir",
             "Birim": "-",
         })
@@ -372,7 +365,6 @@ def goster(conn=None):
         df_stok["Durum"] = df_stok["Durum"].astype(str).str.strip()
         df_stok["Miktar"] = _to_num(df_stok["Miktar"])
 
-        # Replace only counted address+code pairs, preserve all untouched stock records
         sayilan_anahtarlar = set(zip(s_ozet["Adres"], s_ozet["Kod"]))
         mask_untouched = ~df_stok.apply(lambda r: (r.get("Adres", ""), r.get("Kod", "")) in sayilan_anahtarlar, axis=1)
         stok_kalan = df_stok[mask_untouched].copy()
@@ -382,10 +374,8 @@ def goster(conn=None):
         yeni_stok_verisi["Birim"] = "-"
         yeni_stok_verisi["Miktar"] = _to_num(yeni_stok_verisi["Miktar"])
 
-        # Remove zero lines; zero means stock cleared at that counted key
         yeni_stok_verisi = yeni_stok_verisi[yeni_stok_verisi["Miktar"] > 0].copy()
 
-        # Standardize column order for stock table
         if "Birim" not in stok_kalan.columns:
             stok_kalan["Birim"] = "-"
         if "Birim" not in yeni_stok_verisi.columns:
@@ -394,7 +384,6 @@ def goster(conn=None):
         yeni_stok_verisi = yeni_stok_verisi[["Adres", "Kod", "İsim", "Miktar", "Durum", "Birim"]]
         stok_final = pd.concat([stok_kalan, yeni_stok_verisi], ignore_index=True)
 
-        # Keep stock table clean
         stok_final["Adres"] = stok_final["Adres"].astype(str).str.strip().str.upper()
         stok_final["Kod"] = stok_final["Kod"].astype(str).str.strip().str.upper()
         stok_final["İsim"] = stok_final["İsim"].astype(str).str.strip()
@@ -405,10 +394,8 @@ def goster(conn=None):
 
         _save_df("Stok", stok_final)
 
-        # Completion log
         tamamlanmis_sayimlar = set()
         if not df_tamamlanan.empty:
-            # Kullanıcı bazlı filtre
             if "Personel" in df_tamamlanan.columns:
                 df_tamamlanan_f = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
             else:
@@ -495,7 +482,6 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot_ana = _get_df("sayim_snapshot")
 
-        # Kullanıcı bazlı filtreler
         if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
             df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
         if not df_tamamlanan.empty and "Personel" in df_tamamlanan.columns:
@@ -522,7 +508,6 @@ def goster(conn=None):
         tum_oturumlar = sorted(list(set(tum_oturumlar)))
         bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
 
-        # DB LATENCY FIX (VERİTABANI GECİKME KORUMASI)
         if st.session_state.aktif_sayim_adi and (st.session_state.aktif_sayim_adi not in tamamlanmis_oturumlar):
             if st.session_state.aktif_sayim_adi not in bekleyenler:
                 bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
@@ -535,7 +520,6 @@ def goster(conn=None):
                     zaman = datetime.now().strftime("%d%m_%H%M")
                     yeni_oturum_id = f"{sayim_etiketi}_{zaman}"
 
-                    # Snapshot only once per session start
                     if not _snapshot_exists_for_session(yeni_oturum_id):
                         snapshot_df = _prepare_snapshot_for_session(yeni_oturum_id)
                         if not snapshot_df.empty:
@@ -604,7 +588,6 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot = _get_df("sayim_snapshot")
 
-        # Kullanıcı bazlı filtreler
         if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
             df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
         if not df_tamamlanan.empty and "Personel" in df_tamamlanan.columns:
@@ -631,23 +614,19 @@ def goster(conn=None):
         tum_oturumlar = sorted(list(set(tum_oturumlar)))
         bekleyenler = [o for o in tum_oturumlar if o not in tamamlanmis_oturumlar]
 
-        # DB LATENCY FIX (VERİTABANI GECİKME KORUMASI)
         if st.session_state.aktif_sayim_adi and (st.session_state.aktif_sayim_adi not in tamamlanmis_oturumlar):
             if st.session_state.aktif_sayim_adi not in bekleyenler:
                 bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
 
         if not bekleyenler:
             st.warning("⚠️ Açık (Bekleyen) bir sayım oturumu bulunamadı. Lütfen 'Oturum Yönetimi' menüsünden yeni bir oturum başlatın.")
-            # Sayfa hataya düşmesin diye session None yapıldı
             st.session_state.aktif_sayim_adi = None
         else:
-            # Session Drop Fix: Eğer mevcut aktif oturum bekleyenler listesinde yoksa ilk elemana sabitle
             if st.session_state.aktif_sayim_adi not in bekleyenler:
                 st.session_state.aktif_sayim_adi = bekleyenler[0]
                 
             v_idx = bekleyenler.index(st.session_state.aktif_sayim_adi)
 
-            # Kayıt anında sayfanın yeniden render olmasından kaynaklı session kaybını önler
             def on_oturum_degisti():
                 yeni_secim = st.session_state.sayim_giris_oturum_secici
                 if yeni_secim != st.session_state.aktif_sayim_adi:
@@ -677,7 +656,8 @@ def goster(conn=None):
                     s_kod = st.text_input("📦 Kod:").upper()
                     s_isim = st.text_input("📝 İsim:").upper()
 
-                s_mik = st.number_input("Miktar:", min_value=0.0, step=1.0)
+                # CRITICAL FIX: Step 0.01 olarak güncellendi. El terminali küsürat hassasiyeti sağlandı.
+                s_mik = st.number_input("Miktar:", min_value=0.0, step=0.01)
                 s_durum = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
 
                 if st.button("➕ EKLE", use_container_width=True):
@@ -696,9 +676,8 @@ def goster(conn=None):
                             "Durum": _norm_text(s_durum)
                         }
 
-                        # ERP-style duplicate control within temporary buffer
                         mevcut = st.session_state['gecici_sayim_listesi']
-                        eşleşme_idx = None
+                        eslesme_idx = None
                         for i, item in enumerate(mevcut):
                             if (
                                 _upper_text(item.get("Oturum_Adi", "")) == _upper_text(yeni_satir["Oturum_Adi"]) and
@@ -706,16 +685,17 @@ def goster(conn=None):
                                 _upper_text(item.get("Kod", "")) == _upper_text(yeni_satir["Kod"]) and
                                 _norm_text(item.get("Durum", "")) == _norm_text(yeni_satir["Durum"])
                             ):
-                                eşleşme_idx = i
+                                eslesme_idx = i
                                 break
 
-                        if eşleşme_idx is not None:
-                            mevcut[eşleşme_idx]["Miktar"] = float(mevcut[eşleşme_idx].get("Miktar", 0)) + float(yeni_satir["Miktar"])
-                            mevcut[eşleşme_idx]["Tarih"] = yeni_satir["Tarih"]
-                            mevcut[eşleşme_idx]["İsim"] = yeni_satir["İsim"] or mevcut[eşleşme_idx].get("İsim", "")
-                            mevcut[eşleşme_idx]["Personel"] = yeni_satir["Personel"]
-                            mevcut[eşleşme_idx]["Birim"] = yeni_satir["Birim"]
-                            mevcut[eşleşme_idx]["Durum"] = yeni_satir["Durum"]
+                        if eslesme_idx is not None:
+                            # CRITICAL FIX: Geçici listedeki eşleşen miktar float(0.0) tabanlı toplanır
+                            mevcut[eslesme_idx]["Miktar"] = float(mevcut[eslesme_idx].get("Miktar", 0.0)) + float(yeni_satir["Miktar"])
+                            mevcut[eslesme_idx]["Tarih"] = yeni_satir["Tarih"]
+                            mevcut[eslesme_idx]["İsim"] = yeni_satir["İsim"] or mevcut[eslesme_idx].get("İsim", "")
+                            mevcut[eslesme_idx]["Personel"] = yeni_satir["Personel"]
+                            mevcut[eslesme_idx]["Birim"] = yeni_satir["Birim"]
+                            mevcut[eslesme_idx]["Durum"] = yeni_satir["Durum"]
                         else:
                             mevcut.append(yeni_satir)
 
@@ -725,7 +705,8 @@ def goster(conn=None):
             if st.session_state['gecici_sayim_listesi']:
                 for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                     cols = st.columns([3, 1])
-                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {int(item['Miktar'])}")
+                    # CRITICAL FIX: Ön izleme listesinde int() kaldırılarak küsüratlı float gösterim sağlandı.
+                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.2f}")
                     if cols[1].button("🗑️", key=f"d_{idx}"):
                         st.session_state['gecici_sayim_listesi'].pop(idx)
                         st.rerun()
@@ -754,7 +735,6 @@ def goster(conn=None):
                                 "Durum": "Kullanılabilir",
                             })
 
-                        # Append and then dedupe exact rows
                         if eski_df.empty:
                             guncel_df = yeni_veri_df.copy()
                         else:
@@ -781,14 +761,13 @@ def goster(conn=None):
                 go_sayim_menu()
                 st.rerun()
         with c_title:
-            st.subheader("📊Fark Raporu")
+            st.subheader("📊 Fark Raporu")
         st.markdown("---")
 
         df_sayim_ana = _get_df("sayim")
         df_urun = _get_df("Urun_Listesi")
         df_snapshot_ana = _get_df("sayim_snapshot")
 
-        # Kullanıcı bazlı filtreler
         if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
             df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
         if not df_snapshot_ana.empty and "Personel" in df_snapshot_ana.columns:
@@ -800,13 +779,12 @@ def goster(conn=None):
                 "Adres": "",
                 "Kod": "",
                 "İsim": "",
-                "Miktar": 0,
+                "Miktar": 0.0,
                 "Durum": "Kullanılabilir",
             })
 
             mevcut_oturumlar = df_sayim_ana["Oturum_Adi"].dropna().astype(str).unique().tolist()
             
-            # DB LATENCY FIX FOR REPORT PAGE
             if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in mevcut_oturumlar:
                 mevcut_oturumlar.insert(0, st.session_state.aktif_sayim_adi)
                 
@@ -814,7 +792,6 @@ def goster(conn=None):
             
             if mevcut_oturumlar:
                 secilen_oturum = st.selectbox("Oturum Seç:", mevcut_oturumlar, index=v_idx)
-
                 df_sayim = df_sayim_ana[df_sayim_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
 
                 if not df_sayim.empty:
@@ -837,7 +814,7 @@ def goster(conn=None):
                             "Oturum_Adi": "",
                             "Adres": "",
                             "Kod": "",
-                            "Miktar": 0,
+                            "Miktar": 0.0,
                         })
                         df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
 
@@ -859,7 +836,7 @@ def goster(conn=None):
                                 df_stok_canli = _ensure_columns(df_stok_canli, {
                                     "Adres": "",
                                     "Kod": "",
-                                    "Miktar": 0,
+                                    "Miktar": 0.0,
                                 })
                                 df_stok_canli["Adres"] = df_stok_canli["Adres"].astype(str).str.strip().str.upper()
                                 df_stok_canli["Kod"] = df_stok_canli["Kod"].astype(str).str.strip().str.upper()
@@ -877,7 +854,7 @@ def goster(conn=None):
                             df_stok_canli = _ensure_columns(df_stok_canli, {
                                 "Adres": "",
                                 "Kod": "",
-                                "Miktar": 0,
+                                "Miktar": 0.0,
                             })
                             df_stok_canli["Adres"] = df_stok_canli["Adres"].astype(str).str.strip().str.upper()
                             df_stok_canli["Kod"] = df_stok_canli["Kod"].astype(str).str.strip().str.upper()
@@ -891,8 +868,8 @@ def goster(conn=None):
                             )
 
                     rapor = pd.merge(s_ozet, st_ozet, on=["Adres", "Kod"], how="outer")
-                    rapor["Miktar_Sayilan"] = _to_num(rapor.get("Miktar_Sayilan", 0))
-                    rapor["Miktar_Sistem"] = _to_num(rapor.get("Miktar_Sistem", 0))
+                    rapor["Miktar_Sayilan"] = _to_num(rapor.get("Miktar_Sayilan", 0.0))
+                    rapor["Miktar_Sistem"] = _to_num(rapor.get("Miktar_Sistem", 0.0))
                     rapor["FARK"] = rapor["Miktar_Sayilan"] - rapor["Miktar_Sistem"]
 
                     isim_sozlugu = {}
@@ -910,7 +887,6 @@ def goster(conn=None):
 
                     rapor["İsim"] = rapor["Kod"].map(isim_sozlugu).fillna("TANIMSIZ")
 
-                    # Prefer counted status when available
                     durum_map = (
                         df_sayim.groupby(["Adres", "Kod"], sort=False, dropna=False)["Durum"]
                         .agg(lambda x: x.dropna().astype(str).iloc[0] if len(x.dropna()) else "")
@@ -940,20 +916,22 @@ def goster(conn=None):
                         if _norm_text(f_isi):
                             rapor = rapor[rapor["İsim"].astype(str).str.contains(f_isi, case=False, na=False)]
 
+                    # CRITICAL FIX: int() fonksiyonları kaldırılarak metrik alanlarındaki küsüratlar korundu.
                     m1, m2, m3 = st.columns(3)
-                    m1.metric("Toplam Sayılan", f"{int(rapor['Miktar_Sayilan'].sum())}")
-                    m2.metric("Sistem Stoğu (Referans)", f"{int(rapor['Miktar_Sistem'].sum())}")
-                    toplam_fark = int(rapor["FARK"].sum())
-                    m3.metric("Toplam Fark", f"{toplam_fark}", delta=toplam_fark)
+                    m1.metric("Toplam Sayılan", f"{rapor['Miktar_Sayilan'].sum():,.2f}")
+                    m2.metric("Sistem Stoğu (Referans)", f"{rapor['Miktar_Sistem'].sum():,.2f}")
+                    toplam_fark = rapor["FARK"].sum()
+                    m3.metric("Toplam Fark", f"{toplam_fark:,.2f}", delta=f"{toplam_fark:,.2f}")
 
+                    # CRITICAL FIX: Tablo formatı küsüratları 2 basamak gösterecek şekilde {:,.2f} yapıldı.
                     st.dataframe(
                         rapor.style.map(
                             lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '',
                             subset=['FARK']
                         ).format({
-                            'Miktar_Sayilan': '{:,.0f}',
-                            'Miktar_Sistem': '{:,.0f}',
-                            'FARK': '{:,.0f}'
+                            'Miktar_Sayilan': '{:,.2f}',
+                            'Miktar_Sistem': '{:,.2f}',
+                            'FARK': '{:,.2f}'
                         }),
                         use_container_width=True,
                         hide_index=True
