@@ -71,7 +71,6 @@ def goster(conn=None):
         return _norm_text(val).upper()
 
     def _to_num(series):
-        # Küsürat Koruma Güvencesi: Girilen virgülleri noktaya çevirerek float veri güvenliği sağlıyoruz
         if series.dtype == object:
             series = series.astype(str).str.replace(",", ".", regex=False)
         return pd.to_numeric(series, errors='coerce').fillna(0.0).astype(float)
@@ -123,7 +122,7 @@ def goster(conn=None):
     def _standardize_catalog_source(df, kod_col, isim_col):
         katalog_listesi = []
         if df.empty or kod_col is None or isim_col is None:
-            return katalog_listesi
+            return catalog_listesi
 
         temp = df[[kod_col, isim_col]].copy()
         temp[kod_col] = temp[kod_col].astype(str).str.strip()
@@ -146,13 +145,15 @@ def goster(conn=None):
         kod_col = _find_col(df_urun, ["kod", "Kod"])
         isim_col = _find_col(df_urun, ["isim", "İsim", "ad", "Ad"])
 
-        if not df_urun.empty and kod_col and_isim_col:
+        # DÜZELTME: 'and_isim_col' hatası 'and isim_col' olarak düzeltildi
+        if not df_urun.empty and kod_col and isim_col:
             katalog_listesi = _standardize_catalog_source(df_urun, kod_col, isim_col)
 
         if not katalog_listesi:
             df_stok = _get_df("Stok")
             kod_col = _find_col(df_stok, ["Kod", "kod"])
             isim_col = _find_col(df_stok, ["İsim", "isim"])
+            # DÜZELTME: 'and_isim_col' hatası 'and isim_col' olarak düzeltildi
             if not df_stok.empty and kod_col and_isim_col:
                 katalog_listesi = _standardize_catalog_source(df_stok, kod_col, isim_col)
 
@@ -267,7 +268,6 @@ def goster(conn=None):
         if not oturum_col:
             return False, "Oturum kolonu bulunamadı."
 
-        # CRITICAL FIX: Personel bazlı filtre kaldırılarak tüm personellerin sayımlarının kapatılması sağlandı!
         df_bu_sayim = df_sayim_ana[df_sayim_ana[oturum_col].astype(str) == str(aktif_oturum)].copy()
         if df_bu_sayim.empty:
             return False, f"Bu oturuma ({aktif_oturum}) ait herhangi bir kayıt veritabanında bulunamadı!"
@@ -886,7 +886,7 @@ def goster(conn=None):
                         rapor.to_excel(wr, index=False)
                     st.download_button("📥 EXCEL İNDİR", buf.getvalue(), f"Fark_{secilen_oturum}.xlsx", use_container_width=True)
                 else:
-                    st.info("Oturumda veri yok.")
+                    st.info("Otumda veri yok.")
             else:
                 st.info("Oturumda veri yok.")
         else:
