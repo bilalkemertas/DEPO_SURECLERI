@@ -112,7 +112,7 @@ if not st.session_state['logged_in']:
                     if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize() 
-                        # Sayım modülünün personel kaydı için ortak kullanıcı parametresini senkronize ediyoruz
+                        # Sayım modülünün beklediği değişkeni senkronize ediyoruz
                         st.session_state['user'] = kadi.capitalize()
                         st.rerun()
                     else:
@@ -167,8 +167,11 @@ else:
 
     # --- MODÜL YÖNLENDİRMELERİ ---
     else:
+        # Alt sayfalardan ana menüye dönüşte sayım iç navigasyonunu sıfırlamak için fonksiyonel hale getirdik
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
+            if 'sayim_page' in st.session_state:
+                st.session_state.sayim_page = 'menu'
             st.rerun()
         st.write("---")
 
@@ -181,7 +184,6 @@ else:
         elif st.session_state['page'] == 'stok':
             modul_stok.goster() 
         elif st.session_state['page'] == 'sayim':
-            # Tam entegrasyon için conn yapısını alt modüle başarıyla geçiriyoruz
             modul_sayim.goster(conn)
         elif st.session_state['page'] == 'rapor':
             modul_rapor.goster()
