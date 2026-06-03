@@ -112,6 +112,8 @@ if not st.session_state['logged_in']:
                     if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize() 
+                        # Sayım modülünün personel kaydı için ortak kullanıcı parametresini senkronize ediyoruz
+                        st.session_state['user'] = kadi.capitalize()
                         st.rerun()
                     else:
                         st.error("Hatalı kullanıcı adı veya şifre!")
@@ -160,7 +162,7 @@ else:
                 
         st.divider()
         if st.button("🚪 Güvenli Çıkış Yap"):
-            st.session_state.update({'logged_in': False, 'kullanici_adi': ""})
+            st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
             st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
@@ -179,7 +181,7 @@ else:
         elif st.session_state['page'] == 'stok':
             modul_stok.goster() 
         elif st.session_state['page'] == 'sayim':
-            # conn parametresini buraya aktardım
+            # Tam entegrasyon için conn yapısını alt modüle başarıyla geçiriyoruz
             modul_sayim.goster(conn)
         elif st.session_state['page'] == 'rapor':
             modul_rapor.goster()
