@@ -71,7 +71,7 @@ def goster(conn=None):
         return _norm_text(val).upper()
 
     def _to_num(series):
-        # Küsürat Koruma: Eğer gelen veri metinse, virgülleri noktaya çevirip float güvenliğini sağlıyoruz
+        # Küsürat Koruma Güvencesi: Girilen virgülleri noktaya çevirerek float veri güvenliği sağlıyoruz
         if series.dtype == object:
             series = series.astype(str).str.replace(",", ".", regex=False)
         return pd.to_numeric(series, errors='coerce').fillna(0.0).astype(float)
@@ -153,7 +153,7 @@ def goster(conn=None):
             df_stok = _get_df("Stok")
             kod_col = _find_col(df_stok, ["Kod", "kod"])
             isim_col = _find_col(df_stok, ["İsim", "isim"])
-            if not df_stok.empty and kod_col and isim_col:
+            if not df_stok.empty and kod_col and_isim_col:
                 katalog_listesi = _standardize_catalog_source(df_stok, kod_col, isim_col)
 
         katalog_listesi = sorted(list(set([x for x in katalog_listesi if x and x != " | "])))
@@ -164,9 +164,6 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
         if df_tamamlanan.empty:
             return []
-        
-        if "Personel" in df_tamamlanan.columns:
-            df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         oturum_col = _find_col(df_tamamlanan, ["Oturum_Adi"])
         if not oturum_col:
@@ -177,11 +174,6 @@ def goster(conn=None):
         tum = []
         df_sayim = _get_df("sayim")
         df_snapshot = _get_df("sayim_snapshot")
-
-        if not df_sayim.empty and "Personel" in df_sayim.columns:
-            df_sayim = df_sayim[df_sayim["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-        if not df_snapshot.empty and "Personel" in df_snapshot.columns:
-            df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         oturum_col = _find_col(df_sayim, ["Oturum_Adi"])
         if not df_sayim.empty and oturum_col:
@@ -201,9 +193,6 @@ def goster(conn=None):
         df_snapshot = _get_df("sayim_snapshot")
         if df_snapshot.empty:
             return False
-        
-        if "Personel" in df_snapshot.columns:
-            df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         oc = _find_col(df_snapshot, ["Oturum_Adi"])
         if not oc:
@@ -260,20 +249,6 @@ def goster(conn=None):
         df = df[df["Oturum_Adi"] != ""]
         return df.reset_index(drop=True)
 
-    def _append_count_rows_to_db(new_df):
-        try:
-            st.cache_data.clear()
-        except Exception:
-            pass
-        eski_df = _get_df("sayim")
-        if eski_df.empty:
-            guncel_df = new_df.copy()
-        else:
-            guncel_df = pd.concat([eski_df, new_df], ignore_index=True)
-
-        guncel_df = _dedupe_exact(guncel_df)
-        _save_df("sayim", guncel_df)
-
     def _post_session_to_stock(aktif_oturum):
         try:
             st.cache_data.clear()
@@ -286,18 +261,16 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
 
         if df_sayim_ana.empty:
-            return False, "Sayım verisi bulunamadı."
-
-        if "Personel" in df_sayim_ana.columns:
-            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
+            return False, "Veritabanında hiçbir sayım verisi bulunamadı."
 
         oturum_col = _find_col(df_sayim_ana, ["Oturum_Adi"])
         if not oturum_col:
             return False, "Oturum kolonu bulunamadı."
 
+        # CRITICAL FIX: Personel bazlı filtre kaldırılarak tüm personellerin sayımlarının kapatılması sağlandı!
         df_bu_sayim = df_sayim_ana[df_sayim_ana[oturum_col].astype(str) == str(aktif_oturum)].copy()
         if df_bu_sayim.empty:
-            return False, "Bu oturuma ait kayıt bulunamadı."
+            return False, f"Bu oturuma ({aktif_oturum}) ait herhangi bir kayıt veritabanında bulunamadı!"
 
         df_bu_sayim = _ensure_columns(df_bu_sayim, {
             "Adres": "",
@@ -396,14 +369,9 @@ def goster(conn=None):
 
         tamamlanmis_sayimlar = set()
         if not df_tamamlanan.empty:
-            if "Personel" in df_tamamlanan.columns:
-                df_tamamlanan_f = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-            else:
-                df_tamamlanan_f = df_tamamlanan
-                
-            tamamlanan_oturum_col = _find_col(df_tamamlanan_f, ["Oturum_Adi"])
+            tamamlanan_oturum_col = _find_col(df_tamamlanan, ["Oturum_Adi"])
             if tamamlanan_oturum_col:
-                tamamlanmis_sayimlar = set(df_tamamlanan_f[tamamlanan_oturum_col].astype(str).tolist())
+                tamamlanmis_sayimlar = set(df_tamamlanan[tamamlanan_oturum_col].astype(str).tolist())
 
         if aktif_oturum not in tamamlanmis_sayimlar:
             log_yeni = pd.DataFrame([{
@@ -421,7 +389,7 @@ def goster(conn=None):
                 tamamlanan_guncel = _dedupe_exact(tamamlanan_guncel)
             _save_df("sayim_tamamlanan", tamamlanan_guncel)
 
-        return True, "Stoklar güncellendi ve oturum arşivlendi!"
+        return True, "Stoklar başarıyla güncellendi ve oturum arşivlendi!"
 
     def _refresh_and_rerun():
         try:
@@ -481,13 +449,6 @@ def goster(conn=None):
         df_sayim_ana = _get_df("sayim")
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot_ana = _get_df("sayim_snapshot")
-
-        if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
-            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-        if not df_tamamlanan.empty and "Personel" in df_tamamlanan.columns:
-            df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-        if not df_snapshot_ana.empty and "Personel" in df_snapshot_ana.columns:
-            df_snapshot_ana = df_snapshot_ana[df_snapshot_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty:
@@ -588,13 +549,6 @@ def goster(conn=None):
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot = _get_df("sayim_snapshot")
 
-        if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
-            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-        if not df_tamamlanan.empty and "Personel" in df_tamamlanan.columns:
-            df_tamamlanan = df_tamamlanan[df_tamamlanan["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-        if not df_snapshot.empty and "Personel" in df_snapshot.columns:
-            df_snapshot = df_snapshot[df_snapshot["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty:
             oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
@@ -656,7 +610,6 @@ def goster(conn=None):
                     s_kod = st.text_input("📦 Kod:").upper()
                     s_isim = st.text_input("📝 İsim:").upper()
 
-                # CRITICAL FIX: Step 0.01 olarak güncellendi. El terminali küsürat hassasiyeti sağlandı.
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=0.01)
                 s_durum = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
 
@@ -689,7 +642,6 @@ def goster(conn=None):
                                 break
 
                         if eslesme_idx is not None:
-                            # CRITICAL FIX: Geçici listedeki eşleşen miktar float(0.0) tabanlı toplanır
                             mevcut[eslesme_idx]["Miktar"] = float(mevcut[eslesme_idx].get("Miktar", 0.0)) + float(yeni_satir["Miktar"])
                             mevcut[eslesme_idx]["Tarih"] = yeni_satir["Tarih"]
                             mevcut[eslesme_idx]["İsim"] = yeni_satir["İsim"] or mevcut[eslesme_idx].get("İsim", "")
@@ -705,7 +657,6 @@ def goster(conn=None):
             if st.session_state['gecici_sayim_listesi']:
                 for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                     cols = st.columns([3, 1])
-                    # CRITICAL FIX: Ön izleme listesinde int() kaldırılarak küsüratlı float gösterim sağlandı.
                     cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.2f}")
                     if cols[1].button("🗑️", key=f"d_{idx}"):
                         st.session_state['gecici_sayim_listesi'].pop(idx)
@@ -767,11 +718,6 @@ def goster(conn=None):
         df_sayim_ana = _get_df("sayim")
         df_urun = _get_df("Urun_Listesi")
         df_snapshot_ana = _get_df("sayim_snapshot")
-
-        if not df_sayim_ana.empty and "Personel" in df_sayim_ana.columns:
-            df_sayim_ana = df_sayim_ana[df_sayim_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
-        if not df_snapshot_ana.empty and "Personel" in df_snapshot_ana.columns:
-            df_snapshot_ana = df_snapshot_ana[df_snapshot_ana["Personel"].astype(str).str.strip() == str(aktif_kullanici).strip()]
 
         if not df_sayim_ana.empty:
             df_sayim_ana = _ensure_columns(df_sayim_ana, {
@@ -916,14 +862,12 @@ def goster(conn=None):
                         if _norm_text(f_isi):
                             rapor = rapor[rapor["İsim"].astype(str).str.contains(f_isi, case=False, na=False)]
 
-                    # CRITICAL FIX: int() fonksiyonları kaldırılarak metrik alanlarındaki küsüratlar korundu.
                     m1, m2, m3 = st.columns(3)
                     m1.metric("Toplam Sayılan", f"{rapor['Miktar_Sayilan'].sum():,.2f}")
                     m2.metric("Sistem Stoğu (Referans)", f"{rapor['Miktar_Sistem'].sum():,.2f}")
                     toplam_fark = rapor["FARK"].sum()
                     m3.metric("Toplam Fark", f"{toplam_fark:,.2f}", delta=f"{toplam_fark:,.2f}")
 
-                    # CRITICAL FIX: Tablo formatı küsüratları 2 basamak gösterecek şekilde {:,.2f} yapıldı.
                     st.dataframe(
                         rapor.style.map(
                             lambda x: 'color: red' if x < 0 else 'color: green' if x > 0 else '',
