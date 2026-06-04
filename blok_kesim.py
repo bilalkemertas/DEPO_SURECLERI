@@ -26,10 +26,10 @@ def run_blok_kesim(conn):
                 st.error("⚠️ 'eslesme_matrisi.csv' uygun bir Türkçe karakter formatında okunamadı!")
                 st.session_state.eslesme_df = pd.DataFrame()
         else:
-            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı! Eski yedek algoritmaya geçiş yapılıyor.")
+            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı!")
             st.session_state.eslesme_df = pd.DataFrame()
 
-    # --- ZIRHLI AYIKLAMA MOTORU (Sadece istisnai Fallback durumları için saklandı) ---
+    # --- ZIRHLI AYIKLAMA MOTORU ---
     def ayikla_karakter_ve_olcu(text):
         default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
         if pd.isna(text) or str(text).strip() == "":
@@ -120,13 +120,13 @@ def run_blok_kesim(conn):
             st.error(f"❌ Veri yükleme hatası: {e}")
             st.stop()
 
-    # --- ANA OPERASYON VE TEMİZLENMİŞ MATRİS YAPISI ---
+    # --- ANA OPERASYON ---
     if 'main_data' in st.session_state:
         df = st.session_state.main_data
         eslesme_matrix = st.session_state.eslesme_df
         stok_df = st.session_state.stok_data
 
-        # --- DİNAMİK SÜTUN BULUCU ---
+        # --- REZERVASYONSUZ, AKILLI SÜTUN BULUCU ---
         matris_kod_col = None
         matris_blok_kod_col = None
         matris_blok_adi_col = None
@@ -153,9 +153,9 @@ def run_blok_kesim(conn):
         vis_rows = []
         pivot_data = []
 
-        # --- TABLO OLUŞTURMA DÖNGÜSÜ ---
+        # --- DÖNGÜ BAŞLANGICI ---
         for _, row in df.iterrows():
-            plaka_adi = str(row.get(tanim_col, ''))
+            plaka_adi = str(row.get(tanim_col, '')).strip()
             plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col and pd.notna(row.get(kod_col)) else ""
             plaka_adet = safe_float(row.get(miktar_col, 0))
             
@@ -163,8 +163,9 @@ def run_blok_kesim(conn):
             bagli_blok_adi = ""
             is_matched_via_matrix = False
 
-            # 1. ADIM: Kesin Tablodan Doğrudan Çekme (MASTER DATA)
+            # 1. ADIM: Kesin Eşleştirme Matrisinden (CSV) Bilgi Çekme
             if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
+                # Matris kodunu zırhla temizle
                 eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
                 m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
                 
@@ -180,7 +181,7 @@ def run_blok_kesim(conn):
                         "PLAKA ADET": plaka_adet
                     })
 
-            # 2. ADIM: Sadece ve Sadece Yeni Kod Gelirse Fallback Çalışsın
+            # 2. ADIM: FALLBACK - Matriste Yoksa Sadece Gerçek Stok Listesinden Eşleştir
             if not is_matched_via_matrix and not stok_df.empty:
                 p_info = ayikla_karakter_ve_olcu(plaka_adi)
                 text = str(p_info['karakter']).upper()
@@ -190,6 +191,7 @@ def run_blok_kesim(conn):
                 secilen_kod = None
                 secilen_isim = None
 
+                # Buradaki kritik düzeltme: Sadece stok_df (blok listesi) taranır! İş emri satırları taranamaz.
                 for _, s_row in stok_df.iterrows():
                     b_info = ayikla_karakter_ve_olcu(s_row.get('İsim', ''))
                     b_text = str(b_info['karakter']).upper()
@@ -213,8 +215,8 @@ def run_blok_kesim(conn):
                         "PLAKA ADET": plaka_adet
                     })
                 else:
-                    bagli_blok_kod = "UYGUN BLOK MATRİSTE/STOKTA YOK"
-                    bagli_blok_adi = "Eşleşen Blok Bilgisi Bulunamadı"
+                    bagli_blok_kod = "UYGUN BLOK YOK"
+                    bagli_blok_adi = "Matris Dışı / Uygun Ölçüde Stok Bulunamadı"
 
             vis_rows.append({
                 "Plaka Kodu": plaka_kodu,
