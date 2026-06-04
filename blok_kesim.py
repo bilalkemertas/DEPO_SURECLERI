@@ -1,178 +1,84 @@
 import streamlit as st
-
 import pandas as pd
-
 import veritabani
-
 import re
-
 import math
-
 import os
-
 from datetime import datetime
-
-
 
 def run_blok_kesim(conn):
 
-
-
     # --- YEREL MASTER DATA YÜKLEME (TÜRKÇE KARAKTER ZIRHLI & CACHED) ---
-
     if 'eslesme_df' not in st.session_state:
-
         csv_path = "eslesme_matrisi.csv"
-
         if os.path.exists(csv_path):
-
             encodings = ['utf-8', 'windows-1254', 'iso-8859-9', 'cp1254', 'utf-8-sig']
-
             success = False
-
             for enc in encodings:
-
                 try:
-
                     st.session_state.eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc)
-
                     st.session_state.eslesme_df.columns = [c.strip() for c in st.session_state.eslesme_df.columns]
-
                     success = True
-
                     break
-
                 except (UnicodeDecodeError, Exception):
-
                     continue
-
             if not success:
-
                 st.error("⚠️ 'eslesme_matrisi.csv' uygun bir Türkçe karakter formatında okunamadı!")
-
                 st.session_state.eslesme_df = pd.DataFrame()
-
         else:
-
             st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı!")
-
             st.session_state.eslesme_df = pd.DataFrame()
 
-
-
     # --- ZIRHLI AYIKLAMA MOTORU ---
-
     def ayikla_karakter_ve_olcu(text):
-
         default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
-
         if pd.isna(text) or str(text).strip() == "":
-
             return default_return
-
-
-
         t = str(text).upper().replace(",", ".").strip()
-
         olcu_uzun = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
-
         olcu_kisa = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
 
-
-
         try:
-
             if olcu_uzun:
-
                 boy = float(olcu_uzun.group(1))
-
                 en = float(olcu_uzun.group(2))
-
                 kalinlik = float(olcu_uzun.group(3))
-
                 start_idx = olcu_uzun.start()
-
             elif olcu_kisa:
-
                 boy = float(olcu_kisa.group(1))
-
                 en = float(olcu_kisa.group(2))
-
                 kalinlik = 0.0
-
                 start_idx = olcu_kisa.start()
-
             else:
-
                 return default_return
-
-
-
             karakter = t[:start_idx].strip()
-
             return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
-
         except Exception:
-
             return default_return
 
-
-
     # --- PLAKA VE VERİM HESAPLAMA ---
-
     def plaka_sayisi_hesapla(plaka, blok):
-
         if not plaka or not blok: return 0
-
         if plaka.get('boy', 0) == 0 or plaka.get('en', 0) == 0: return 0
-
-
-
         adet_boy_1 = int(blok.get('boy', 0) // plaka['boy'])
-
         adet_en_1  = int(blok.get('en', 0) // plaka['en'])
-
         verim_1 = adet_boy_1 * adet_en_1
-
-
-
         adet_boy_2 = int(blok.get('boy', 0) // plaka['en'])
-
         adet_en_2  = int(blok.get('en', 0) // plaka['boy'])
-
         verim_2 = adet_boy_2 * adet_en_2
-
-
-
         return max(verim_1, verim_2)
-
-
-
     # --- GÜVENLİ FLOAT DÖNÜŞÜMÜ ---
-
     def safe_float(val, default=0.0):
-
         try:
-
             return float(val)
-
         except (ValueError, TypeError):
-
             return default
 
-
-
     # --- NAVİGASYON ---
-
     c1, c2, _ = st.columns([1.5, 1.5, 4])
-
     if c1.button("ANA MENÜ"):
-
         st.session_state.page = 'home'
-
         st.rerun()
-
-
 
     if c2.button("TEMİZLE"):
 
