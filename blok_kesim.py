@@ -8,7 +8,7 @@ from datetime import datetime
 
 def run_blok_kesim(conn):
 
-    # --- YEREL MASTER DATA YÜKLEME ---
+    # --- MASTER DATA ---
     if 'eslesme_df' not in st.session_state:
 
         csv_path = "eslesme_matrisi.csv"
@@ -53,6 +53,7 @@ def run_blok_kesim(conn):
     # --- AYIKLAMA ---
     def ayikla_karakter_ve_olcu(text):
         default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
+
         if pd.isna(text) or str(text).strip() == "":
             return default_return
 
@@ -78,40 +79,58 @@ def run_blok_kesim(conn):
             karakter = t[:start_idx].strip()
             return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
 
-        except Exception:
+        except:
             return default_return
 
-    # --- PLAKA VERİM ---
+    # --- HESAP ---
     def plaka_sayisi_hesapla(plaka, blok):
         if not plaka or not blok:
             return 0
         if plaka.get('boy', 0) == 0 or plaka.get('en', 0) == 0:
             return 0
 
-        adet_boy_1 = int(blok.get('boy', 0) // plaka['boy'])
-        adet_en_1  = int(blok.get('en', 0) // plaka['en'])
-        verim_1 = adet_boy_1 * adet_en_1
+        return max(
+            int(blok.get('boy',0)//plaka['boy']) * int(blok.get('en',0)//plaka['en']),
+            int(blok.get('boy',0)//plaka['en']) * int(blok.get('en',0)//plaka['boy'])
+        )
 
-        adet_boy_2 = int(blok.get('boy', 0) // plaka['en'])
-        adet_en_2  = int(blok.get('en', 0) // plaka['boy'])
-        verim_2 = adet_boy_2 * adet_en_2
-
-        return max(verim_1, verim_2)
-
-    def safe_float(val, default=0.0):
+    def safe_float(v):
         try:
-            return float(val)
+            return float(v)
         except:
-            return default
+            return 0.0
+
+    # --- UI (ORİJİNALİ GERİ GETİRİLDİ) ---
+    c1, c2, _ = st.columns([1.5, 1.5, 4])
+
+    if c1.button("ANA MENÜ"):
+        st.session_state.page = 'home'
+        st.rerun()
+
+    if c2.button("TEMİZLE"):
+        for k in ['main_data','stok_data','har_data']:
+            st.session_state.pop(k, None)
+        st.rerun()
 
     st.title("✂️ Blok Kesim Ekranı")
 
-    up = st.file_uploader("Excel Yükle", type=['xlsx'])
+    up = st.file_uploader("Excel Dosyasını Yükleyin", type=['xlsx'])
 
     if up and 'main_data' not in st.session_state:
+        raw_df = pd.read_excel(up, header=None)
 
-        # 🔥 BAŞLIK SATIRI DÜZELTME (gerekirse 1 → 2 yap)
-        df = pd.read_excel(up, header=1)
+        # 🔥 BAŞLIK OTOMATİK BUL
+        header_idx = 0
+        for i in range(min(20, len(raw_df))):
+            row = " ".join(str(x).upper() for x in raw_df.iloc[i].values if pd.notna(x))
+            if "PLAKA" in row and "ADET" in row:
+                header_idx = i
+                break
+
+        df = pd.read_excel(up, header=header_idx)
+
+        # kolon temizliği
+        df.columns = [str(c).strip() for c in df.columns]
 
         st.session_state.main_data = df
         st.session_state.stok_data = veritabani.get_internal_data("Stok")
@@ -124,19 +143,14 @@ def run_blok_kesim(conn):
     stok_df = st.session_state.stok_data
     eslesme_matrix = st.session_state.eslesme_df
 
-    # 🔥 KOLONLARI NET BAĞLA
-    tanim_col = "Plaka Adı"
-    miktar_col = "Adet"
-    kod_col = "Plaka Kodu"
+    # 🔥 KRİTİK FIX: kolonları DİNAMİK BUL
+    tanim_col = next((c for c in df.columns if "PLAKA ADI" in c.upper() or "TANIM" in c.upper()), None)
+    miktar_col = next((c for c in df.columns if "ADET" in c.upper()), None)
+    kod_col = next((c for c in df.columns if "PLAKA KOD" in c.upper() or "KOD" in c.upper()), None)
 
-    # 🔥 KONTROLLER
-    if tanim_col not in df.columns:
-        st.error(f"{tanim_col} kolonu bulunamadı")
+    if not tanim_col or not miktar_col:
+        st.error("Excel kolonları okunamadı → Plaka Adı / Adet eksik")
         st.write(df.columns)
-        return
-
-    if stok_df is None or stok_df.empty:
-        st.error("Stok verisi boş")
         return
 
     vis_rows = []
@@ -144,26 +158,26 @@ def run_blok_kesim(conn):
 
     for idx, row in df.iterrows():
 
-        plaka_adi = str(row.get(tanim_col, '')).strip()
-        plaka_kodu = str(row.get(kod_col, '')).strip()
-        plaka_adet = safe_float(row.get(miktar_col, 0))
+        plaka_adi = str(row.get(tanim_col,'')).strip()
+        plaka_kodu = str(row.get(kod_col,'')).strip()
+        plaka_adet = safe_float(row.get(miktar_col,0))
 
         bagli_blok_kod = ""
         bagli_blok_adi = ""
-        is_matched_via_matrix = False
+        is_matched = False
 
         # --- MATRIS ---
         if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty:
 
-            m_match = eslesme_matrix[
+            m = eslesme_matrix[
                 eslesme_matrix.iloc[:,0].astype(str).str.strip() == plaka_kodu
             ]
 
-            if not m_match.empty:
-                bagli_blok_kod = str(m_match.iloc[0,2]).strip()
-                bagli_blok_adi = str(m_match.iloc[0,3]).strip()
+            if not m.empty:
+                bagli_blok_kod = str(m.iloc[0,2]).strip()
+                bagli_blok_adi = str(m.iloc[0,3]).strip()
 
-                is_matched_via_matrix = True
+                is_matched = True
 
                 pivot_data.append({
                     "BAĞLI BLOK KODU": bagli_blok_kod,
@@ -172,29 +186,29 @@ def run_blok_kesim(conn):
                 })
 
         # --- FALLBACK ---
-        if not is_matched_via_matrix:
+        if not is_matched:
 
             p_info = ayikla_karakter_ve_olcu(plaka_adi)
 
-            for _, s_row in stok_df.iterrows():
+            for _, s in stok_df.iterrows():
 
-                b_info = ayikla_karakter_ve_olcu(s_row.get('İsim', ''))
+                b_info = ayikla_karakter_ve_olcu(s.get('İsim',''))
 
-                if plaka_sayisi_hesapla(p_info, b_info) > 0:
-                    bagli_blok_kod = str(s_row.get('Kod', '')).strip()
-                    bagli_blok_adi = str(s_row.get('İsim', '')).strip()
+                if plaka_sayisi_hesapla(p_info,b_info) > 0:
+                    bagli_blok_kod = s.get('Kod','')
+                    bagli_blok_adi = s.get('İsim','')
                     break
 
             if not bagli_blok_kod:
-                bagli_blok_kod = "UYGUN BLOK YOK"
-                bagli_blok_adi = "Uygun ölçü bulunamadı"
+                bagli_blok_kod = "YOK"
+                bagli_blok_adi = "Uygun bulunamadı"
 
-        df.at[idx, 'Gerekli Blok Kodu'] = bagli_blok_kod
-        df.at[idx, 'Gerekli Blok Adı'] = bagli_blok_adi
+        df.at[idx,'Gerekli Blok Kodu'] = bagli_blok_kod
+        df.at[idx,'Gerekli Blok Adı'] = bagli_blok_adi
 
         vis_rows.append({
             "Plaka Kodu": plaka_kodu,
-            "Plaka": plaka_adi,
+            "Plaka Adı": plaka_adi,
             "Adet": plaka_adet,
             "Blok": bagli_blok_adi
         })
@@ -203,5 +217,7 @@ def run_blok_kesim(conn):
 
     if pivot_data:
         pdf = pd.DataFrame(pivot_data)
-        pivot_df = pdf.groupby(["BAĞLI BLOK KODU","BAĞLI BLOK ADI"])["PLAKA ADET"].sum().reset_index()
-        st.dataframe(pivot_df, use_container_width=True)
+        st.dataframe(
+            pdf.groupby(["BAĞLI BLOK KODU","BAĞLI BLOK ADI"])["PLAKA ADET"].sum().reset_index(),
+            use_container_width=True
+        )
