@@ -6,38 +6,31 @@ import math
 import os
 from datetime import datetime
 
+
 def run_blok_kesim(conn):
 
-    # --- MASTER DATA ---
+    # --- YEREL MASTER DATA YÜKLEME ---
     if 'eslesme_df' not in st.session_state:
 
         csv_path = "eslesme_matrisi.csv"
 
         if os.path.exists(csv_path):
 
-            encodings = ['utf-8-sig','utf-8','windows-1254','iso-8859-9','cp1254']
+            encodings = ['utf-8', 'windows-1254', 'iso-8859-9', 'cp1254', 'utf-8-sig']
             success = False
 
             for enc in encodings:
                 try:
-                    eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc, sep=';')
+                    dfm = pd.read_csv(csv_path, dtype=str, encoding=enc)
 
-                    eslesme_df.columns = (
-                        eslesme_df.columns
+                    dfm.columns = (
+                        dfm.columns
                         .astype(str)
                         .str.replace('\ufeff', '', regex=False)
                         .str.strip()
                     )
 
-                    for col in eslesme_df.columns:
-                        eslesme_df[col] = (
-                            eslesme_df[col]
-                            .astype(str)
-                            .str.replace('\ufeff', '', regex=False)
-                            .str.strip()
-                        )
-
-                    st.session_state.eslesme_df = eslesme_df
+                    st.session_state.eslesme_df = dfm
                     success = True
                     break
 
@@ -54,7 +47,13 @@ def run_blok_kesim(conn):
 
     # --- AYIKLAMA ---
     def ayikla_karakter_ve_olcu(text):
-        default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
+
+        default_return = {
+            "boy": 0.0,
+            "en": 0.0,
+            "kalinlik": 0.0,
+            "karakter": str(text) if text else ""
+        }
 
         if pd.isna(text) or str(text).strip() == "":
             return default_return
@@ -79,54 +78,61 @@ def run_blok_kesim(conn):
                 return default_return
 
             karakter = t[:start_idx].strip()
-            return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
 
-        except:
+            return {
+                "boy": boy,
+                "en": en,
+                "kalinlik": kalinlik,
+                "karakter": karakter
+            }
+
+        except Exception:
             return default_return
 
-    # --- VERİM ---
+    # --- VERİM HESAP ---
     def plaka_sayisi_hesapla(plaka, blok):
+
         if not plaka or not blok:
             return 0
+
         if plaka.get('boy', 0) == 0 or plaka.get('en', 0) == 0:
             return 0
 
         return max(
-            int(blok.get('boy',0)//plaka['boy']) * int(blok.get('en',0)//plaka['en']),
-            int(blok.get('boy',0)//plaka['en']) * int(blok.get('en',0)//plaka['boy'])
+            int(blok.get('boy', 0) // plaka['boy']) * int(blok.get('en', 0) // plaka['en']),
+            int(blok.get('boy', 0) // plaka['en']) * int(blok.get('en', 0) // plaka['boy'])
         )
 
-    def safe_float(v):
+    def safe_float(val, default=0.0):
         try:
-            return float(v)
+            return float(val)
         except:
-            return 0.0
+            return default
 
     # --- UI ---
     st.title("✂️ Blok Kesim Ekranı")
 
-    up = st.file_uploader("Excel Yükle", type=['xlsx'])
+    up = st.file_uploader("Excel Dosyasını Yükleyin", type=['xlsx'])
 
     if up and 'main_data' not in st.session_state:
 
-        raw = pd.read_excel(up, header=None)
+        raw_df = pd.read_excel(up, header=None)
 
-        # HEADER AUTO DETECT (ROBUST)
         header_idx = 0
-        for i in range(min(20, len(raw))):
-            row_txt = " ".join(str(x).upper() for x in raw.iloc[i].values if pd.notna(x))
-            if "PLAKA" in row_txt and ("ADET" in row_txt or "MIKTAR" in row_txt):
+
+        for i in range(min(20, len(raw_df))):
+            row_txt = " ".join(str(x).upper() for x in raw_df.iloc[i].values if pd.notna(x))
+            if ("PLAKA" in row_txt or "SİPARİŞ" in row_txt) and ("ADET" in row_txt or "MIKTAR" in row_txt):
                 header_idx = i
                 break
 
         df = pd.read_excel(up, header=header_idx)
 
-        # 🔥 KRİTİK NORMALİZASYON
+        # 🔥 KRİTİK FIX: kolon normalize
         df.columns = (
             df.columns
             .astype(str)
             .str.replace('\ufeff', '', regex=False)
-            .str.replace('\n', '', regex=False)
             .str.replace('\t', '', regex=False)
             .str.strip()
         )
@@ -142,20 +148,21 @@ def run_blok_kesim(conn):
     stok_df = st.session_state.stok_data
     eslesme_matrix = st.session_state.eslesme_df
 
-    # 🔥 ROBUST COL FINDER
+    # --- ROBUST COL FINDER ---
     def find_col(cols, keys):
         for c in cols:
+            cu = str(c).upper()
             for k in keys:
-                if k in str(c).upper():
+                if k in cu:
                     return c
         return None
 
-    tanim_col = find_col(df.columns, ["PLAKA ADI","TANIM","URUN"])
-    miktar_col = find_col(df.columns, ["ADET","MIKTAR"])
-    kod_col = find_col(df.columns, ["PLAKA KOD","KOD"])
+    tanim_col = find_col(df.columns, ["PLAKA ADI", "TANIM", "ÜRÜN", "URUN"])
+    miktar_col = find_col(df.columns, ["ADET", "MIKTAR"])
+    kod_col = find_col(df.columns, ["PLAKA KODU", "PLAKA KOD", "SIPARIS", "KOD"])
 
     if not tanim_col or not miktar_col:
-        st.error("Excel kolonları bulunamadı (Plaka Adı / Adet)")
+        st.error("Excel kolonları okunamadı → Plaka Adı / Adet eksik")
         st.write(df.columns)
         return
 
@@ -164,24 +171,25 @@ def run_blok_kesim(conn):
 
     for idx, row in df.iterrows():
 
-        plaka_adi = str(row.get(tanim_col,'')).strip()
-        plaka_kodu = str(row.get(kod_col,'')).strip()
-        plaka_adet = safe_float(row.get(miktar_col,0))
+        plaka_adi = str(row.get(tanim_col, '')).strip()
+        plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col else ""
+        plaka_adet = safe_float(row.get(miktar_col, 0))
 
         bagli_blok_kod = ""
         bagli_blok_adi = ""
         is_matched = False
 
         # --- MATRIS ---
-        if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty:
+        if plaka_kodu and not eslesme_matrix.empty:
 
             m = eslesme_matrix[
-                eslesme_matrix.iloc[:,0].astype(str).str.strip() == plaka_kodu
+                eslesme_matrix.iloc[:, 0].astype(str).str.strip() == plaka_kodu
             ]
 
-            if not m.empty:
-                bagli_blok_kod = str(m.iloc[0,2]).strip()
-                bagli_blok_adi = str(m.iloc[0,3]).strip()
+            if not m.empty and len(m.columns) >= 4:
+
+                bagli_blok_kod = str(m.iloc[0, 2]).strip()
+                bagli_blok_adi = str(m.iloc[0, 3]).strip()
 
                 is_matched = True
 
@@ -198,19 +206,19 @@ def run_blok_kesim(conn):
 
             for _, s in stok_df.iterrows():
 
-                b_info = ayikla_karakter_ve_olcu(s.get('İsim',''))
+                b_info = ayikla_karakter_ve_olcu(s.get('İsim', ''))
 
-                if plaka_sayisi_hesapla(p_info,b_info) > 0:
-                    bagli_blok_kod = s.get('Kod','')
-                    bagli_blok_adi = s.get('İsim','')
+                if plaka_sayisi_hesapla(p_info, b_info) > 0:
+                    bagli_blok_kod = s.get('Kod', '')
+                    bagli_blok_adi = s.get('İsim', '')
                     break
 
             if not bagli_blok_kod:
-                bagli_blok_kod = "YOK"
+                bagli_blok_kod = "UYGUN BLOK YOK"
                 bagli_blok_adi = "Uygun bulunamadı"
 
-        df.at[idx,'Gerekli Blok Kodu'] = bagli_blok_kod
-        df.at[idx,'Gerekli Blok Adı'] = bagli_blok_adi
+        df.at[idx, 'Gerekli Blok Kodu'] = bagli_blok_kod
+        df.at[idx, 'Gerekli Blok Adı'] = bagli_blok_adi
 
         vis_rows.append({
             "Plaka Kodu": plaka_kodu,
@@ -224,6 +232,8 @@ def run_blok_kesim(conn):
     if pivot_data:
         pdf = pd.DataFrame(pivot_data)
         st.dataframe(
-            pdf.groupby(["BAĞLI BLOK KODU","BAĞLI BLOK ADI"])["PLAKA ADET"].sum().reset_index(),
+            pdf.groupby(["BAĞLI BLOK KODU", "BAĞLI BLOK ADI"])["PLAKA ADET"]
+            .sum()
+            .reset_index(),
             use_container_width=True
         )
