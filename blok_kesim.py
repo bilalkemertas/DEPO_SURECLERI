@@ -125,10 +125,14 @@ def run_blok_kesim(conn):
         df = st.session_state.main_data
         eslesme_matrix = st.session_state.eslesme_df
 
-        # --- EŞLEŞME TABLOSUNDAKİ YAPISAL SÜTUN TANIMLAMALARI ---
-        matris_kod_col = "hammadde kodu"
-        matris_blok_kod_col = "BAĞLI BLOK STOK KODU"
-        matris_blok_adi_col = "BAĞLI BLOK STOK ADI"
+        # --- GÜVENLİ SÜTUN YAKALAMA (İSME DEĞİL, DOĞRUDAN SIRAYA GÖRE SABİTLEME) ---
+        # Dosyadaki başlıklar ne olursa olsun; 1. sütun (0) hammadde kodu, 3. sütun (2) bağlı blok kodu, 4. sütun (3) bağlı blok adıdır.
+        if eslesme_matrix is not None and not eslesme_matrix.empty and len(eslesme_matrix.columns) >= 4:
+            matris_kod_col = eslesme_matrix.columns[0]
+            matris_blok_kod_col = eslesme_matrix.columns[2]
+            matris_blok_adi_col = eslesme_matrix.columns[3]
+        else:
+            matris_kod_col, matris_blok_kod_col, matris_blok_adi_col = None, None, None
 
         tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
@@ -151,7 +155,7 @@ def run_blok_kesim(conn):
             bagli_blok_adi = "Eşleşen Kalite/Ölçü aranacak"
 
             # Matris sorgusu
-            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty:
+            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
                 m_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == plaka_kodu]
                 if not m_match.empty:
                     bagli_blok_kod = ", ".join(m_match[matris_blok_kod_col].dropna().unique())
@@ -202,7 +206,7 @@ def run_blok_kesim(conn):
                 # OKUTULAN BARKODA UYGUN PLAKALARI FİLTRELE
                 def uygun_mu(row):
                     try:
-                        if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty:
+                        if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
                             pk = str(row.get(kod_col, '')).strip()
                             matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == pk]
                             if not matris_match.empty:
@@ -247,7 +251,7 @@ def run_blok_kesim(conn):
                     with st.container(border=True):
                         st.success(f"🎯 OKUTULAN BLOK UYUMLU: {blok.get('İsim', '')}")
                         st.write(f"**Eşleşen Plaka:** {emir[tanim_col]}")
-                        st.write(f"**Kesim Planı:** Tek Katta Çıkn: {tek_katta_cikan_plaka} Plaka | Gerekli Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
+                        st.write(f"**Kesim Planı:** Tek Katta Çıkan: {tek_katta_cikan_plaka} Plaka | Gerekli Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
                         
                         c_m1, c_m2 = st.columns(2)
                         c_m1.metric("Blok Boyu / Kalan Stok (cm)", f"{mevcut_miktar:.2f}")
