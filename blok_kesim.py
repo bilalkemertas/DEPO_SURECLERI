@@ -22,10 +22,12 @@ def run_blok_kesim(conn):
                 try:
                     eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc, sep=';')
 
-                    eslesme_df.columns = [
-                        str(c).replace('\ufeff', '').strip()
-                        for c in eslesme_df.columns
-                    ]
+                    eslesme_df.columns = (
+                        eslesme_df.columns
+                        .astype(str)
+                        .str.replace('\ufeff', '', regex=False)
+                        .str.strip()
+                    )
 
                     for col in eslesme_df.columns:
                         eslesme_df[col] = (
@@ -82,7 +84,7 @@ def run_blok_kesim(conn):
         except:
             return default_return
 
-    # --- HESAP ---
+    # --- VERİM ---
     def plaka_sayisi_hesapla(plaka, blok):
         if not plaka or not blok:
             return 0
@@ -100,37 +102,34 @@ def run_blok_kesim(conn):
         except:
             return 0.0
 
-    # --- UI (ORİJİNALİ GERİ GETİRİLDİ) ---
-    c1, c2, _ = st.columns([1.5, 1.5, 4])
-
-    if c1.button("ANA MENÜ"):
-        st.session_state.page = 'home'
-        st.rerun()
-
-    if c2.button("TEMİZLE"):
-        for k in ['main_data','stok_data','har_data']:
-            st.session_state.pop(k, None)
-        st.rerun()
-
+    # --- UI ---
     st.title("✂️ Blok Kesim Ekranı")
 
-    up = st.file_uploader("Excel Dosyasını Yükleyin", type=['xlsx'])
+    up = st.file_uploader("Excel Yükle", type=['xlsx'])
 
     if up and 'main_data' not in st.session_state:
-        raw_df = pd.read_excel(up, header=None)
 
-        # 🔥 BAŞLIK OTOMATİK BUL
+        raw = pd.read_excel(up, header=None)
+
+        # HEADER AUTO DETECT (ROBUST)
         header_idx = 0
-        for i in range(min(20, len(raw_df))):
-            row = " ".join(str(x).upper() for x in raw_df.iloc[i].values if pd.notna(x))
-            if "PLAKA" in row and "ADET" in row:
+        for i in range(min(20, len(raw))):
+            row_txt = " ".join(str(x).upper() for x in raw.iloc[i].values if pd.notna(x))
+            if "PLAKA" in row_txt and ("ADET" in row_txt or "MIKTAR" in row_txt):
                 header_idx = i
                 break
 
         df = pd.read_excel(up, header=header_idx)
 
-        # kolon temizliği
-        df.columns = [str(c).strip() for c in df.columns]
+        # 🔥 KRİTİK NORMALİZASYON
+        df.columns = (
+            df.columns
+            .astype(str)
+            .str.replace('\ufeff', '', regex=False)
+            .str.replace('\n', '', regex=False)
+            .str.replace('\t', '', regex=False)
+            .str.strip()
+        )
 
         st.session_state.main_data = df
         st.session_state.stok_data = veritabani.get_internal_data("Stok")
@@ -143,13 +142,20 @@ def run_blok_kesim(conn):
     stok_df = st.session_state.stok_data
     eslesme_matrix = st.session_state.eslesme_df
 
-    # 🔥 KRİTİK FIX: kolonları DİNAMİK BUL
-    tanim_col = next((c for c in df.columns if "PLAKA ADI" in c.upper() or "TANIM" in c.upper()), None)
-    miktar_col = next((c for c in df.columns if "ADET" in c.upper()), None)
-    kod_col = next((c for c in df.columns if "PLAKA KOD" in c.upper() or "KOD" in c.upper()), None)
+    # 🔥 ROBUST COL FINDER
+    def find_col(cols, keys):
+        for c in cols:
+            for k in keys:
+                if k in str(c).upper():
+                    return c
+        return None
+
+    tanim_col = find_col(df.columns, ["PLAKA ADI","TANIM","URUN"])
+    miktar_col = find_col(df.columns, ["ADET","MIKTAR"])
+    kod_col = find_col(df.columns, ["PLAKA KOD","KOD"])
 
     if not tanim_col or not miktar_col:
-        st.error("Excel kolonları okunamadı → Plaka Adı / Adet eksik")
+        st.error("Excel kolonları bulunamadı (Plaka Adı / Adet)")
         st.write(df.columns)
         return
 
