@@ -29,7 +29,7 @@ def run_blok_kesim(conn):
             st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı! Eski yedek algoritmaya geçiş yapılıyor.")
             st.session_state.eslesme_df = pd.DataFrame()
 
-    # --- ZIRHLI AYIKLAMA MOTORU ---
+    # --- ZIRHLI AYIKLAMA MOTORU (Sadece istisnai Fallback durumları için saklandı) ---
     def ayikla_karakter_ve_olcu(text):
         default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
         if pd.isna(text) or str(text).strip() == "":
@@ -92,7 +92,7 @@ def run_blok_kesim(conn):
                 del st.session_state[k]
         st.rerun()
 
-    st.title("✂️Blok Kesim Ekranı")
+    st.title("✂️ Blok Kesim Ekranı")
 
     # --- EXCEL YÜKLEME ---
     up = st.file_uploader("Excel Dosyasını Yükleyin (Kesim / İş Emri Listesi)", type=['xlsx'])
@@ -120,13 +120,13 @@ def run_blok_kesim(conn):
             st.error(f"❌ Veri yükleme hatası: {e}")
             st.stop()
 
-    # --- ANA OPERASYON VE YENİ EKRAN YAPISI ---
+    # --- ANA OPERASYON VE TEMİZLENMİŞ MATRİS YAPISI ---
     if 'main_data' in st.session_state:
         df = st.session_state.main_data
         eslesme_matrix = st.session_state.eslesme_df
         stok_df = st.session_state.stok_data
 
-        # --- REZERVASYONSUZ, AKILLI SÜTUN BULUCU ---
+        # --- DİNAMİK SÜTUN BULUCU ---
         matris_kod_col = None
         matris_blok_kod_col = None
         matris_blok_adi_col = None
@@ -150,10 +150,10 @@ def run_blok_kesim(conn):
             st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı veya Adet sütunları bulunamadı!")
             st.stop()
 
-        # --- DİNAMİK LİSTE HAZIRLAMA ---
         vis_rows = []
         pivot_data = []
 
+        # --- TABLO OLUŞTURMA DÖNGÜSÜ ---
         for _, row in df.iterrows():
             plaka_adi = str(row.get(tanim_col, ''))
             plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col and pd.notna(row.get(kod_col)) else ""
@@ -163,35 +163,32 @@ def run_blok_kesim(conn):
             bagli_blok_adi = ""
             is_matched_via_matrix = False
 
-            # 1. ADIM: Master Data Sorgusu (Öncelikli Giriş)
+            # 1. ADIM: Kesin Tablodan Doğrudan Çekme (MASTER DATA)
             if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
                 eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
                 m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
                 
                 if not m_match.empty and matris_blok_kod_col and matris_blok_adi_col:
-                    bagli_blok_kod = ", ".join(m_match[matris_blok_kod_col].dropna().astype(str).str.strip().unique())
-                    bagli_blok_adi = ", ".join(m_match[matris_blok_adi_col].dropna().astype(str).str.strip().unique())
+                    ilk_eslesme = m_match.dropna(subset=[matris_blok_kod_col]).iloc[0]
+                    bagli_blok_kod = str(ilk_eslesme[matris_blok_kod_col]).strip()
+                    bagli_blok_adi = str(ilk_eslesme[matris_blok_adi_col]).strip()
                     is_matched_via_matrix = True
                     
-                    # --- İSTEDİĞİN GÜNCELLEME: Pivot Verisine Blok Adı da Alınıyor ---
-                    for idx, m_row in m_match.dropna(subset=[matris_blok_kod_col]).iterrows():
-                        b_kod = str(m_row[matris_blok_kod_col]).strip()
-                        b_adi = str(m_row[matris_blok_adi_col]).strip() if matris_blok_adi_col in m_match.columns else "İsim Bilgisi Yok"
-                        pivot_data.append({
-                            "BAĞLI BLOK KODU": b_kod, 
-                            "BAĞLI BLOK ADI": b_adi, 
-                            "PLAKA ADET": plaka_adet
-                        })
+                    pivot_data.append({
+                        "BAĞLI BLOK KODU": bagli_blok_kod, 
+                        "BAĞLI BLOK ADI": bagli_blok_adi, 
+                        "PLAKA ADET": plaka_adet
+                    })
 
-            # 2. ADIM: FALLBACK - EĞER MATRİSTE BULUNAMADIYSA AKILLI GEOMETRİK MOTORU ÇALIŞTIR
+            # 2. ADIM: Sadece ve Sadece Yeni Kod Gelirse Fallback Çalışsın
             if not is_matched_via_matrix and not stok_df.empty:
                 p_info = ayikla_karakter_ve_olcu(plaka_adi)
                 text = str(p_info['karakter']).upper()
                 p_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', text) else None
                 p_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', text).replace('DNS', '').strip()))
 
-                uygun_stok_kodlari = []
-                uygun_stok_isimleri = []
+                secilen_kod = None
+                secilen_isim = None
 
                 for _, s_row in stok_df.iterrows():
                     b_info = ayikla_karakter_ve_olcu(s_row.get('İsim', ''))
@@ -199,32 +196,25 @@ def run_blok_kesim(conn):
                     b_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', b_text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', b_text) else None
                     b_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', b_text).replace('DNS', '').strip()))
 
-                    # Kalite (DNS) Kontrolü
                     if p_dns and b_dns and p_dns != b_dns: continue
-                    # Kelime/Tür Kontrolü
                     if len(p_words) > 0 and len(b_words) > 0 and len(p_words.intersection(b_words)) == 0: continue
                     
-                    # Ölçü (Verim) Kontrolü
                     if plaka_sayisi_hesapla(p_info, b_info) > 0:
-                        s_kod = str(s_row.get('Kod', '')).strip()
-                        s_isim = str(s_row.get('İsim', '')).strip()
-                        if s_kod not in uygun_stok_kodlari:
-                            uygun_stok_kodlari.append(s_kod)
-                            uygun_stok_isimleri.append(s_isim)
-                            
-                            # Fallback motorunda da hem Kod hem Ad listeye ekleniyor
-                            pivot_data.append({
-                                "BAĞLI BLOK KODU": s_kod, 
-                                "BAĞLI BLOK ADI": s_isim, 
-                                "PLAKA ADET": plaka_adet
-                            })
+                        secilen_kod = str(s_row.get('Kod', '')).strip()
+                        secilen_isim = str(s_row.get('İsim', '')).strip()
+                        break 
 
-                if uygun_stok_kodlari:
-                    bagli_blok_kod = ", ".join(uygun_stok_kodlari)
-                    bagli_blok_adi = ", ".join(uygun_stok_isimleri)
+                if secilen_kod:
+                    bagli_blok_kod = secilen_kod
+                    bagli_blok_adi = secilen_isim
+                    pivot_data.append({
+                        "BAĞLI BLOK KODU": secilen_kod, 
+                        "BAĞLI BLOK ADI": secilen_isim, 
+                        "PLAKA ADET": plaka_adet
+                    })
                 else:
-                    bagli_blok_kod = "UYGUN BLOK STOKTA YOK"
-                    bagli_blok_adi = "Ölçü/Kalite Kurtaran Blok Bulunamadı"
+                    bagli_blok_kod = "UYGUN BLOK MATRİSTE/STOKTA YOK"
+                    bagli_blok_adi = "Eşleşen Blok Bilgisi Bulunamadı"
 
             vis_rows.append({
                 "Plaka Kodu": plaka_kodu,
@@ -236,11 +226,10 @@ def run_blok_kesim(conn):
 
         vis_df = pd.DataFrame(vis_rows)
 
-        # --- 1. BÖLÜM: KESİLECEK BLOKLARIN PIVOT ÖZET LİSTESİ (AÇILIR PENCERE) ---
+        # --- 1. BÖLÜM: TOPLAM GEREKLİ BLOK İHTİYAÇ RAPORU (PIVOT) ---
         with st.expander("📊 İŞ EMRİ TOPLAM GEREKLİ BLOK İHTİYAÇ RAPORU (ÖZET)", expanded=True):
             if pivot_data:
                 pdf = pd.DataFrame(pivot_data)
-                # --- SÜREÇ İYİLEŞTİRMESİ: Groupby alanına 'BAĞLI BLOK ADI' da dahil edildi ---
                 pivot_df = pdf.groupby(["BAĞLI BLOK KODU", "BAĞLI BLOK ADI"])["PLAKA ADET"].sum().reset_index()
                 pivot_df.rename(columns={"PLAKA ADET": "Toplam Üretilecek Plaka (Adet)"}, inplace=True)
                 st.dataframe(pivot_df, use_container_width=True, hide_index=True)
@@ -265,7 +254,6 @@ def run_blok_kesim(conn):
                 blok_info = ayikla_karakter_ve_olcu(blok.get('İsim', ''))
                 mevcut_miktar = safe_float(blok.get('Miktar', 0))
 
-                # OKUTULAN BARKODA UYGUN PLAKALARI FİLTRELE
                 def uygun_mu(row):
                     try:
                         if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
@@ -346,7 +334,7 @@ def run_blok_kesim(conn):
                             except Exception as e:
                                  st.error(f"❌ Veritabanı kaydı hatası: {e}")
                 else:
-                    st.error("❌ Okuttuğunuz blok kod/kalitesi, yüklenen iş emrindeki açık plakaların hiçbirinin hammadde gereksinimiyle (Matris veya Geometri bazında) eşleşmiyor!")
+                    st.error("❌ Okuttuğunuz blok kod/kalitesi, yüklenen iş emrindeki açık plakaların hiçbirinin hammadde gereksinimiyle (Matris bazında) eşleşmiyor!")
             else:
                 st.error("❌ Okutulan Blok Barkodu stok listesinde bulunamadı!")
 
