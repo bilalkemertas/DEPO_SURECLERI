@@ -125,6 +125,13 @@ def run_blok_kesim(conn):
         df = st.session_state.main_data
         eslesme_matrix = st.session_state.eslesme_df
 
+        # --- KRİTİK İYİLEŞTİRME: Sütun İsimlerindeki Küçük/Büyük Harf Duyarlılığını Yok Ediyoruz ---
+        matris_kod_col = None
+        if eslesme_matrix is not None and not eslesme_matrix.empty:
+            matris_kod_col = next((c for c in eslesme_matrix.columns if "HAMMADDE" in c.upper() or "KOD" in c.upper()), None)
+            matris_blok_kod_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK KODU" in c.upper() or "BLOK_KOD" in c.upper() or "BLOK KODU" in c.upper()), "BAĞLI BLOK STOK KODU")
+            matris_blok_adi_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK ADI" in c.upper() or "BLOK_ADI" in c.upper() or "BLOK ADI" in c.upper()), "BAĞLI BLOK STOK ADI")
+
         tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
         kod_col = next((c for c in df.columns if "KOD" in c.upper() or "STOK KODU" in c.upper()), None)
@@ -145,14 +152,14 @@ def run_blok_kesim(conn):
             bagli_blok_kod = "BULUNAMADI (Eski Motor)"
             bagli_blok_adi = "Eşleşen Kalite/Ölçü aranacak"
 
-            # Matris sorgusu
-            if plaka_kodu and not eslesme_matrix.empty:
-                m_match = eslesme_matrix[eslesme_matrix['hammadde kodu'] == plaka_kodu]
+            # Matris sorgusu - Dinamik sütun ismiyle eşleme yapılıyor
+            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
+                m_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == plaka_kodu]
                 if not m_match.empty:
-                    bagli_blok_kod = ", ".join(m_match['BAĞLI BLOK STOK KODU'].unique())
-                    bagli_blok_adi = ", ".join(m_match['BAĞLI BLOK STOK ADI'].unique())
+                    bagli_blok_kod = ", ".join(m_match[matris_blok_kod_col].dropna().unique())
+                    bagli_blok_adi = ", ".join(m_match[matris_blok_adi_col].dropna().unique())
                     
-                    for b_kod in m_match['BAĞLI BLOK STOK KODU'].unique():
+                    for b_kod in m_match[matris_blok_kod_col].dropna().unique():
                         pivot_data.append({"BAĞLI BLOK KODU": b_kod, "PLAKA ADET": plaka_adet})
 
             vis_rows.append({
@@ -173,7 +180,7 @@ def run_blok_kesim(conn):
                 pivot_df.rename(columns={"PLAKA ADET": "Toplam Üretilecek Plaka (Adet)"}, inplace=True)
                 st.dataframe(pivot_df, use_container_width=True, hide_index=True)
             else:
-                st.info("ℹ️ İş emri plakalarına ait bağlı blok kodu master datada bulunamadığı için pivot oluşturulamadı.")
+                st.info("ℹ️ İş emri plakalarına ait bağlı blok kodu master datada bulunamadı veya eşleştirilemedi.")
 
         # --- 2. BÖLÜM: PLAKA VE BAĞLI BLOK DETAY TABLOSU ---
         st.subheader("📋 İş Emri Üretim Planı Kalemleri")
@@ -197,11 +204,11 @@ def run_blok_kesim(conn):
                 # OKUTULAN BARKODA UYGUN PLAKALARI FİLTRELE
                 def uygun_mu(row):
                     try:
-                        if kod_col and not eslesme_matrix.empty:
+                        if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
                             pk = str(row.get(kod_col, '')).strip()
-                            matris_match = eslesme_matrix[eslesme_matrix['hammadde kodu'] == pk]
+                            matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == pk]
                             if not matris_match.empty:
-                                if blok_kod in matris_match['BAĞLI BLOK STOK KODU'].astype(str).str.strip().tolist():
+                                if blok_kod in matris_match[matris_blok_kod_col].astype(str).str.strip().tolist():
                                     return plaka_sayisi_hesapla(ayikla_karakter_ve_olcu(row.get(tanim_col, "")), blok_info) > 0
                                 return False
 
@@ -253,25 +260,25 @@ def run_blok_kesim(conn):
                             st.error(f"❌ Yetersiz Stok! Blokta {mevcut_miktar:.2f} cm var, {toplam:.2f} cm gerekiyor.")
                         else:
                             try:
-                                hedef_index = stok_df[stok_df['Kod'].astype(str).str.strip() == blok_kod].index
-                                if not hedef_index.empty:
-                                    stok_df.loc[hedef_index, 'Miktar'] -= toplam
+                                 hedef_index = stok_df[stok_df['Kod'].astype(str).str.strip() == blok_kod].index
+                                 if not hedef_index.empty:
+                                     stok_df.loc[hedef_index, 'Miktar'] -= toplam
 
-                                yeni = pd.DataFrame([{
+                                 yeni = pd.DataFrame([{
                                     "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                     "İşlem": "KESİM/SARF",
                                     "Kod": blok.get('Kod', ''),
                                     "Miktar": toplam
-                                }])
+                                 }])
 
-                                veritabani.update_data("Stok", stok_df)
-                                veritabani.update_data("Hareketler", pd.concat([har, yeni], ignore_index=True))
+                                 veritabani.update_data("Stok", stok_df)
+                                 veritabani.update_data("Hareketler", pd.concat([har, yeni], ignore_index=True))
                                 
-                                st.balloons()
-                                st.success("🎉 Kesim işlemi başarıyla veritabanına işlendi, stok güncellendi!")
-                                st.rerun()
+                                 st.balloons()
+                                 st.success("🎉 Kesim işlemi başarıyla veritabanına işlendi, stok güncellendi!")
+                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Veritabanı kaydı hatası: {e}")
+                                 st.error(f"❌ Veritabanı kaydı hatası: {e}")
                 else:
                     st.error("❌ Okuttuğunuz blok kod/kalitesi, yüklenen iş emrindeki açık plakaların hiçbirinin hammadde gereksinimiyle eşleşmiyor!")
             else:
