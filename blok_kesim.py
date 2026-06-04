@@ -92,7 +92,7 @@ def run_blok_kesim(conn):
                 del st.session_state[k]
         st.rerun()
 
-    st.title("✂️ Akıllı Blok Kesim Komuta Ekranı")
+    st.title("✂️Blok Kesim Ekranı")
 
     # --- EXCEL YÜKLEME ---
     up = st.file_uploader("Excel Dosyasını Yükleyin (Kesim / İş Emri Listesi)", type=['xlsx'])
@@ -253,7 +253,7 @@ def run_blok_kesim(conn):
 
         # --- 3. BÖLÜM: BARKOD OKUTMA VE AKSİYON ALANI ---
         st.markdown("---")
-        st.subheader("⚙️ Operatör Kesim Onay İstasyonu")
+        st.subheader("⚙️ Blok Seçimi")
         barkod = st.text_input("🔍 KESİLECEK BLOK BARKODUNU OKUTUNUZ / PARTİ NO")
 
         if barkod:
