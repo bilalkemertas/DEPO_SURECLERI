@@ -154,7 +154,7 @@ def run_blok_kesim(conn):
         pivot_data = []
 
         # --- DÖNGÜ BAŞLANGICI ---
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             plaka_adi = str(row.get(tanim_col, '')).strip()
             plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col and pd.notna(row.get(kod_col)) else ""
             plaka_adet = safe_float(row.get(miktar_col, 0))
@@ -165,7 +165,6 @@ def run_blok_kesim(conn):
 
             # 1. ADIM: Kesin Eşleştirme Matrisinden (CSV) Bilgi Çekme
             if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                # Matris kodunu zırhla temizle
                 eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
                 m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
                 
@@ -191,7 +190,6 @@ def run_blok_kesim(conn):
                 secilen_kod = None
                 secilen_isim = None
 
-                # Buradaki kritik düzeltme: Sadece stok_df (blok listesi) taranır! İş emri satırları taranamaz.
                 for _, s_row in stok_df.iterrows():
                     b_info = ayikla_karakter_ve_olcu(s_row.get('İsim', ''))
                     b_text = str(b_info['karakter']).upper()
@@ -218,6 +216,10 @@ def run_blok_kesim(conn):
                     bagli_blok_kod = "UYGUN BLOK YOK"
                     bagli_blok_adi = "Matris Dışı / Uygun Ölçüde Stok Bulunamadı"
 
+            # CRITICAL FIX: main_data dataframe'inin kendi satırlarına blok bilgisini yazdır
+            df.at[idx, 'Gerekli Blok Kodu'] = bagli_blok_kod
+            df.at[idx, 'Gerekli Blok Adı'] = bagli_blok_adi
+
             vis_rows.append({
                 "Plaka Kodu": plaka_kodu,
                 "Plaka Adı/Tanımı": plaka_adi,
@@ -226,6 +228,8 @@ def run_blok_kesim(conn):
                 "Gerekli Blok Adı": bagli_blok_adi
             })
 
+        # State üzerindeki veriyi güncel tut
+        st.session_state.main_data = df
         vis_df = pd.DataFrame(vis_rows)
 
         # --- 1. BÖLÜM: TOPLAM GEREKLİ BLOK İHTİYAÇ RAPORU (PIVOT) ---
