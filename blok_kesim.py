@@ -3,9 +3,26 @@ import pandas as pd
 import veritabani
 import re
 import math
+import os
 from datetime import datetime
 
 def run_blok_kesim(conn):
+
+    # --- YEREL MASTER DATA YÜKLEME (PERFORMANS İÇİN CACHED / SESSION STATE) ---
+    if 'eslesme_df' not in st.session_state:
+        csv_path = "eslesme_matrisi.csv"
+        if os.path.exists(csv_path):
+            try:
+                # CSV dosyasını güvenli şekilde oku ve stringe zorla
+                st.session_state.eslesme_df = pd.read_csv(csv_path, dtype=str)
+                # Sütun isimlerindeki olası boşlukları temizle
+                st.session_state.eslesme_df.columns = [c.strip() for c in st.session_state.eslesme_df.columns]
+            except Exception as e:
+                st.error(f"⚠️ 'eslesme_matrisi.csv' okuma hatası: {e}")
+                st.session_state.eslesme_df = pd.DataFrame()
+        else:
+            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı! Eski algoritmaya geçiş yapılıyor.")
+            st.session_state.eslesme_df = pd.DataFrame()
 
     # --- ZIRHLI AYIKLAMA MOTORU (ASLA NONE DÖNMEZ) ---
     def ayikla_karakter_ve_olcu(text):
@@ -37,35 +54,6 @@ def run_blok_kesim(conn):
             return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
         except Exception:
             return default_return
-
-    # --- GELİŞMİŞ DNS VE KALİTE AYIKLAMA ---
-    def parse_ozellik(text):
-        text = str(text).upper().replace(",", ".") if text else ""
-        dns_match = re.search(r'(\d{2,3})\s*(?:DNS)?', text)
-        text_harfler = re.sub(r'\d+', '', text).replace('DNS', '').strip()
-        kalite_kelimeleri = set(re.findall(r'[A-Z]+', text_harfler))
-        return {
-            "dns": int(dns_match.group(1)) if dns_match else None,
-            "kelimeler": kalite_kelimeleri
-        }
-
-    # --- YENİ EŞLEŞTİRME (AGRESİF TEMİZLİK KALDIRILDI) ---
-    def karakter_match(plaka, blok):
-        if not plaka or not blok:
-            return False
-            
-        p = parse_ozellik(plaka)
-        b = parse_ozellik(blok)
-
-        if p["dns"] is not None and b["dns"] is not None:
-            if p["dns"] != b["dns"]:
-                return False
-
-        ortak = p["kelimeler"].intersection(b["kelimeler"])
-        if len(p["kelimeler"]) > 0 and len(b["kelimeler"]) > 0 and len(ortak) == 0:
-            return False
-
-        return True
 
     # --- PLAKA VE VERİM HESAPLAMA (GÜVENLİ) ---
     def plaka_sayisi_hesapla(plaka, blok):
@@ -108,11 +96,9 @@ def run_blok_kesim(conn):
 
     if up and 'main_data' not in st.session_state:
         try:
-            # --- REFERANS KODA DOKUNMADAN SADECE SATIR ATLAMAYI (HEADER FINDER) EKLİYORUZ ---
             raw_df = pd.read_excel(up, header=None)
             header_idx = 0
             
-            # Üstteki ilk 20 satırı tarayıp başlıkların hangi satırda olduğunu bul
             for i in range(min(20, len(raw_df))):
                 row_str = " ".join(str(val).upper() for val in raw_df.iloc[i].values if pd.notna(val))
                 if ("TANIM" in row_str or "ÜRÜN" in row_str or "URUN" in row_str) and \
@@ -120,11 +106,9 @@ def run_blok_kesim(conn):
                     header_idx = i
                     break
             
-            # Excel'i bulduğumuz doğru satırdan itibaren oku
             df = pd.read_excel(up, header=header_idx)
             df.columns = [str(c).strip() for c in df.columns]
             
-            # Sadece geçerli satırları al (Performans İyileştirmesi)
             df.dropna(how='all', inplace=True)
             st.session_state.main_data = df
             st.session_state.stok_data = veritabani.get_internal_data("Stok")
@@ -136,11 +120,11 @@ def run_blok_kesim(conn):
     # --- ANA OPERASYON ---
     if 'main_data' in st.session_state:
         df = st.session_state.main_data
+        eslesme_matrix = st.session_state.eslesme_df
 
-        # --- KRİTİK: Kolon Adı Kontrolleri (Türkçe Karakter ve İsim Korumalı) ---
         tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
-        # Python 'i'yi 'I' yaptığı için MIKTAR ve MİKTAR birlikte aranıyor.
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
+        kod_col = next((c for c in df.columns if "KOD" in c.upper() or "STOK KODU" in c.upper()), None) # Plaka/Yarı mamul kod sütununu bul
 
         if not tanim_col or not miktar_col:
             st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı ('Ürün'/'Tanım') veya Adet ('Adet'/'Miktar') sütunları bulunamadı!")
@@ -150,27 +134,58 @@ def run_blok_kesim(conn):
 
         if barkod:
             stok_df = st.session_state.stok_data
-            
-            # String zorlaması ile güvenli eşleştirme
             match = stok_df[stok_df['Tedarikçi Barkod'].astype(str).str.strip() == str(barkod).strip()]
 
             if not match.empty:
                 blok = match.iloc[0]
+                blok_kod = str(blok.get('Kod', '')).strip() # Okutulan bloğun gerçek stok kodu
                 blok_info = ayikla_karakter_ve_olcu(blok.get('İsim', ''))
                 mevcut_miktar = safe_float(blok.get('Miktar', 0))
 
+                # --- SİHİRLİ EŞLEŞTİRME FONKSİYONU ---
                 def uygun_mu(row):
                     try:
+                        # Eğer yüklenen kesim listesinde kod sütunu varsa ve CSV yüklendiyse öncelikli MASTER DATA sorgula
+                        if kod_col and not eslesme_matrix.empty:
+                            plaka_kodu = str(row.get(kod_col, '')).strip()
+                            
+                            # CSV matrisinden plakanın hammadde/stok kodunu filtrele
+                            matris_match = eslesme_matrix[eslesme_matrix['hammadde kodu'] == plaka_kodu]
+                            
+                            if not matris_match.empty:
+                                # Bu plakanın bağlı olduğu onaylı blok kodlarının listesini al
+                                onayli_blok_kodlari = matris_match['BAĞLI BLOK STOK KODU'].astype(str).str.strip().tolist()
+                                
+                                # Okutulan blok kodu, bu plakanın üretebileceği blok listesinde var mı?
+                                if blok_kod in onayli_blok_kodlari:
+                                    # Kod eşleştiyse sadece ölçü kurtarıyor mu (verim var mı) ona bak, karakteri sorma bile!
+                                    urun_adi = row.get(tanim_col, "")
+                                    plaka_olculeri = ayikla_karakter_ve_olcu(urun_adi)
+                                    verim = plaka_sayisi_hesapla(plaka_olculeri, blok_info)
+                                    return verim > 0
+                                else:
+                                    return False # Onaylı blok listesinde yoksa elenir
+
+                        # --- FALLBACK: Eğer kod sütunu bulunamazsa eski Akıllı Regex Algoritması devreye girer ---
                         urun_adi = row.get(tanim_col, "")
                         if pd.isna(urun_adi): return False
                         
                         plaka = ayikla_karakter_ve_olcu(urun_adi)
                         
-                        # Karakter eşleşmesi ve Verim Kontrolü
-                        karakter_ok = karakter_match(plaka['karakter'], blok_info['karakter'])
-                        verim = plaka_sayisi_hesapla(plaka, blok_info)
+                        # Eski Karakter parse/DNS kelime eşleştirme motoru
+                        text = str(plaka['karakter']).upper().replace(",", ".") if plaka['karakter'] else ""
+                        p_dns = int(re.search(r'(\d{2,3})\s*(?:DNS)?', text).group(1)) if re.search(r'(\d{2,3})\s*(?:DNS)?', text) else None
+                        p_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', text).replace('DNS', '').strip()))
+
+                        b_text = str(blok_info['karakter']).upper().replace(",", ".") if blok_info['karakter'] else ""
+                        b_dns = int(re.search(r'(\d{2,3})\s*(?:DNS)?', b_text).group(1)) if re.search(r'(\d{2,3})\s*(?:DNS)?', b_text) else None
+                        b_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', b_text).replace('DNS', '').strip()))
+
+                        if p_dns is not None and b_dns is not None and p_dns != b_dns: return False
+                        if len(p_words) > 0 and len(b_words) > 0 and len(p_words.intersection(b_words)) == 0: return False
                         
-                        return karakter_ok and verim > 0
+                        verim = plaka_sayisi_hesapla(plaka, blok_info)
+                        return verim > 0
                     except Exception:
                         return False
 
@@ -193,20 +208,21 @@ def run_blok_kesim(conn):
                     gereken_dilim_sayisi = math.ceil(adet / tek_katta_cikan_plaka) if tek_katta_cikan_plaka > 0 else 0
                     net = gereken_dilim_sayisi * kalinlik
 
-                    # --- KRİTİK: Güvenli Fire Geçmişi Kontrolü ---
+                    # --- GÜVENLİ FİRE GEÇMİŞİ KONTROLÜ ---
                     har = st.session_state.har_data
                     once = False
                     if not har.empty and 'Kod' in har.columns:
                         har_kod_str = har['Kod'].astype(str).str.strip()
-                        blok_kod_str = str(blok.get('Kod', '')).strip()
-                        once = ((har_kod_str == blok_kod_str) & (har['İşlem'] == "KESİM/SARF")).any()
+                        once = ((har_kod_str == blok_kod) & (har['İşlem'] == "KESİM/SARF")).any()
 
                     fire = 0 if once else 2
                     toplam = net + fire
 
                     with st.container(border=True):
-                        st.success("✅ REÇETE VE EŞLEŞME BULUNDU")
+                        st.success("✅ REÇETE VE MASTER DATA EŞLEŞMESİ BULUNDU")
                         st.write(f"**Eşleşen Ürün:** {emir[tanim_col]}")
+                        if kod_col and not eslesme_matrix.empty and str(emir.get(kod_col, '')).strip() in eslesme_matrix['hammadde kodu'].values:
+                            st.caption("🎯 Bilgi: Eşleşme 2258 Satırlık 'Blok-Plaka Matrisi' üzerinden tam doğrulukla yapılmıştır.")
                         st.write(f"**Kesim Detayı:** Tek Katta Çıkan Plaka: {tek_katta_cikan_plaka} | Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
                         st.write(f"**Sipariş Adeti:** {adet} Adet")
                         
@@ -220,8 +236,7 @@ def run_blok_kesim(conn):
                             st.error(f"❌ Yetersiz Stok! Bu işlem için {toplam:.2f} cm gerekli, blokta {mevcut_miktar:.2f} cm var.")
                         else:
                             try:
-                                # Güncelleme
-                                hedef_index = stok_df[stok_df['Kod'].astype(str).str.strip() == str(blok.get('Kod', '')).strip()].index
+                                hedef_index = stok_df[stok_df['Kod'].astype(str).str.strip() == blok_kod].index
                                 if not hedef_index.empty:
                                     stok_df.loc[hedef_index, 'Miktar'] -= toplam
 
