@@ -9,26 +9,64 @@ from datetime import datetime
 def run_blok_kesim(conn):
 
     # --- YEREL MASTER DATA YÜKLEME (TÜRKÇE KARAKTER ZIRHLI & CACHED) ---
-    if 'eslesme_df' not in st.session_state:
-        csv_path = "eslesme_matrisi.csv"
-        if os.path.exists(csv_path):
-            encodings = ['utf-8', 'windows-1254', 'iso-8859-9', 'cp1254', 'utf-8-sig']
-            success = False
-            for enc in encodings:
-                try:
-                    st.session_state.eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc)
-                    st.session_state.eslesme_df.columns = [c.strip() for c in st.session_state.eslesme_df.columns]
-                    success = True
-                    break
-                except (UnicodeDecodeError, Exception):
-                    continue
-            if not success:
-                st.error("⚠️ 'eslesme_matrisi.csv' uygun bir Türkçe karakter formatında okunamadı!")
-                st.session_state.eslesme_df = pd.DataFrame()
-        else:
-            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı!")
+    # --- YEREL MASTER DATA YÜKLEME ---
+if 'eslesme_df' not in st.session_state:
+
+    csv_path = "eslesme_matrisi.csv"
+
+    if os.path.exists(csv_path):
+
+        encodings = [
+            'utf-8-sig',
+            'utf-8',
+            'windows-1254',
+            'iso-8859-9',
+            'cp1254'
+        ]
+
+        success = False
+
+        for enc in encodings:
+
+            try:
+
+                eslesme_df = pd.read_csv(
+                    csv_path,
+                    dtype=str,
+                    encoding=enc,
+                    sep=';'
+                )
+
+                # BOM temizliği
+                eslesme_df.columns = [
+                    str(c).replace('\ufeff', '').strip()
+                    for c in eslesme_df.columns
+                ]
+
+                # Tüm hücreleri normalize et
+                for col in eslesme_df.columns:
+                    eslesme_df[col] = (
+                        eslesme_df[col]
+                        .astype(str)
+                        .str.replace('\ufeff', '', regex=False)
+                        .str.strip()
+                    )
+
+                st.session_state.eslesme_df = eslesme_df
+
+                success = True
+                break
+
+            except Exception:
+                continue
+
+        if not success:
+            st.error("⚠️ eslesme_matrisi.csv okunamadı")
             st.session_state.eslesme_df = pd.DataFrame()
 
+    else:
+        st.warning("⚠️ eslesme_matrisi.csv bulunamadı")
+        st.session_state.eslesme_df = pd.DataFrame()
     # --- ZIRHLI AYIKLAMA MOTORU ---
     def ayikla_karakter_ve_olcu(text):
         default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
@@ -164,21 +202,59 @@ def run_blok_kesim(conn):
             is_matched_via_matrix = False
 
             # 1. ADIM: Kesin Eşleştirme Matrisinden (CSV) Bilgi Çekme
-            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
-                m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
-                
-                if not m_match.empty and matris_blok_kod_col and matris_blok_adi_col:
-                    ilk_eslesme = m_match.dropna(subset=[matris_blok_kod_col]).iloc[0]
-                    bagli_blok_kod = str(ilk_eslesme[matris_blok_kod_col]).strip()
-                    bagli_blok_adi = str(ilk_eslesme[matris_blok_adi_col]).strip()
-                    is_matched_via_matrix = True
-                    
-                    pivot_data.append({
-                        "BAĞLI BLOK KODU": bagli_blok_kod, 
-                        "BAĞLI BLOK ADI": bagli_blok_adi, 
-                        "PLAKA ADET": plaka_adet
-                    })
+            # 1. ADIM: Kesin Eşleştirme Matrisinden (CSV) Bilgi Çekme
+if (
+    plaka_kodu
+    and eslesme_matrix is not None
+    and not eslesme_matrix.empty
+    and matris_kod_col
+):
+
+    plaka_kodu_norm = (
+        str(plaka_kodu)
+        .replace('\ufeff', '')
+        .strip()
+        .upper()
+    )
+
+    eslesme_kodlari = (
+        eslesme_matrix[matris_kod_col]
+        .astype(str)
+        .str.replace('\ufeff', '', regex=False)
+        .str.strip()
+        .str.upper()
+    )
+
+    m_match = eslesme_matrix[
+        eslesme_kodlari == plaka_kodu_norm
+    ]
+
+    if not m_match.empty:
+
+        ilk_eslesme = m_match.iloc[0]
+
+        bagli_blok_kod = str(
+            ilk_eslesme[matris_blok_kod_col]
+        ).strip()
+
+        bagli_blok_adi = str(
+            ilk_eslesme[matris_blok_adi_col]
+        ).strip()
+
+        is_matched_via_matrix = True
+
+        pivot_data.append({
+            "BAĞLI BLOK KODU": bagli_blok_kod,
+            "BAĞLI BLOK ADI": bagli_blok_adi,
+            "PLAKA ADET": plaka_adet
+        })
+
+    else:
+
+        # DEBUG
+        st.warning(
+            f"MATRİSTE BULUNAMADI → {plaka_kodu_norm}"
+        )
 
             # 2. ADIM: FALLBACK - Matriste Yoksa Sadece Gerçek Stok Listesinden Eşleştir
             if not is_matched_via_matrix and not stok_df.empty:
