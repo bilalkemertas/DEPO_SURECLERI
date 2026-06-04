@@ -15,8 +15,12 @@ def run_blok_kesim(conn):
             success = False
             for enc in encodings:
                 try:
-                    st.session_state.eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc)
-                    st.session_state.eslesme_df.columns = [c.strip() for c in st.session_state.eslesme_df.columns]
+                    # sep=None otomatik virgül veya noktalı virgül algılar (Örn: Türkçe Excel CSV'leri)
+                    temp_df = pd.read_csv(csv_path, dtype=str, encoding=enc, sep=None, engine='python')
+                    if len(temp_df.columns) < 2:
+                        temp_df = pd.read_csv(csv_path, dtype=str, encoding=enc, sep=';')
+                    st.session_state.eslesme_df = temp_df
+                    st.session_state.eslesme_df.columns = [str(c).strip() for c in st.session_state.eslesme_df.columns]
                     success = True
                     break
                 except (UnicodeDecodeError, Exception):
@@ -216,17 +220,23 @@ def run_blok_kesim(conn):
         vlookup_dict = {}
         if eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col and matris_blok_kod_col:
             for _, m_row in eslesme_matrix.iterrows():
-                p_kod = str(m_row.get(matris_kod_col, '')).split('.')[0].strip().upper()
+                # normalize_text ile karakter kayıplarını ve boşlukları sıfırlıyoruz
+                p_kod = normalize_text(str(m_row.get(matris_kod_col, '')).split('.')[0])
                 b_kod = str(m_row.get(matris_blok_kod_col, '')).strip()
                 b_adi = str(m_row.get(matris_blok_adi_col, '')).strip() if matris_blok_adi_col else ""
                 
-                if p_kod and b_kod and b_kod != "NAN":
+                if p_kod and b_kod and b_kod != "NAN" and b_kod != "":
                     vlookup_dict[p_kod] = {"blok_kodu": b_kod, "blok_adi": b_adi}
+                    
+        # Eğer matris okunmuş ama eşleşme sözlüğü boş kalmışsa ekrana tespit edilen sütunları bas (Hata Ayıklama)
+        if len(vlookup_dict) == 0 and eslesme_matrix is not None and not eslesme_matrix.empty:
+            st.warning(f"⚠️ Eşleştirme matrisinden veri alınamadı! CSV sütun başlıkları eşleşmemiş olabilir. Algılanan Sütunlar: {list(eslesme_matrix.columns)}")
 
         # --- DÖNGÜ BAŞLANGICI ---
         for idx, row in df.iterrows():
             plaka_adi = str(row.get(tanim_col, '')).strip()
-            plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip().upper() if kod_col and pd.notna(row.get(kod_col)) else ""
+            # Aranan kodu da aynı normalize zırhından geçiriyoruz ki kusursuz eşleşsin
+            plaka_kodu = normalize_text(str(row.get(kod_col, '')).split('.')[0]) if kod_col and pd.notna(row.get(kod_col)) else ""
             plaka_adet = safe_float(row.get(miktar_col, 0))
             
             # Varsayılan değerler (Eşleşmezse bunlar yazacak)
