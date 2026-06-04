@@ -125,12 +125,10 @@ def run_blok_kesim(conn):
         df = st.session_state.main_data
         eslesme_matrix = st.session_state.eslesme_df
 
-        # --- KRİTİK İYİLEŞTİRME: Sütun İsimlerindeki Küçük/Büyük Harf Duyarlılığını Yok Ediyoruz ---
-        matris_kod_col = None
-        if eslesme_matrix is not None and not eslesme_matrix.empty:
-            matris_kod_col = next((c for c in eslesme_matrix.columns if "HAMMADDE" in c.upper() or "KOD" in c.upper()), None)
-            matris_blok_kod_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK KODU" in c.upper() or "BLOK_KOD" in c.upper() or "BLOK KODU" in c.upper()), "BAĞLI BLOK STOK KODU")
-            matris_blok_adi_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK ADI" in c.upper() or "BLOK_ADI" in c.upper() or "BLOK ADI" in c.upper()), "BAĞLI BLOK STOK ADI")
+        # --- EŞLEŞME TABLOSUNDAKİ YAPISAL SÜTUN TANIMLAMALARI ---
+        matris_kod_col = "hammadde kodu"
+        matris_blok_kod_col = "BAĞLI BLOK STOK KODU"
+        matris_blok_adi_col = "BAĞLI BLOK STOK ADI"
 
         tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
@@ -152,8 +150,8 @@ def run_blok_kesim(conn):
             bagli_blok_kod = "BULUNAMADI (Eski Motor)"
             bagli_blok_adi = "Eşleşen Kalite/Ölçü aranacak"
 
-            # Matris sorgusu - Dinamik sütun ismiyle eşleme yapılıyor
-            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
+            # Matris sorgusu
+            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty:
                 m_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == plaka_kodu]
                 if not m_match.empty:
                     bagli_blok_kod = ", ".join(m_match[matris_blok_kod_col].dropna().unique())
@@ -180,7 +178,7 @@ def run_blok_kesim(conn):
                 pivot_df.rename(columns={"PLAKA ADET": "Toplam Üretilecek Plaka (Adet)"}, inplace=True)
                 st.dataframe(pivot_df, use_container_width=True, hide_index=True)
             else:
-                st.info("ℹ️ İş emri plakalarına ait bağlı blok kodu master datada bulunamadı veya eşleştirilemedi.")
+                st.info("ℹ️ İş emri plakalarına ait bağlı blok kodu master datada bulunamadı veya eslesme_matrisi.csv yüklenmedi.")
 
         # --- 2. BÖLÜM: PLAKA VE BAĞLI BLOK DETAY TABLOSU ---
         st.subheader("📋 İş Emri Üretim Planı Kalemleri")
@@ -204,7 +202,7 @@ def run_blok_kesim(conn):
                 # OKUTULAN BARKODA UYGUN PLAKALARI FİLTRELE
                 def uygun_mu(row):
                     try:
-                        if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
+                        if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty:
                             pk = str(row.get(kod_col, '')).strip()
                             matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == pk]
                             if not matris_match.empty:
@@ -249,7 +247,7 @@ def run_blok_kesim(conn):
                     with st.container(border=True):
                         st.success(f"🎯 OKUTULAN BLOK UYUMLU: {blok.get('İsim', '')}")
                         st.write(f"**Eşleşen Plaka:** {emir[tanim_col]}")
-                        st.write(f"**Kesim Planı:** Tek Katta Çıkan: {tek_katta_cikan_plaka} Plaka | Gerekli Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
+                        st.write(f"**Kesim Planı:** Tek Katta Çıkn: {tek_katta_cikan_plaka} Plaka | Gerekli Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
                         
                         c_m1, c_m2 = st.columns(2)
                         c_m1.metric("Blok Boyu / Kalan Stok (cm)", f"{mevcut_miktar:.2f}")
