@@ -109,7 +109,10 @@ def run_blok_kesim(conn):
     up = st.file_uploader("Excel Yükle", type=['xlsx'])
 
     if up and 'main_data' not in st.session_state:
-        df = pd.read_excel(up)
+
+        # 🔥 BAŞLIK SATIRI DÜZELTME (gerekirse 1 → 2 yap)
+        df = pd.read_excel(up, header=1)
+
         st.session_state.main_data = df
         st.session_state.stok_data = veritabani.get_internal_data("Stok")
         st.session_state.har_data = veritabani.get_internal_data("Hareketler")
@@ -121,9 +124,20 @@ def run_blok_kesim(conn):
     stok_df = st.session_state.stok_data
     eslesme_matrix = st.session_state.eslesme_df
 
-    tanim_col = next((c for c in df.columns if "TANIM" in c.upper()), None)
-    miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper()), None)
-    kod_col = next((c for c in df.columns if "KOD" in c.upper()), None)
+    # 🔥 KOLONLARI NET BAĞLA
+    tanim_col = "Plaka Adı"
+    miktar_col = "Adet"
+    kod_col = "Plaka Kodu"
+
+    # 🔥 KONTROLLER
+    if tanim_col not in df.columns:
+        st.error(f"{tanim_col} kolonu bulunamadı")
+        st.write(df.columns)
+        return
+
+    if stok_df is None or stok_df.empty:
+        st.error("Stok verisi boş")
+        return
 
     vis_rows = []
     pivot_data = []
