@@ -142,7 +142,7 @@ def run_blok_kesim(conn):
                 matris_blok_kod_col = eslesme_matrix.columns[2]
                 matris_blok_adi_col = eslesme_matrix.columns[3]
 
-        tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()),or "Hammadde" in c.upper()) None)
+        tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
         kod_col = next((c for c in df.columns if "KOD" in c.upper() or "STOK KODU" in c.upper()), None)
 
