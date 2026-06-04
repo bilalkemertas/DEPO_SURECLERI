@@ -106,14 +106,26 @@ def run_blok_kesim(conn):
         try:
             raw_df = pd.read_excel(up, header=None)
             header_idx = 0
+            max_score = -1
             
             for i in range(min(20, len(raw_df))):
-                row_str = " ".join(normalize_text(val) for val in raw_df.iloc[i].values if pd.notna(val))
-                has_tanim = any(kw in row_str for kw in ["TANIM", "URUN", "STOK", "MALZEME", "AD", "CINS", "ACIKLAMA"])
-                has_miktar = any(kw in row_str for kw in ["MIKTAR", "ADET", "TOPLAM", "SAYI"])
-                if has_tanim and has_miktar:
+                # Satırdaki dolu hücreleri al
+                row_vals = [normalize_text(val) for val in raw_df.iloc[i].values if pd.notna(val) and str(val).strip() != ""]
+                row_str = " ".join(row_vals)
+                
+                # Hedef kelime eşleşmelerini say
+                kw_score = sum(1 for kw in ["KOD", "BARKOD", "NO", "TANIM", "URUN", "STOK", "MALZEME", "AD", "ACIKLAMA", "MIKTAR", "ADET", "TOPLAM", "SAYI", "PLAN", "SIPARIS"] if kw in row_str)
+                
+                # Puan = (Kelime eşleşmesi * 10) + (Dolu hücre sayısı)
+                # Bu sayede sadece 1 hücreli "Haftalık Plan" başlıklarını eleriz
+                score = (kw_score * 10) + len(row_vals)
+                
+                if score > max_score and len(row_vals) > 1:
+                    max_score = score
                     header_idx = i
-                    break
+                    
+            if max_score == -1:
+                header_idx = 0
             
             df = pd.read_excel(up, header=header_idx)
             df.columns = [str(c).strip() for c in df.columns]
