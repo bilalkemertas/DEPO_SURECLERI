@@ -169,13 +169,26 @@ def run_blok_kesim(conn):
         for c in df.columns:
             c_norm = normalize_text(c)
             
-            if not kod_col and any(k in c_norm for k in ["KOD", "NO", "BARKOD"]):
+            # SİPARİŞ NO gibi sütunların yanlışlıkla KOD olarak alınmasını engelle
+            if "SIPARIS" in c_norm or "EVRAK" in c_norm or "PLAN" in c_norm:
+                continue
+            
+            if not kod_col and any(k in c_norm for k in ["KOD", "BARKOD", "STOK NO", "URUN NO", "MALZEME NO"]):
                 kod_col = c
             elif not miktar_col and any(k in c_norm for k in ["MIKTAR", "ADET", "TOPLAM", "SAYI"]):
                 miktar_col = c
             elif not tanim_col and any(k in c_norm for k in ["AD", "TANIM", "ACIKLAMA", "URUN", "MALZEME", "STOK", "CINS"]):
                 if c != kod_col and c != miktar_col:
                     tanim_col = c
+
+        # 1.5 Aşama: Eğer KOD bulamadıysa ve içinde "NO" geçen bir sütun varsa (Sipariş hariç)
+        if not kod_col:
+            for c in df.columns:
+                c_norm = normalize_text(c)
+                if "SIPARIS" not in c_norm and "PLAN" not in c_norm and "NO" in c_norm:
+                    if c != miktar_col and c != tanim_col:
+                        kod_col = c
+                        break
 
         # 2. Aşama: Esnek Arama (Eğer ilk turda bulamazsa eleme yöntemiyle kalan sütunları zorla)
         if not tanim_col:
