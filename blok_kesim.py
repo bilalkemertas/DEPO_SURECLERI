@@ -291,7 +291,7 @@ def run_blok_kesim(conn):
         barkod = st.text_input("🔍 KESİLECEK BLOK BARKODUNU OKUTUNUZ / PARTİ NO")
 
         if barkod:
-            match = stok_df[stok_df['Tedarikçi Barkod'].astype(str).str.strip() == str(barkod).strip()]
+            match = stok_df[stok_df['Tedarikçi Barkodu'].astype(str).str.strip() == str(barkod).strip()]
 
             if not match.empty:
                 blok = match.iloc[0]
