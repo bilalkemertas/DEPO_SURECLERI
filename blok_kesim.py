@@ -173,8 +173,15 @@ def run_blok_kesim(conn):
                     bagli_blok_adi = ", ".join(m_match[matris_blok_adi_col].dropna().astype(str).str.strip().unique())
                     is_matched_via_matrix = True
                     
-                    for b_kod in m_match[matris_blok_kod_col].dropna().astype(str).str.strip().unique():
-                        pivot_data.append({"BAĞLI BLOK KODU": b_kod, "PLAKA ADET": plaka_adet})
+                    # --- İSTEDİĞİN GÜNCELLEME: Pivot Verisine Blok Adı da Alınıyor ---
+                    for idx, m_row in m_match.dropna(subset=[matris_blok_kod_col]).iterrows():
+                        b_kod = str(m_row[matris_blok_kod_col]).strip()
+                        b_adi = str(m_row[matris_blok_adi_col]).strip() if matris_blok_adi_col in m_match.columns else "İsim Bilgisi Yok"
+                        pivot_data.append({
+                            "BAĞLI BLOK KODU": b_kod, 
+                            "BAĞLI BLOK ADI": b_adi, 
+                            "PLAKA ADET": plaka_adet
+                        })
 
             # 2. ADIM: FALLBACK - EĞER MATRİSTE BULUNAMADIYSA AKILLI GEOMETRİK MOTORU ÇALIŞTIR
             if not is_matched_via_matrix and not stok_df.empty:
@@ -204,7 +211,13 @@ def run_blok_kesim(conn):
                         if s_kod not in uygun_stok_kodlari:
                             uygun_stok_kodlari.append(s_kod)
                             uygun_stok_isimleri.append(s_isim)
-                            pivot_data.append({"BAĞLI BLOK KODU": s_kod, "PLAKA ADET": plaka_adet})
+                            
+                            # Fallback motorunda da hem Kod hem Ad listeye ekleniyor
+                            pivot_data.append({
+                                "BAĞLI BLOK KODU": s_kod, 
+                                "BAĞLI BLOK ADI": s_isim, 
+                                "PLAKA ADET": plaka_adet
+                            })
 
                 if uygun_stok_kodlari:
                     bagli_blok_kod = ", ".join(uygun_stok_kodlari)
@@ -227,7 +240,8 @@ def run_blok_kesim(conn):
         with st.expander("📊 İŞ EMRİ TOPLAM GEREKLİ BLOK İHTİYAÇ RAPORU (ÖZET)", expanded=True):
             if pivot_data:
                 pdf = pd.DataFrame(pivot_data)
-                pivot_df = pdf.groupby("BAĞLI BLOK KODU")["PLAKA ADET"].sum().reset_index()
+                # --- SÜREÇ İYİLEŞTİRMESİ: Groupby alanına 'BAĞLI BLOK ADI' da dahil edildi ---
+                pivot_df = pdf.groupby(["BAĞLI BLOK KODU", "BAĞLI BLOK ADI"])["PLAKA ADET"].sum().reset_index()
                 pivot_df.rename(columns={"PLAKA ADET": "Toplam Üretilecek Plaka (Adet)"}, inplace=True)
                 st.dataframe(pivot_df, use_container_width=True, hide_index=True)
             else:
@@ -254,7 +268,6 @@ def run_blok_kesim(conn):
                 # OKUTULAN BARKODA UYGUN PLAKALARI FİLTRELE
                 def uygun_mu(row):
                     try:
-                        # Önce Matris ile Onay Durumunu sorgula
                         if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
                             pk = str(row.get(kod_col, '')).split('.')[0].strip()
                             matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == pk]
@@ -263,7 +276,6 @@ def run_blok_kesim(conn):
                                     return plaka_sayisi_hesapla(ayikla_karakter_ve_olcu(row.get(tanim_col, "")), blok_info) > 0
                                 return False
 
-                        # Matriste yoksa Regex Fallback ile Geometrik Uyumluluk sorgula
                         p_info = ayikla_karakter_ve_olcu(row.get(tanim_col, ""))
                         text = str(p_info['karakter']).upper()
                         b_text = str(blok_info['karakter']).upper()
@@ -292,7 +304,6 @@ def run_blok_kesim(conn):
                     gereken_dilim_sayisi = math.ceil(adet / tek_katta_cikan_plaka) if tek_katta_cikan_plaka > 0 else 0
                     net = gereken_dilim_sayisi * kalinlik
 
-                    # Fire Kontrolü
                     har = st.session_state.har_data
                     once = False
                     if not har.empty and 'Kod' in har.columns:
