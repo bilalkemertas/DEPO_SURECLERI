@@ -155,29 +155,30 @@ def run_blok_kesim(conn):
 
         # --- DÖNGÜ BAŞLANGICI ---
         for idx, row in df.iterrows():
+            # 1. PLAKA BİLGİLERİ (İş emrinden gelen)
             plaka_adi = str(row.get(tanim_col, '')).strip()
             plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col and pd.notna(row.get(kod_col)) else ""
             plaka_adet = safe_float(row.get(miktar_col, 0))
             
-            bagli_blok_kod = ""
-            bagli_blok_adi = ""
-            is_matched_via_matrix = False
+            # 2. MATRİS EŞLEŞME (Blok bilgilerini bul)
+            # Matriste plaka_kodu'nun olduğu satırı bul
+            eslesme_row = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == plaka_kodu]
+            
+            if not eslesme_row.empty:
+                # Eşleşme bulundu, blok bilgilerini çek
+                bagli_blok_kod = str(eslesme_row.iloc[0][matris_blok_kod_col]).strip()
+                bagli_blok_adi = str(eslesme_row.iloc[0][matris_blok_adi_col]).strip()
+                is_matched_via_matrix = True
+            else:
+                # Eşleşme yoksa boş bırak
+                bagli_blok_kod = "EŞLEŞME BULUNAMADI"
+                bagli_blok_adi = "-"
+                is_matched_via_matrix = False
 
-            # 1. ADIM: Kesin Eşleştirme Matrisinden (CSV) Bilgi Çekme
-            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
-                m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
-                
-                if not m_match.empty and matris_blok_kod_col and matris_blok_adi_col:
-                    ilk_eslesme = m_match.dropna(subset=[matris_blok_kod_col]).iloc[0]
-                    bagli_blok_kod = str(ilk_eslesme[matris_blok_kod_col]).strip()
-                    bagli_blok_adi = str(ilk_eslesme[matris_blok_adi_col]).strip()
-                    is_matched_via_matrix = True
-                    
-                    pivot_data.append({
-                        "BAĞLI BLOK KODU": bagli_blok_kod, 
-                        "BAĞLI BLOK ADI": bagli_blok_adi, 
-                        "PLAKA ADET": plaka_adet
+            # Artık elimizde: 
+            # Plaka -> plaka_kodu, plaka_adi
+            # Blok -> bagli_blok_kod, bagli_blok_adi
+            # Bu ayrımı istediğin gibi kullanabilirsin
                     })
 
             # 2. ADIM: FALLBACK - Matriste Yoksa Sadece Gerçek Stok Listesinden Eşleştir
