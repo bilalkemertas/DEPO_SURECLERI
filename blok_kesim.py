@@ -198,70 +198,41 @@ def run_blok_kesim(conn):
         vis_rows = []
         pivot_data = []
 
+        # --- DÜŞEY ARA (VLOOKUP) SÖZLÜĞÜ OLUŞTURMA (PERFORMANS VE KESİNLİK İÇİN) ---
+        # Döngü içinde sürekli dataframe'i yormamak için matrisi bir defa sözlüğe alıyoruz
+        vlookup_dict = {}
+        if eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col and matris_blok_kod_col:
+            for _, m_row in eslesme_matrix.iterrows():
+                p_kod = str(m_row.get(matris_kod_col, '')).split('.')[0].strip().upper()
+                b_kod = str(m_row.get(matris_blok_kod_col, '')).strip()
+                b_adi = str(m_row.get(matris_blok_adi_col, '')).strip() if matris_blok_adi_col else ""
+                
+                if p_kod and b_kod and b_kod != "NAN":
+                    vlookup_dict[p_kod] = {"blok_kodu": b_kod, "blok_adi": b_adi}
+
         # --- DÖNGÜ BAŞLANGICI ---
         for idx, row in df.iterrows():
             plaka_adi = str(row.get(tanim_col, '')).strip()
-            plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col and pd.notna(row.get(kod_col)) else ""
+            plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip().upper() if kod_col and pd.notna(row.get(kod_col)) else ""
             plaka_adet = safe_float(row.get(miktar_col, 0))
             
-            bagli_blok_kod = ""
-            bagli_blok_adi = ""
-            is_matched_via_matrix = False
+            # Varsayılan değerler (Eşleşmezse bunlar yazacak)
+            bagli_blok_kod = "EŞLEŞMEDİ"
+            bagli_blok_adi = "eslesme_matrisi.csv tablosunda bulunamadı"
 
-            # 1. ADIM: Kesin Eşleştirme Matrisinden (CSV) Bilgi Çekme
-            if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
-                m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
+            # --- KESİN DÜŞEY ARA (VLOOKUP) EŞLEŞTİRMESİ ---
+            # Sadece matristen arama yapar. Stok listesine bakarak yanlışlıkla plakayı blok gibi göstermez.
+            if plaka_kodu and plaka_kodu in vlookup_dict:
+                bagli_blok_kod = vlookup_dict[plaka_kodu]["blok_kodu"]
+                bagli_blok_adi = vlookup_dict[plaka_kodu]["blok_adi"]
                 
-                if not m_match.empty and matris_blok_kod_col and matris_blok_adi_col:
-                    ilk_eslesme = m_match.dropna(subset=[matris_blok_kod_col]).iloc[0]
-                    bagli_blok_kod = str(ilk_eslesme[matris_blok_kod_col]).strip()
-                    bagli_blok_adi = str(ilk_eslesme[matris_blok_adi_col]).strip()
-                    is_matched_via_matrix = True
-                    
-                    pivot_data.append({
-                        "BAĞLI BLOK KODU": bagli_blok_kod, 
-                        "BAĞLI BLOK ADI": bagli_blok_adi, 
-                        "PLAKA ADET": plaka_adet
-                    })
+                pivot_data.append({
+                    "BAĞLI BLOK KODU": bagli_blok_kod, 
+                    "BAĞLI BLOK ADI": bagli_blok_adi, 
+                    "PLAKA ADET": plaka_adet
+                })
 
-            # 2. ADIM: FALLBACK - Matriste Yoksa Sadece Gerçek Stok Listesinden Eşleştir
-            if not is_matched_via_matrix and not stok_df.empty:
-                p_info = ayikla_karakter_ve_olcu(plaka_adi)
-                text = str(p_info['karakter']).upper()
-                p_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', text) else None
-                p_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', text).replace('DNS', '').strip()))
-
-                secilen_kod = None
-                secilen_isim = None
-
-                for _, s_row in stok_df.iterrows():
-                    b_info = ayikla_karakter_ve_olcu(s_row.get('İsim', ''))
-                    b_text = str(b_info['karakter']).upper()
-                    b_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', b_text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', b_text) else None
-                    b_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', b_text).replace('DNS', '').strip()))
-
-                    if p_dns and b_dns and p_dns != b_dns: continue
-                    if len(p_words) > 0 and len(b_words) > 0 and len(p_words.intersection(b_words)) == 0: continue
-                    
-                    if plaka_sayisi_hesapla(p_info, b_info) > 0:
-                        secilen_kod = str(s_row.get('Kod', '')).strip()
-                        secilen_isim = str(s_row.get('İsim', '')).strip()
-                        break 
-
-                if secilen_kod:
-                    bagli_blok_kod = secilen_kod
-                    bagli_blok_adi = secilen_isim
-                    pivot_data.append({
-                        "BAĞLI BLOK KODU": secilen_kod, 
-                        "BAĞLI BLOK ADI": secilen_isim, 
-                        "PLAKA ADET": plaka_adet
-                    })
-                else:
-                    bagli_blok_kod = "UYGUN BLOK YOK"
-                    bagli_blok_adi = "Matris Dışı / Uygun Ölçüde Stok Bulunamadı"
-
-            # CRITICAL FIX: main_data dataframe'inin kendi satırlarına blok bilgisini yazdır
+            # main_data dataframe'inin kendi satırlarına blok bilgisini yazdır
             df.at[idx, 'Gerekli Blok Kodu'] = bagli_blok_kod
             df.at[idx, 'Gerekli Blok Adı'] = bagli_blok_adi
 
