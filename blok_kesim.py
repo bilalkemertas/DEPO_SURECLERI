@@ -124,15 +124,23 @@ def run_blok_kesim(conn):
     if 'main_data' in st.session_state:
         df = st.session_state.main_data
         eslesme_matrix = st.session_state.eslesme_df
+        stok_df = st.session_state.stok_data
 
-        # --- GÜVENLİ SÜTUN YAKALAMA (İSME DEĞİL, DOĞRUDAN SIRAYA GÖRE SABİTLEME) ---
-        # Dosyadaki başlıklar ne olursa olsun; 1. sütun (0) hammadde kodu, 3. sütun (2) bağlı blok kodu, 4. sütun (3) bağlı blok adıdır.
-        if eslesme_matrix is not None and not eslesme_matrix.empty and len(eslesme_matrix.columns) >= 4:
-            matris_kod_col = eslesme_matrix.columns[0]
-            matris_blok_kod_col = eslesme_matrix.columns[2]
-            matris_blok_adi_col = eslesme_matrix.columns[3]
-        else:
-            matris_kod_col, matris_blok_kod_col, matris_blok_adi_col = None, None, None
+        # --- REZERVASYONSUZ, AKILLI SÜTUN BULUCU ---
+        matris_kod_col = None
+        matris_blok_kod_col = None
+        matris_blok_adi_col = None
+
+        if eslesme_matrix is not None and not eslesme_matrix.empty:
+            eslesme_matrix.columns = [str(c).strip() for c in eslesme_matrix.columns]
+            matris_kod_col = next((c for c in eslesme_matrix.columns if "HAMMADDE" in c.upper() or "PLAKA KOD" in c.upper() or (c.upper() == "KOD")), eslesme_matrix.columns[0])
+            matris_blok_kod_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK KODU" in c.upper() or "BLOK KOD" in c.upper() or "BLOK_KOD" in c.upper()), None)
+            matris_blok_adi_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK ADI" in c.upper() or "BLOK AD" in c.upper() or "BLOK_ADI" in c.upper()), None)
+
+            if not matris_blok_kod_col and len(eslesme_matrix.columns) >= 4:
+                matris_kod_col = eslesme_matrix.columns[0]
+                matris_blok_kod_col = eslesme_matrix.columns[2]
+                matris_blok_adi_col = eslesme_matrix.columns[3]
 
         tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
         miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
@@ -142,27 +150,68 @@ def run_blok_kesim(conn):
             st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı veya Adet sütunları bulunamadı!")
             st.stop()
 
-        # --- DİNAMİK LİSTE HAZIRLAMA (Gelişmiş Görünüm) ---
+        # --- DİNAMİK LİSTE HAZIRLAMA ---
         vis_rows = []
         pivot_data = []
 
         for _, row in df.iterrows():
             plaka_adi = str(row.get(tanim_col, ''))
-            plaka_kodu = str(row.get(kod_col, '')).strip() if kod_col else ""
+            plaka_kodu = str(row.get(kod_col, '')).split('.')[0].strip() if kod_col and pd.notna(row.get(kod_col)) else ""
             plaka_adet = safe_float(row.get(miktar_col, 0))
             
-            bagli_blok_kod = "BULUNAMADI (Eski Motor)"
-            bagli_blok_adi = "Eşleşen Kalite/Ölçü aranacak"
+            bagli_blok_kod = ""
+            bagli_blok_adi = ""
+            is_matched_via_matrix = False
 
-            # Matris sorgusu
+            # 1. ADIM: Master Data Sorgusu (Öncelikli Giriş)
             if plaka_kodu and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                m_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == plaka_kodu]
-                if not m_match.empty:
-                    bagli_blok_kod = ", ".join(m_match[matris_blok_kod_col].dropna().unique())
-                    bagli_blok_adi = ", ".join(m_match[matris_blok_adi_col].dropna().unique())
+                eslesme_matrix[matris_kod_col] = eslesme_matrix[matris_kod_col].astype(str).str.split('.').str[0].str.strip()
+                m_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == plaka_kodu]
+                
+                if not m_match.empty and matris_blok_kod_col and matris_blok_adi_col:
+                    bagli_blok_kod = ", ".join(m_match[matris_blok_kod_col].dropna().astype(str).str.strip().unique())
+                    bagli_blok_adi = ", ".join(m_match[matris_blok_adi_col].dropna().astype(str).str.strip().unique())
+                    is_matched_via_matrix = True
                     
-                    for b_kod in m_match[matris_blok_kod_col].dropna().unique():
+                    for b_kod in m_match[matris_blok_kod_col].dropna().astype(str).str.strip().unique():
                         pivot_data.append({"BAĞLI BLOK KODU": b_kod, "PLAKA ADET": plaka_adet})
+
+            # 2. ADIM: FALLBACK - EĞER MATRİSTE BULUNAMADIYSA AKILLI GEOMETRİK MOTORU ÇALIŞTIR
+            if not is_matched_via_matrix and not stok_df.empty:
+                p_info = ayikla_karakter_ve_olcu(plaka_adi)
+                text = str(p_info['karakter']).upper()
+                p_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', text) else None
+                p_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', text).replace('DNS', '').strip()))
+
+                uygun_stok_kodlari = []
+                uygun_stok_isimleri = []
+
+                for _, s_row in stok_df.iterrows():
+                    b_info = ayikla_karakter_ve_olcu(s_row.get('İsim', ''))
+                    b_text = str(b_info['karakter']).upper()
+                    b_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', b_text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', b_text) else None
+                    b_words = set(re.findall(r'[A-Z]+', re.sub(r'\d+', '', b_text).replace('DNS', '').strip()))
+
+                    # Kalite (DNS) Kontrolü
+                    if p_dns and b_dns and p_dns != b_dns: continue
+                    # Kelime/Tür Kontrolü
+                    if len(p_words) > 0 and len(b_words) > 0 and len(p_words.intersection(b_words)) == 0: continue
+                    
+                    # Ölçü (Verim) Kontrolü
+                    if plaka_sayisi_hesapla(p_info, b_info) > 0:
+                        s_kod = str(s_row.get('Kod', '')).strip()
+                        s_isim = str(s_row.get('İsim', '')).strip()
+                        if s_kod not in uygun_stok_kodlari:
+                            uygun_stok_kodlari.append(s_kod)
+                            uygun_stok_isimleri.append(s_isim)
+                            pivot_data.append({"BAĞLI BLOK KODU": s_kod, "PLAKA ADET": plaka_adet})
+
+                if uygun_stok_kodlari:
+                    bagli_blok_kod = ", ".join(uygun_stok_kodlari)
+                    bagli_blok_adi = ", ".join(uygun_stok_isimleri)
+                else:
+                    bagli_blok_kod = "UYGUN BLOK STOKTA YOK"
+                    bagli_blok_adi = "Ölçü/Kalite Kurtaran Blok Bulunamadı"
 
             vis_rows.append({
                 "Plaka Kodu": plaka_kodu,
@@ -182,7 +231,7 @@ def run_blok_kesim(conn):
                 pivot_df.rename(columns={"PLAKA ADET": "Toplam Üretilecek Plaka (Adet)"}, inplace=True)
                 st.dataframe(pivot_df, use_container_width=True, hide_index=True)
             else:
-                st.info("ℹ️ İş emri plakalarına ait bağlı blok kodu master datada bulunamadı veya eslesme_matrisi.csv yüklenmedi.")
+                st.info("ℹ️ İş emri plakalarına ait gerekli blok stok özeti çıkarılamadı.")
 
         # --- 2. BÖLÜM: PLAKA VE BAĞLI BLOK DETAY TABLOSU ---
         st.subheader("📋 İş Emri Üretim Planı Kalemleri")
@@ -194,7 +243,6 @@ def run_blok_kesim(conn):
         barkod = st.text_input("🔍 KESİLECEK BLOK BARKODUNU OKUTUNUZ / PARTİ NO")
 
         if barkod:
-            stok_df = st.session_state.stok_data
             match = stok_df[stok_df['Tedarikçi Barkod'].astype(str).str.strip() == str(barkod).strip()]
 
             if not match.empty:
@@ -206,18 +254,23 @@ def run_blok_kesim(conn):
                 # OKUTULAN BARKODA UYGUN PLAKALARI FİLTRELE
                 def uygun_mu(row):
                     try:
+                        # Önce Matris ile Onay Durumunu sorgula
                         if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                            pk = str(row.get(kod_col, '')).strip()
-                            matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col].astype(str).str.strip() == pk]
-                            if not matris_match.empty:
+                            pk = str(row.get(kod_col, '')).split('.')[0].strip()
+                            matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == pk]
+                            if not matris_match.empty and matris_blok_kod_col:
                                 if blok_kod in matris_match[matris_blok_kod_col].astype(str).str.strip().tolist():
                                     return plaka_sayisi_hesapla(ayikla_karakter_ve_olcu(row.get(tanim_col, "")), blok_info) > 0
                                 return False
 
-                        # Fallback
+                        # Matriste yoksa Regex Fallback ile Geometrik Uyumluluk sorgula
                         p_info = ayikla_karakter_ve_olcu(row.get(tanim_col, ""))
                         text = str(p_info['karakter']).upper()
                         b_text = str(blok_info['karakter']).upper()
+                        p_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', text) else None
+                        b_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', b_text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', b_text) else None
+                        
+                        if p_dns and b_dns and p_dns != b_dns: return False
                         if len(set(re.findall(r'[A-Z]+', text)).intersection(set(re.findall(r'[A-Z]+', b_text)))) == 0: return False
                         return plaka_sayisi_hesapla(p_info, blok_info) > 0
                     except Exception:
@@ -282,7 +335,7 @@ def run_blok_kesim(conn):
                             except Exception as e:
                                  st.error(f"❌ Veritabanı kaydı hatası: {e}")
                 else:
-                    st.error("❌ Okuttuğunuz blok kod/kalitesi, yüklenen iş emrindeki açık plakaların hiçbirinin hammadde gereksinimiyle eşleşmiyor!")
+                    st.error("❌ Okuttuğunuz blok kod/kalitesi, yüklenen iş emrindeki açık plakaların hiçbirinin hammadde gereksinimiyle (Matris veya Geometri bazında) eşleşmiyor!")
             else:
                 st.error("❌ Okutulan Blok Barkodu stok listesinde bulunamadı!")
 
