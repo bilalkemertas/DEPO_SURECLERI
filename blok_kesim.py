@@ -93,6 +93,11 @@ def run_blok_kesim(conn):
 
     st.title("✂️ Blok Kesim Ekranı")
 
+    # --- METİN NORMALİZASYON FONKSİYONU ---
+    def normalize_text(t):
+        if pd.isna(t): return ""
+        return str(t).upper().replace("İ", "I").replace("Ü", "U").replace("Ş", "S").replace("Ö", "O").replace("Ç", "C").replace("Ğ", "G")
+
     # --- EXCEL YÜKLEME ---
     up = st.file_uploader("Excel Dosyasını Yükleyin (Kesim / İş Emri Listesi)", type=['xlsx'])
 
@@ -102,9 +107,9 @@ def run_blok_kesim(conn):
             header_idx = 0
             
             for i in range(min(20, len(raw_df))):
-                row_str = " ".join(str(val).upper() for val in raw_df.iloc[i].values if pd.notna(val))
-                if ("TANIM" in row_str or "ÜRÜN" in row_str or "URUN" in row_str) and \
-                   ("MIKTAR" in row_str or "MİKTAR" in row_str or "ADET" in row_str):
+                row_str = " ".join(normalize_text(val) for val in raw_df.iloc[i].values if pd.notna(val))
+                if ("TANIM" in row_str or "URUN" in row_str or "STOK" in row_str) and \
+                   ("MIKTAR" in row_str or "ADET" in row_str):
                     header_idx = i
                     break
             
@@ -141,12 +146,34 @@ def run_blok_kesim(conn):
                 matris_blok_kod_col = eslesme_matrix.columns[2]
                 matris_blok_adi_col = eslesme_matrix.columns[3]
 
-        tanim_col = next((c for c in df.columns if "TANIM" in c.upper() or "ÜRÜN" in c.upper()), None)
-        miktar_col = next((c for c in df.columns if "ADET" in c.upper() or "MIKTAR" in c.upper() or "MİKTAR" in c.upper()), None)
-        kod_col = next((c for c in df.columns if "KOD" in c.upper() or "STOK KODU" in c.upper()), None)
+        # --- YENİ ZIRHLI SÜTUN EŞLEŞTİRİCİ ---
+        tanim_col = None
+        miktar_col = None
+        kod_col = None
+
+        for c in df.columns:
+            c_norm = normalize_text(c).strip()
+            
+            # 1. Öncelik: KOD sütununu ayır ki "Ürün Kodu" yanlışlıkla "Ürün Adı" sanılmasın
+            if "KOD" in c_norm:
+                kod_col = c
+            # 2. Öncelik: Ad / Tanım / Açıklama
+            elif ("AD" in c_norm and any(x in c_norm for x in ["URUN", "STOK", "MALZEME"])) or "TANIM" in c_norm or "ACIKLAMA" in c_norm:
+                tanim_col = c
+            # 3. Öncelik: Miktar / Adet
+            elif "MIKTAR" in c_norm or "ADET" in c_norm:
+                miktar_col = c
+
+        # Esnek Arama (Eğer ilk turda bulamazsa)
+        if not tanim_col:
+            tanim_col = next((c for c in df.columns if ("TANIM" in normalize_text(c) or "URUN" in normalize_text(c) or "AD" in normalize_text(c)) and c != kod_col), None)
+        if not miktar_col:
+            miktar_col = next((c for c in df.columns if "ADET" in normalize_text(c) or "MIKTAR" in normalize_text(c)), None)
+        if not kod_col:
+            kod_col = next((c for c in df.columns if "KOD" in normalize_text(c) and c != tanim_col), None)
 
         if not tanim_col or not miktar_col:
-            st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı veya Adet sütunları bulunamadı!")
+            st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı veya Adet sütunları bulunamadı! Lütfen başlıkları (Ürün Adı, Miktar, vb.) kontrol ediniz.")
             st.stop()
 
         vis_rows = []
