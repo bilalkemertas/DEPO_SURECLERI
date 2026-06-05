@@ -7,6 +7,9 @@ import os
 from datetime import datetime
 
 def run_blok_kesim(conn):
+    st.title("🧱 Blok ve Rulo Sünger Kesim Otomasyonu")
+    st.write("Kesim planı yükleyerek ve hammadde barkodu okutarak akıllı kesim ve stok düşüm işlemlerini yönetin.")
+
     # --- YEREL MASTER DATA YÜKLEME (TÜRKÇE KARAKTER ZIRHLI & CACHED) ---
     if 'eslesme_df' not in st.session_state:
         csv_path = "eslesme_matrisi.csv"
@@ -15,373 +18,299 @@ def run_blok_kesim(conn):
             success = False
             for enc in encodings:
                 try:
-                    # sep=None otomatik virgül veya noktalı virgül algılar (Örn: Türkçe Excel CSV'leri)
-                    temp_df = pd.read_csv(csv_path, dtype=str, encoding=enc, sep=None, engine='python')
-                    if len(temp_df.columns) < 2:
-                        temp_df = pd.read_csv(csv_path, dtype=str, encoding=enc, sep=';')
-                    st.session_state.eslesme_df = temp_df
-                    st.session_state.eslesme_df.columns = [str(c).strip() for c in st.session_state.eslesme_df.columns]
+                    st.session_state.eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc)
+                    st.session_state.eslesme_df.columns = [c.strip() for c in st.session_state.eslesme_df.columns]
                     success = True
                     break
-                except (UnicodeDecodeError, Exception):
+                except:
                     continue
             if not success:
-                st.error("⚠️ 'eslesme_matrisi.csv' uygun bir Türkçe karakter formatında okunamadı!")
                 st.session_state.eslesme_df = pd.DataFrame()
         else:
-            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı!")
+            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı! Eşleştirme matrisi devre dışı.")
             st.session_state.eslesme_df = pd.DataFrame()
 
-    # --- ZIRHLI AYIKLAMA MOTORU ---
+    # --- ZIRHLI AYIKLAMA MOTORU (ASLA NONE DÖNMEZ) ---
     def ayikla_karakter_ve_olcu(text):
         default_return = {"boy": 0.0, "en": 0.0, "kalinlik": 0.0, "karakter": str(text) if text else ""}
         if pd.isna(text) or str(text).strip() == "":
             return default_return
-
+        
         t = str(text).upper().replace(",", ".").strip()
+        # 3'lü kombinasyon araması (Örn: 188x88x18.5)
         olcu_uzun = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
-        olcu_kisa = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
-
-        try:
-            if olcu_uzun:
+        if olcu_uzun:
+            try:
                 boy = float(olcu_uzun.group(1))
                 en = float(olcu_uzun.group(2))
                 kalinlik = float(olcu_uzun.group(3))
                 start_idx = olcu_uzun.start()
-            elif olcu_kisa:
-                boy = float(olcu_kisa.group(1))
-                en = float(olcu_kisa.group(2))
-                kalinlik = 0.0
-                start_idx = olcu_kisa.start()
-            else:
-                return default_return
+                karakter = t[:start_idx].strip()
+                # Karakter sonundaki özel işaretleri temizle
+                karakter = re.sub(r'[^A-Z0-9\sĞÜŞİÖÇ]+$', '', karakter).strip()
+                return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
+            except:
+                pass
+        return default_return
 
-            karakter = t[:start_idx].strip()
-            return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
-        except Exception:
-            return default_return
+    # --- VERİTABANINDAN CANLI VERİLERİ ALALIM ---
+    try:
+        stok_df = veritabani.get_internal_data("Stok")
+        har_df = veritabani.get_internal_data("Hareketler")
+    except AttributeError:
+        # Eğer kurumsal bağlantı tipi farklıysa güvenli fallback
+        stok_df = veritabani.get_data("Stok", conn)
+        har_df = veritabani.get_data("Hareketler", conn)
 
-    # --- PLAKA VE VERİM HESAPLAMA ---
-    def plaka_sayisi_hesapla(plaka, blok):
-        if not plaka or not blok: return 0
-        if plaka.get('boy', 0) == 0 or plaka.get('en', 0) == 0: return 0
+    if stok_df is None or stok_df.empty:
+        st.warning("⚠️ Stok veritabanı boş veya yüklenemedi!")
+        stok_df = pd.DataFrame()
 
-        adet_boy_1 = int(blok.get('boy', 0) // plaka['boy'])
-        adet_en_1  = int(blok.get('en', 0) // plaka['en'])
-        verim_1 = adet_boy_1 * adet_en_1
+    if har_df is None:
+        har_df = pd.DataFrame()
 
-        adet_boy_2 = int(blok.get('boy', 0) // plaka['en'])
-        adet_en_2  = int(blok.get('en', 0) // plaka['boy'])
-        verim_2 = adet_boy_2 * adet_en_2
+    # --- ADIM 1: İŞ EMRİ LİSTESİ YÜKLEME ---
+    st.subheader("📋 1. İş Emri Listesi Yükle")
+    is_emri_file = st.file_uploader("Kesim Planı Excel Dosyasını Yükleyin", type=['xlsx', 'xls'])
 
-        return max(verim_1, verim_2)
-
-    # --- GÜVENLİ FLOAT DÖNÜŞÜMÜ ---
-    def safe_float(val, default=0.0):
+    if is_emri_file is not None:
         try:
-            return float(val)
-        except (ValueError, TypeError):
-            return default
-
-    # --- NAVİGASYON ---
-    c1, c2, _ = st.columns([1.5, 1.5, 4])
-    if c1.button("ANA MENÜ"):
-        st.session_state.page = 'home'
-        st.rerun()
-
-    if c2.button("TEMİZLE"):
-        for k in ['main_data', 'stok_data', 'har_data']:
-            if k in st.session_state:
-                del st.session_state[k]
-        st.rerun()
-
-    st.title("✂️ Blok Kesim Ekranı")
-
-    # --- METİN NORMALİZASYON FONKSİYONU ---
-    def normalize_text(t):
-        if pd.isna(t): return ""
-        # Küçük 'i' harfini büyüterek ı/i karmaşasını kökten çözüyoruz
-        return str(t).replace('i', 'İ').upper().replace("İ", "I").replace("Ü", "U").replace("Ş", "S").replace("Ö", "O").replace("Ç", "C").replace("Ğ", "G").strip()
-
-    # --- EXCEL YÜKLEME ---
-    up = st.file_uploader("Excel Dosyasını Yükleyin (Kesim / İş Emri Listesi)", type=['xlsx'])
-
-    if up and 'main_data' not in st.session_state:
-        try:
-            raw_df = pd.read_excel(up, header=None)
-            header_idx = 0
-            max_score = -1
+            excel_sheets = pd.ExcelFile(is_emri_file)
+            sheet_name = None
+            for s in excel_sheets.sheet_names:
+                if any(x in s.upper() for x in ["HAZIRLIK", "SHEET4", "PLAN", "KESIM", "KESİM"]):
+                    sheet_name = s
+                    break
+            if sheet_name is None:
+                sheet_name = excel_sheets.sheet_names[0]
             
-            for i in range(min(20, len(raw_df))):
-                # Satırdaki dolu hücreleri al
-                row_vals = [normalize_text(val) for val in raw_df.iloc[i].values if pd.notna(val) and str(val).strip() != ""]
-                row_str = " ".join(row_vals)
-                
-                # Hedef kelime eşleşmelerini say
-                kw_score = sum(1 for kw in ["KOD", "BARKOD", "NO", "TANIM", "URUN", "STOK", "MALZEME", "AD", "ACIKLAMA", "MIKTAR", "ADET", "TOPLAM", "SAYI", "PLAN", "SIPARIS"] if kw in row_str)
-                
-                # Puan = (Kelime eşleşmesi * 10) + (Dolu hücre sayısı)
-                # Bu sayede sadece 1 hücreli "Haftalık Plan" başlıklarını eleriz
-                score = (kw_score * 10) + len(row_vals)
-                
-                if score > max_score and len(row_vals) > 1:
-                    max_score = score
-                    header_idx = i
-                    
-            if max_score == -1:
-                header_idx = 0
-            
-            df = pd.read_excel(up, header=header_idx)
-            df.columns = [str(c).strip() for c in df.columns]
-            df.dropna(how='all', inplace=True)
-            
-            st.session_state.main_data = df
-            st.session_state.stok_data = veritabani.get_internal_data("Stok")
-            st.session_state.har_data = veritabani.get_internal_data("Hareketler")
+            df_is_emri = pd.read_excel(is_emri_file, sheet_name=sheet_name)
+            df_is_emri.columns = [str(c).strip() for c in df_is_emri.columns]
+            st.session_state.df_is_emri = df_is_emri
+            st.success(f"✅ '{sheet_name}' sekmesi başarıyla yüklendi! ({len(df_is_emri)} satır bulundu)")
         except Exception as e:
-            st.error(f"❌ Veri yükleme hatası: {e}")
-            st.stop()
+            st.error(f"❌ Excel dosyası okunurken hata oluştu: {e}")
 
-    # --- ANA OPERASYON ---
-    if 'main_data' in st.session_state:
-        df = st.session_state.main_data
-        eslesme_matrix = st.session_state.eslesme_df
-        stok_df = st.session_state.stok_data
+    # --- ADIM 2: BARKOD OKUTMA VE SORGULAMA ---
+    st.subheader("🔍 2. Hammadde Barkodu Okut")
+    barkod_giris = st.text_input("Blok veya Rulo Barkodunu Okutun / Girin:", key="kesim_barkod_input")
 
-        # --- REZERVASYONSUZ, AKILLI SÜTUN BULUCU ---
-        matris_kod_col = None
-        matris_blok_kod_col = None
-        matris_blok_adi_col = None
+    if barkod_giris:
+        barkod = str(barkod_giris).strip()
+        
+        # --- 1. ADIM: STOK VERİTABANINDAKİ BARKOD SÜTUNUNU DİNAMİK OLARAK BULALIM ---
+        stok_barkod_col = None
+        olasi_barkod_sutunlari = ['Barkod', 'BARKOD', 'Barkod No', 'Stok Barkodu', 'Tedarikçi Barkodu', 'Tedarikçi_Barkodu']
+        
+        # 1. Aşama: Tam eşleşen sütun var mı kontrol edelim
+        for c in olasi_barkod_sutunlari:
+            if c in stok_df.columns:
+                stok_barkod_col = c
+                break
 
-        if eslesme_matrix is not None and not eslesme_matrix.empty:
-            eslesme_matrix.columns = [str(c).strip() for c in eslesme_matrix.columns]
-            matris_kod_col = next((c for c in eslesme_matrix.columns if "HAMMADDE" in c.upper() or "PLAKA KOD" in c.upper() or (c.upper() == "KOD")), eslesme_matrix.columns[0])
-            matris_blok_kod_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK KODU" in c.upper() or "BLOK KOD" in c.upper() or "BLOK_KOD" in c.upper()), None)
-            matris_blok_adi_col = next((c for c in eslesme_matrix.columns if "BAĞLI BLOK STOK ADI" in c.upper() or "BLOK AD" in c.upper() or "BLOK_ADI" in c.upper()), None)
+        # 2. Aşama: Eğer tam eşleşme yoksa, içinde "barkod" veya "barcode" geçen ilk sütunu bulalım
+        if stok_barkod_col is None:
+            for c in stok_df.columns:
+                if 'barkod' in str(c).lower() or 'barcode' in str(c).lower():
+                    stok_barkod_col = c
+                    break
 
-            if not matris_blok_kod_col and len(eslesme_matrix.columns) >= 4:
-                matris_kod_col = eslesme_matrix.columns[0]
-                matris_blok_kod_col = eslesme_matrix.columns[2]
-                matris_blok_adi_col = eslesme_matrix.columns[3]
+        # 3. Aşama: Hala bulunamadıysa, kullanıcıya çöktürmeden temiz bir Streamlit uyarısı gösterelim
+        if stok_barkod_col is None:
+            st.error(f"⚠️ Depo Stok tablosunda barkod sütunu tespit edilemedi! Mevcut sütunlar: {list(stok_df.columns)}")
+            stok_barkod_col = stok_df.columns[0] if not stok_df.empty else None
 
-        # --- YENİ ZIRHLI SÜTUN EŞLEŞTİRİCİ (AGRESİF) ---
-        tanim_col = None
-        miktar_col = None
-        kod_col = None
+        # --- DİNAMİK BARKOD SÜTUNU ÜZERİNDEN GÜVENLİ SORGULAMA ---
+        if stok_barkod_col is not None and not stok_df.empty:
+            match_stok = stok_df[stok_df[stok_barkod_col].astype(str).str.strip() == barkod]
+        else:
+            match_stok = pd.DataFrame()
 
-        # 1. Aşama: Olası tüm kelime türevleriyle net arama
-        for c in df.columns:
-            c_norm = normalize_text(c)
+        if not match_stok.empty:
+            stok_satir = match_stok.iloc[0]
+            blok_kod = str(stok_satir.get('Kod', '')).strip()
+            blok_adi = str(stok_satir.get('Malzeme_Adi', stok_satir.get('Malzeme Adı', stok_satir.get('Ad', '')))).strip()
+            blok_miktar = float(stok_satir.get('Miktar', 0.0))
+            blok_adres = str(stok_satir.get('Adres', 'Bilinmeyen Adres')).strip()
+
+            st.info(f"📍 **Hammadde Bulundu:** {blok_adi} ({blok_kod}) | **Miktar:** {blok_miktar} Adet | **Adres:** {blok_adres}")
+
+            # Hammaddenin ölçü ve karakter çözümlemesini yapalım
+            ham_olcu = ayikla_karakter_ve_olcu(blok_adi)
             
-            # SİPARİŞ NO gibi sütunların yanlışlıkla KOD olarak alınmasını engelle
-            if "SIPARIS" in c_norm or "EVRAK" in c_norm or "PLAN" in c_norm:
-                continue
-            
-            if not kod_col and any(k in c_norm for k in ["KOD", "BARKOD", "STOK NO", "URUN NO", "MALZEME NO"]):
-                kod_col = c
-            elif not miktar_col and any(k in c_norm for k in ["MIKTAR", "ADET", "TOPLAM", "SAYI"]):
-                miktar_col = c
-            elif not tanim_col and any(k in c_norm for k in ["AD", "TANIM", "ACIKLAMA", "URUN", "MALZEME", "STOK", "CINS"]):
-                if c != kod_col and c != miktar_col:
-                    tanim_col = c
-
-        # 1.5 Aşama: Eğer KOD bulamadıysa ve içinde "NO" geçen bir sütun varsa (Sipariş hariç)
-        if not kod_col:
-            for c in df.columns:
-                c_norm = normalize_text(c)
-                if "SIPARIS" not in c_norm and "PLAN" not in c_norm and "NO" in c_norm:
-                    if c != miktar_col and c != tanim_col:
-                        kod_col = c
-                        break
-
-        # 2. Aşama: Esnek Arama (Eğer ilk turda bulamazsa eleme yöntemiyle kalan sütunları zorla)
-        if not tanim_col:
-            tanim_col = next((c for c in df.columns if c != kod_col and c != miktar_col and "UNNAMED" not in str(c).upper()), None)
-            
-        if not miktar_col:
-            for c in df.columns:
-                if c != kod_col and c != tanim_col and "UNNAMED" not in str(c).upper():
-                    # Sütunun içindeki veriler sayısal ağırlıklıysa miktar sütunu kabul et
-                    if pd.api.types.is_numeric_dtype(df[c]) or any(k in str(c).upper() for k in ["ADET", "MIKTAR"]):
-                        miktar_col = c
-                        break
-
-        # 3. Aşama: Hala bulunamadıysa neyi okuduğumuzu ekrana bas
-        if not tanim_col or not miktar_col:
-            st.error(f"🔍 Sisteminizin Okuduğu Sütun Başlıkları: {list(df.columns)}")
-            st.warning("⚠️ Yüklenen Excel dosyasında Ürün Tanımı veya Adet sütunları tespit edilemedi! Yukarıdaki saptanan başlıklara bakarak Excel'de ilk satırlarda birleştirilmiş boş hücre veya resim/logo olup olmadığını kontrol ediniz.")
-            st.stop()
-
-        vis_rows = []
-        pivot_data = []
-
-        # --- DÜŞEY ARA (VLOOKUP) SÖZLÜĞÜ OLUŞTURMA (PERFORMANS VE KESİNLİK İÇİN) ---
-        # Döngü içinde sürekli dataframe'i yormamak için matrisi bir defa sözlüğe alıyoruz
-        vlookup_dict = {}
-        if eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col and matris_blok_kod_col:
-            for _, m_row in eslesme_matrix.iterrows():
-                # normalize_text ile karakter kayıplarını ve boşlukları sıfırlıyoruz
-                p_kod = normalize_text(str(m_row.get(matris_kod_col, '')).split('.')[0])
-                b_kod = str(m_row.get(matris_blok_kod_col, '')).strip()
-                b_adi = str(m_row.get(matris_blok_adi_col, '')).strip() if matris_blok_adi_col else ""
+            # --- EŞLEŞEN PLAKALARI BULMA VE KESİM HESAPLAMA ---
+            if 'df_is_emri' in st.session_state and not st.session_state.df_is_emri.empty:
+                is_emri = st.session_state.df_is_emri
+                eslesme = st.session_state.eslesme_df
                 
-                if p_kod and b_kod and b_kod != "NAN" and b_kod != "":
-                    vlookup_dict[p_kod] = {"blok_kodu": b_kod, "blok_adi": b_adi}
+                # Matrise göre eşleşen yarı mamulleri tespit etme
+                uygun_plakalar = []
+                if not eslesme.empty:
+                    # 'BAĞLI BLOK STOK KODU' sütun ismini esnek bulalım
+                    bagli_col = next((c for c in eslesme.columns if 'BAĞLI' in c or 'BLOK' in c), eslesme.columns[2])
+                    ham_col = next((c for c in eslesme.columns if 'HAM' in c or 'KODU' in c or 'Sipariş' in c), eslesme.columns[0])
                     
-        # Eğer matris okunmuş ama eşleşme sözlüğü boş kalmışsa ekrana tespit edilen sütunları bas (Hata Ayıklama)
-        if len(vlookup_dict) == 0 and eslesme_matrix is not None and not eslesme_matrix.empty:
-            st.warning(f"⚠️ Eşleştirme matrisinden veri alınamadı! CSV sütun başlıkları eşleşmemiş olabilir. Algılanan Sütunlar: {list(eslesme_matrix.columns)}")
-
-        # --- DÖNGÜ BAŞLANGICI ---
-        for idx, row in df.iterrows():
-            plaka_adi = str(row.get(tanim_col, '')).strip()
-            # Aranan kodu da aynı normalize zırhından geçiriyoruz ki kusursuz eşleşsin
-            plaka_kodu = normalize_text(str(row.get(kod_col, '')).split('.')[0]) if kod_col and pd.notna(row.get(kod_col)) else ""
-            plaka_adet = safe_float(row.get(miktar_col, 0))
-            
-            # Varsayılan değerler (Eşleşmezse bunlar yazacak)
-            bagli_blok_kod = "EŞLEŞMEDİ"
-            bagli_blok_adi = "eslesme_matrisi.csv tablosunda bulunamadı"
-
-            # --- KESİN DÜŞEY ARA (VLOOKUP) EŞLEŞTİRMESİ ---
-            # Sadece matristen arama yapar. Stok listesine bakarak yanlışlıkla plakayı blok gibi göstermez.
-            if plaka_kodu and plaka_kodu in vlookup_dict:
-                bagli_blok_kod = vlookup_dict[plaka_kodu]["blok_kodu"]
-                bagli_blok_adi = vlookup_dict[plaka_kodu]["blok_adi"]
-                
-                pivot_data.append({
-                    "BAĞLI BLOK KODU": bagli_blok_kod, 
-                    "BAĞLI BLOK ADI": bagli_blok_adi, 
-                    "PLAKA ADET": plaka_adet
-                })
-
-            # main_data dataframe'inin kendi satırlarına blok bilgisini yazdır
-            df.at[idx, 'Gerekli Blok Kodu'] = bagli_blok_kod
-            df.at[idx, 'Gerekli Blok Adı'] = bagli_blok_adi
-
-            vis_rows.append({
-                "Plaka Kodu": plaka_kodu,
-                "Plaka Adı/Tanımı": plaka_adi,
-                "Talep Adet": plaka_adet,
-                "Gerekli Blok Kodu": bagli_blok_kod,
-                "Gerekli Blok Adı": bagli_blok_adi
-            })
-
-        # State üzerindeki veriyi güncel tut
-        st.session_state.main_data = df
-        vis_df = pd.DataFrame(vis_rows)
-
-        # --- 1. BÖLÜM: TOPLAM GEREKLİ BLOK İHTİYAÇ RAPORU (PIVOT) ---
-        with st.expander("📊 İŞ EMRİ TOPLAM GEREKLİ BLOK İHTİYAÇ RAPORU (ÖZET)", expanded=True):
-            if pivot_data:
-                pdf = pd.DataFrame(pivot_data)
-                pivot_df = pdf.groupby(["BAĞLI BLOK KODU", "BAĞLI BLOK ADI"])["PLAKA ADET"].sum().reset_index()
-                pivot_df.rename(columns={"PLAKA ADET": "Toplam Üretilecek Plaka (Adet)"}, inplace=True)
-                st.dataframe(pivot_df, use_container_width=True, hide_index=True)
-            else:
-                st.info("ℹ️ İş emri plakalarına ait gerekli blok stok özeti çıkarılamadı.")
-
-        # --- 2. BÖLÜM: PLAKA VE BAĞLI BLOK DETAY TABLOSU ---
-        st.subheader("📋 İş Emri Üretim Planı Kalemleri")
-        st.dataframe(vis_df, use_container_width=True, hide_index=True)
-
-        # --- 3. BÖLÜM: BARKOD OKUTMA VE AKSİYON ALANI ---
-        st.markdown("---")
-        st.subheader("⚙️ Blok Seçimi")
-        barkod = st.text_input("🔍 KESİLECEK BLOK BARKODUNU OKUTUNUZ / PARTİ NO")
-
-        if barkod:
-            match = stok_df[stok_df['Tedarikçi Barkodu'].astype(str).str.strip() == str(barkod).strip()]
-
-            if not match.empty:
-                blok = match.iloc[0]
-                blok_kod = str(blok.get('Kod', '')).strip()
-                blok_info = ayikla_karakter_ve_olcu(blok.get('İsim', ''))
-                mevcut_miktar = safe_float(blok.get('Miktar', 0))
-
-                def uygun_mu(row):
-                    try:
-                        if kod_col and eslesme_matrix is not None and not eslesme_matrix.empty and matris_kod_col:
-                            pk = str(row.get(kod_col, '')).split('.')[0].strip()
-                            matris_match = eslesme_matrix[eslesme_matrix[matris_kod_col] == pk]
-                            if not matris_match.empty and matris_blok_kod_col:
-                                if blok_kod in matris_match[matris_blok_kod_col].astype(str).str.strip().tolist():
-                                    return plaka_sayisi_hesapla(ayikla_karakter_ve_olcu(row.get(tanim_col, "")), blok_info) > 0
-                                return False
-
-                        p_info = ayikla_karakter_ve_olcu(row.get(tanim_col, ""))
-                        text = str(p_info['karakter']).upper()
-                        b_text = str(blok_info['karakter']).upper()
-                        p_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', text) else None
-                        b_dns = re.search(r'(\d{2,3})\s*(?:DNS)?', b_text).group(1) if re.search(r'(\d{2,3})\s*(?:DNS)?', b_text) else None
+                    # Blok koduna bağlı plaka kodlarını matristen filtrele
+                    matris_match = eslesme[eslesme[bagli_col].astype(str).str.strip() == blok_kod]
+                    if not matris_match.empty:
+                        uygun_kodlar = matris_match[ham_col].astype(str).str.strip().tolist()
                         
-                        if p_dns and b_dns and p_dns != b_dns: return False
-                        if len(set(re.findall(r'[A-Z]+', text)).intersection(set(re.findall(r'[A-Z]+', b_text)))) == 0: return False
-                        return plaka_sayisi_hesapla(p_info, blok_info) > 0
-                    except Exception:
-                        return False
+                        # İş emrindeki sipariş kalemlerinden bu plaka kodlarına uyanları çek
+                        is_emri_stok_col = next((c for c in is_emri.columns if 'Stok' in c or 'Kod' in c), is_emri.columns[0])
+                        uygun_plakalar = is_emri[is_emri[is_emri_stok_col].astype(str).str.strip().isin(uygun_kodlar)].copy()
 
-                uygunlar = df[df.apply(uygun_mu, axis=1)].copy()
+                if len(uygun_plakalar) > 0:
+                    st.success(f"🎯 Bu bloktan kesilebilecek {len(uygun_plakalar)} adet açık sipariş kalemi eşleşti!")
+                    
+                    # Seçim tablosu oluşturalım
+                    plaka_gosterim = []
+                    for idx, row in uygun_plakalar.iterrows():
+                        plaka_gosterim.append({
+                            "Sipariş No": row.get('Sipariş No', 'Belirtilmemiş'),
+                            "Yarı Mamul Kodu": row.get(is_emri_stok_col, ''),
+                            "Yarı Mamul Adı": row.get('Stok Adı', row.get('Malzeme Adı', '')),
+                            "Sipariş Miktarı": row.get('Sipariş Miktarı', 0),
+                            "Gelen Miktar": row.get('Gelen Miktar', 0),
+                            "Birim": row.get('Birim', 'AD')
+                        })
+                    
+                    df_secim = pd.DataFrame(plaka_gosterim)
+                    st.dataframe(df_secim)
 
-                if not uygunlar.empty:
-                    uygunlar['tek_kat_verim'] = uygunlar.apply(
-                        lambda r: plaka_sayisi_hesapla(ayikla_karakter_ve_olcu(r.get(tanim_col, "")), blok_info), axis=1
+                    # Kullanıcıya kesmek istediği plakayı seçtirelim
+                    secilen_plaka_idx = st.selectbox(
+                        "Kesim Yapılacak Sipariş Satırını Seçin:", 
+                        options=range(len(df_secim)),
+                        format_func=lambda i: f"Sip:{df_secim.iloc[i]['Sipariş No']} - {df_secim.iloc[i]['Yarı Mamul Adı']}"
                     )
-                    emir = uygunlar.sort_values(by="tek_kat_verim", ascending=False).iloc[0]
                     
-                    plaka_detay = ayikla_karakter_ve_olcu(emir[tanim_col])
-                    kalinlik = plaka_detay['kalinlik']
-                    adet = safe_float(emir[miktar_col])
+                    secilen_plaka = df_secim.iloc[secilen_plaka_idx]
+                    plaka_adi = secilen_plaka["Yarı Mamul Adı"]
+                    plaka_kodu = secilen_plaka["Yarı Mamul Kodu"]
                     
-                    tek_katta_cikan_plaka = safe_float(emir['tek_kat_verim'])
-                    gereken_dilim_sayisi = math.ceil(adet / tek_katta_cikan_plaka) if tek_katta_cikan_plaka > 0 else 0
-                    net = gereken_dilim_sayisi * kalinlik
+                    plaka_olcu = ayikla_karakter_ve_olcu(plaka_adi)
+                    
+                    # Ölçüsel Matematik ve Verimlilik Analizi
+                    st.write("---")
+                    st.subheader("📐 Ölçü ve Fire Hesaplama")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Hammadde Ölçüsü:** {ham_olcu['boy']}x{ham_olcu['en']}x{ham_olcu['kalinlik']} cm ({ham_olcu['karakter']})")
+                    with col2:
+                        st.markdown(f"**Mamul Ölçüsü:** {plaka_olcu['boy']}x{plaka_olcu['en']}x{plaka_olcu['kalinlik']} cm ({plaka_olcu['karakter']})")
 
-                    har = st.session_state.har_data
-                    once = False
-                    if not har.empty and 'Kod' in har.columns:
-                        once = ((har['Kod'].astype(str).str.strip() == blok_kod) & (har['İşlem'] == "KESİM/SARF")).any()
-
-                    fire = 0 if once else 2
-                    toplam = net + fire
-
-                    with st.container(border=True):
-                        st.success(f"🎯 OKUTULAN BLOK UYUMLU: {blok.get('İsim', '')}")
-                        st.write(f"**Eşleşen Plaka:** {emir[tanim_col]}")
-                        st.write(f"**Kesim Planı:** Tek Katta Çıkan: {tek_katta_cikan_plaka} Plaka | Gerekli Bıçak Hareketi: {gereken_dilim_sayisi} Kez")
+                    # Matematiksel maksimum kesim hesabı (Boy ve En bazında kaç adet çıkar?)
+                    if plaka_olcu['boy'] > 0 and plaka_olcu['en'] > 0 and plaka_olcu['kalinlik'] > 0:
+                        en_kat = math.floor(ham_olcu['en'] / plaka_olcu['en'])
+                        boy_kat = math.floor(ham_olcu['boy'] / plaka_olcu['boy'])
+                        kat_basina_plaka = en_kat * boy_kat if (en_kat > 0 and boy_kat > 0) else 1
                         
-                        c_m1, c_m2 = st.columns(2)
-                        c_m1.metric("Blok Boyu / Kalan Stok (cm)", f"{mevcut_miktar:.2f}")
-                        c_m2.metric("Toplam Düşecek Sarfiyat (cm)", f"{toplam:.2f}", delta=f"Fire: {fire} cm")
+                        # 1 Bloktan çıkabilecek teorik plaka miktarı
+                        max_plaka = math.floor(ham_olcu['kalinlik'] / plaka_olcu['kalinlik']) * kat_basina_plaka
+                        st.info(f"💡 **Teorik Hesaplama:** 1 adet bloktan maksimum **{max_plaka} adet** plaka üretilebilir.")
+                        
+                        kesim_adedi = st.number_input(
+                            "Kesilecek Plaka Miktarını Girin (Adet):", 
+                            min_value=1, 
+                            max_value=10000, 
+                            value=int(max_plaka) if max_plaka > 0 else 1
+                        )
+                        
+                        blok_sarf_adedi = st.number_input(
+                            "Tüketilecek Blok/Hammadde Miktarı (Adet):",
+                            min_value=1.0,
+                            max_value=float(blok_miktar),
+                            value=1.0,
+                            step=1.0
+                        )
 
-                    if st.button("✂️ KESİM HAREKETİNİ ONAYLA VE STOKTAN DÜŞ", type="primary", use_container_width=True):
-                        if mevcut_miktar < toplam:
-                            st.error(f"❌ Yetersiz Stok! Blokta {mevcut_miktar:.2f} cm var, {toplam:.2f} cm gerekiyor.")
-                        else:
+                        if st.button("🔥 KESİMİ GERÇEKLEŞTİR VE STOKLARI GÜNCELLE"):
                             try:
-                                hedef_index = stok_df[stok_df['Kod'].astype(str).str.strip() == blok_kod].index
-                                if not hedef_index.empty:
-                                    stok_df.loc[hedef_index, 'Miktar'] -= toplam
-
-                                yeni = pd.DataFrame([{
-                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "İşlem": "KESİM/SARF",
-                                    "Kod": blok.get('Kod', ''),
-                                    "Miktar": toplam
-                                }])
-
-                                veritabani.update_data("Stok", stok_df)
-                                veritabani.update_data("Hareketler", pd.concat([har, yeni], ignore_index=True))
+                                # 1. Adım: Hammaddeyi Stoktan Düş veya Güncelle
+                                stok_index = match_stok.index[0]
+                                kalan_hammadde_miktari = blok_miktar - blok_sarf_adedi
                                 
-                                st.balloons()
-                                st.success("🎉 Kesim işlemi başarıyla veritabanına işlendi, stok güncellendi!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Veritabanı kaydı hatası: {e}")
+                                if kalan_hammadde_miktari <= 0:
+                                    stok_df = stok_df.drop(stok_index)
+                                else:
+                                    stok_df.at[stok_index, 'Miktar'] = kalan_hammadde_miktari
+
+                                # 2. Adım: Yeni Plakayı Stoklara Ekle / Güncelle
+                                plaka_stok_match = stok_df[
+                                    (stok_df['Kod'].astype(str).str.strip() == str(plaka_kodu).strip()) & 
+                                    (stok_df['Adres'].astype(str).str.strip() == str(blok_adres).strip())
+                                ]
+                                
+                                if not plaka_stok_match.empty:
+                                    p_idx = plaka_stok_match.index[0]
+                                    mevcut_p_mik = float(stok_df.at[p_idx, 'Miktar'])
+                                    stok_df.at[p_idx, 'Miktar'] = mevcut_p_mik + kesim_adedi
+                                else:
+                                    yeni_plaka_satir = {
+                                        "Adres": blok_adres,
+                                        "Kod": plaka_kodu,
+                                        "Malzeme_Adi": plaka_adi,
+                                        "Miktar": kesim_adedi,
+                                        "Birim": "AD"
+                                    }
+                                    # Eksik sütunları da tanımlayalım
+                                    for col in stok_df.columns:
+                                        if col not in yeni_plaka_satir:
+                                            yeni_plaka_satir[col] = ""
+                                    stok_df = pd.concat([stok_df, pd.DataFrame([yeni_plaka_satir])], ignore_index=True)
+
+                                # 3. Adım: Hareket Log Kayıtlarını Hazırla
+                                t_tarih = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                
+                                # Sarf Kaydı
+                                har_sarf = {
+                                    "Tarih": t_tarih,
+                                    "İşlem": "KESİM/SARF",
+                                    "Adres": blok_adres,
+                                    "Kod": blok_kod,
+                                    "Malzeme_Adi": blok_adi,
+                                    "Miktar": -blok_sarf_adedi,
+                                    "Birim": "AD"
+                                }
+                                # Üretim Giriş Kaydı
+                                har_uret = {
+                                    "Tarih": t_tarih,
+                                    "İşlem": "ÜRETİM/GİRİŞ",
+                                    "Adres": blok_adres,
+                                    "Kod": plaka_kodu,
+                                    "Malzeme_Adi": plaka_adi,
+                                    "Miktar": kesim_adedi,
+                                    "Birim": "AD"
+                                }
+
+                                # Log sütunlarını eşle
+                                for col in har_df.columns:
+                                    if col not in har_sarf: har_sarf[col] = ""
+                                    if col not in har_uret: har_uret[col] = ""
+
+                                har_df = pd.concat([har_df, pd.DataFrame([har_sarf, har_uret])], ignore_index=True)
+
+                                # 4. Adım: Veritabanına Yazma
+                                try:
+                                    veritabani.update_data("Stok", stok_df)
+                                    veritabani.update_data("Hareketler", har_df)
+                                    st.balloons()
+                                    st.success(f"🎉 Kesim işlemi başarıyla tamamlandı! Stoktan {blok_sarf_adedi} adet blok düşüldü, hanenize {kesim_adedi} adet plaka eklendi!")
+                                    st.rerun()
+                                except Exception as db_err:
+                                    st.error(f"❌ Veritabanı güncelleme hatası: {db_err}")
+                            except Exception as ex:
+                                st.error(f"❌ Kesim işlemi uygulanırken hata oluştu: {ex}")
+                    else:
+                        st.warning("⚠️ Mamul ölçü bilgisi tespit edilemediğinden otomatik fire hesabı yapılamıyor.")
                 else:
                     st.error("❌ Okuttuğunuz blok kod/kalitesi, yüklenen iş emrindeki açık plakaların hiçbirinin hammadde gereksinimiyle (Matris bazında) eşleşmiyor!")
             else:
-                st.error("❌ Okutulan Blok Barkodu stok listesinde bulunamadı!")
+                st.warning("⚠️ Lütfen kesim işlemlerine başlamadan önce Adım 1'den güncel bir iş emri planı yükleyin.")
+        else:
+            st.error(f"❌ '{barkod}' barkodlu hammadde stokta bulunamadı! Lütfen barkodu kontrol edin.")
 
-    st.markdown("---")
-    st.caption("Bilal KEMERTAŞ | BRN 2026")
+# Bu dosya bağımsız çalıştırıldığında test edilmesini sağlar
+if __name__ == "__main__":
+    st.warning("Bu modül doğrudan çalıştırılamaz. Lütfen app.py üzerinden erişin.")
