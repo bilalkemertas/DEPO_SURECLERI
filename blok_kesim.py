@@ -7,9 +7,6 @@ import os
 from datetime import datetime
 
 def run_blok_kesim(conn):
-    st.title("🧱 Blok ve Rulo Sünger Kesim Otomasyonu")
-    st.write("Plan yükleme, barkod okutma ve kesim işlemlerini alt sekmelerden yönetin.")
-
     # --- MASTER DATA YÜKLEME (TÜRKÇE KARAKTER ZIRHLI & CACHED) ---
     if 'eslesme_df' not in st.session_state:
         csv_path = "eslesme_matrisi.csv"
@@ -37,7 +34,6 @@ def run_blok_kesim(conn):
             return default_return
         
         t = str(text).upper().replace(",", ".").strip()
-        # 3'lü kombinasyon araması (Örn: 188x88x18.5)
         olcu_uzun = re.search(r'(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)\s*[Xx]\s*(\d+(?:\.\d+)?)', t)
         if olcu_uzun:
             try:
@@ -46,7 +42,6 @@ def run_blok_kesim(conn):
                 kalinlik = float(olcu_uzun.group(3))
                 start_idx = olcu_uzun.start()
                 karakter = t[:start_idx].strip()
-                # Karakter sonundaki özel işaretleri temizle
                 karakter = re.sub(r'[^A-Z0-9\sĞÜŞİÖÇ]+$', '', karakter).strip()
                 return {"boy": boy, "en": en, "kalinlik": kalinlik, "karakter": karakter}
             except:
@@ -62,7 +57,6 @@ def run_blok_kesim(conn):
         har_df = veritabani.get_data("Hareketler", conn)
 
     if stok_df is None or stok_df.empty:
-        st.warning("⚠️ Stok veritabanı boş veya yüklenemedi!")
         stok_df = pd.DataFrame()
 
     if har_df is None:
@@ -123,45 +117,63 @@ def run_blok_kesim(conn):
         if not bagli_blok_adi_col and len(eslesme.columns) > 3:
             bagli_blok_adi_col = eslesme.columns[3]
 
-    # --- 3 BUTONLU NAVİGASYON SİSTEMİ (RADIO BUTON YOKTUR) ---
-    if 'kesim_sub_page' not in st.session_state:
-        st.session_state.kesim_sub_page = 'kesim'  # Operatörün direkt kesim yapabilmesi için varsayılan ekran
-
-    st.markdown("---")
-    nav_col1, nav_col2, nav_col3 = st.columns(3)
-    
-    with nav_col1:
-        if st.button("📋 PLAN & İŞ EMRİ YÜKLE", use_container_width=True, 
-                     type="primary" if st.session_state.kesim_sub_page == 'plan' else "secondary"):
-            st.session_state.kesim_sub_page = 'plan'
-            st.rerun()
-            
-    with nav_col2:
-        if st.button("🧱 OPERATÖR KESİM EKRANI", use_container_width=True, 
-                     type="primary" if st.session_state.kesim_sub_page == 'kesim' else "secondary"):
-            st.session_state.kesim_sub_page = 'kesim'
-            st.rerun()
-            
-    with nav_col3:
-        if st.button("📊 KESİM RAPORLARI", use_container_width=True, 
-                     type="primary" if st.session_state.kesim_sub_page == 'rapor' else "secondary"):
-            st.session_state.kesim_sub_page = 'rapor'
-            st.rerun()
-    st.markdown("---")
+    # --- BAĞIMSIZ PENCERE YÖNETİM SİSTEMİ (STATE TABANLI) ---
+    if 'blok_kesim_page' not in st.session_state:
+        st.session_state.blok_kesim_page = 'menu'  # İlk giriş ana menü/dashboard
 
     # =========================================================================
-    # SCREEN 1: PLAN & İŞ EMRİ YÜKLEME VE ANALİZ
+    # 0. BAĞIMSIZ ALT MENÜ / DASHBOARD EKRANI
     # =========================================================================
-    if st.session_state.kesim_sub_page == 'plan':
-        st.subheader("📋 Kesim Planı ve İş Emri Yükleme Paneli")
-        is_emri_file = st.file_uploader("Sipariş/Kesim Planı Excel Dosyasını Yükleyin", type=['xlsx', 'xls'])
+    if st.session_state.blok_kesim_page == 'menu':
+        st.title("🧱 Blok ve Rulo Sünger Kesim Otomasyonu")
+        st.write("Yönetmek istediğiniz bağımsız kesim ekranını seçiniz:")
+        st.markdown("---")
+
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.info("📋 **Planlama Penceresi**")
+            st.write("Kesim planı yükle, sipariş plaka listesini ve gerekli toplam hammadde ihtiyaç raporunu gör.")
+            if st.button("📋 PLAN & İŞ EMRİ YÜKLE", use_container_width=True):
+                st.session_state.blok_kesim_page = 'plan'
+                st.rerun()
+
+        with col2:
+            st.success("🧱 **Operatör Kesim Terminali**")
+            st.write("Okutulan hammadde barkoduyla açık siparişleri eşle, kesim yap ve stoktan otomatik düş.")
+            if st.button("🧱 KESİM OPERASYONU", use_container_width=True, type="primary"):
+                st.session_state.blok_kesim_page = 'kesim'
+                st.rerun()
+
+        with col3:
+            st.warning("📊 **Kesim Analiz Raporu**")
+            st.write("Süreç boyunca yapılan tüm kesim, sarfiyat ve üretim giriş hareketlerini detaylıca izle.")
+            if st.button("📊 KESİM RAPORLARI", use_container_width=True):
+                st.session_state.blok_kesim_page = 'rapor'
+                st.rerun()
+
+    # =========================================================================
+    # EKRAN 1: PLAN & İŞ EMRİ YÜKLEME (BAĞIMSIZ PENCERE)
+    # =========================================================================
+    elif st.session_state.blok_kesim_page == 'plan':
+        # Geri Dönüş Başlığı
+        c_nav1, c_nav2 = st.columns([2.5, 7.5])
+        with c_nav1:
+            if st.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_plan"):
+                st.session_state.blok_kesim_page = 'menu'
+                st.rerun()
+        with c_nav2:
+            st.subheader("📋 Kesim Planı ve İş Emri Yükleme")
+        
+        st.markdown("---")
+        is_emri_file = st.file_uploader("Sipariş/Kesim Planı Excel Dosyasını Sürükleyin ve Bırakın", type=['xlsx', 'xls'])
 
         if is_emri_file is not None:
             try:
                 excel_sheets = pd.ExcelFile(is_emri_file)
                 sheet_name = None
                 for s in excel_sheets.sheet_names:
-                    if any(x in s.upper() for x in ["HAZIRLIK", "SHEET4", "PLAN", "KESIM", "KESİM"]):
+                    if any(x in s.upper() for x in ["HAZIRLIK", "SHEET4", "PLAN", "KESIM", "KESİM", "Sayfa1"]):
                         sheet_name = s
                         break
                 if sheet_name is None:
@@ -174,11 +186,11 @@ def run_blok_kesim(conn):
             except Exception as e:
                 st.error(f"❌ Excel dosyası okunurken hata oluştu: {e}")
 
-        # Eğer yüklü plan varsa detaylı tabloları ve Pivot İhtiyaç özetini gösterelim
+        # Yüklü Plan Varsa Pivot İhtiyaç Özeti ve Detayları Gösterelim
         if 'df_is_emri' in st.session_state and not st.session_state.df_is_emri.empty:
             is_emri = st.session_state.df_is_emri
             
-            # Dinamik Excel sütun eşleme
+            # Dinamik Excel Sütun Analizi
             is_emri_stok_col = None
             is_emri_stok_adi_col = None
             is_emri_miktar_col = None
@@ -205,7 +217,6 @@ def run_blok_kesim(conn):
                 if not is_emri_miktar_col and len(is_emri.columns) > 2:
                     is_emri_miktar_col = is_emri.columns[2]
 
-            # Analiz ve VLOOKUP İşlemi
             vis_rows = []
             pivot_data = []
 
@@ -252,7 +263,7 @@ def run_blok_kesim(conn):
 
             vis_df = pd.DataFrame(vis_rows)
 
-            # --- 1. ALAN: GEREKLİ BLOK VE RULO ÖZETİ (PİVOT RAPOR) ---
+            # --- TOPLAM GEREKLİ BLOK İHTİYAÇ ÖZETİ ---
             st.markdown("---")
             st.subheader("📊 İş Emri Toplam Gerekli Blok/Rulo Stok İhtiyacı (Özet)")
             if pivot_data:
@@ -264,24 +275,33 @@ def run_blok_kesim(conn):
             else:
                 st.info("ℹ️ İş emri plakalarına ait gerekli blok stok özeti çıkarılamadı.")
 
-            # --- 2. ALAN: İŞ EMRİ DETAY TABLOSU ---
+            # --- İŞ EMRİ DETAY TABLOSU ---
             st.markdown("---")
             st.subheader("📋 İş Emri Üretim Planı Kalem Detayları")
             st.dataframe(vis_df, use_container_width=True, hide_index=True)
         else:
-            st.info("ℹ️ Henüz bir kesim planı yüklenmedi. Lütfen yukarıdan bir Excel dosyası yükleyin.")
+            st.info("ℹ️ Henüz bir kesim planı yüklenmedi. Lütfen yukarıdan bir Excel dosyası sürükleyip bırakın.")
 
     # =========================================================================
-    # SCREEN 2: OPERATÖR KESİM EKRANI
+    # EKRAN 2: OPERATÖR KESİM TERMİNALİ (BAĞIMSIZ PENCERE)
     # =========================================================================
-    elif st.session_state.kesim_sub_page == 'kesim':
-        st.subheader("⚙️ Operatör Kesim ve Hammadde Eşleme")
+    elif st.session_state.blok_kesim_page == 'kesim':
+        # Geri Dönüş Başlığı
+        c_nav1, c_nav2 = st.columns([2.5, 7.5])
+        with c_nav1:
+            if st.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_kesim"):
+                st.session_state.blok_kesim_page = 'menu'
+                st.rerun()
+        with c_nav2:
+            st.subheader("🧱 Operatör Kesim ve Hammadde Eşleme")
+
+        st.markdown("---")
 
         # İş Emri Kontrolü
         if 'df_is_emri' not in st.session_state or st.session_state.df_is_emri.empty:
             st.warning("⚠️ Kesim yapabilmek için lütfen önce 'PLAN & İŞ EMRİ YÜKLE' ekranından kesim planınızı yükleyin.")
         else:
-            barkod_giris = st.text_input("🔍 KESİLECEK BLOK VEYA RULO BARKODUNU OKUTUNUZ:", key="kesim_barkod_input")
+            barkod_giris = st.text_input("🔍 KESİLECEK BLOK VEYA RULO BARKODUNU OKUTUNUZ / GİRİNİZ:", key="kesim_barkod_input")
 
             if barkod_giris:
                 barkod = str(barkod_giris).strip()
@@ -468,13 +488,21 @@ def run_blok_kesim(conn):
                     st.error(f"❌ '{barkod}' barkodlu hammadde stokta bulunamadı! Lütfen kontrol edin.")
 
     # =========================================================================
-    # SCREEN 3: KESİM RAPORLARI
+    # EKRAN 3: KESİM RAPORLARI (BAĞIMSIZ PENCERE)
     # =========================================================================
-    elif st.session_state.kesim_sub_page == 'rapor':
-        st.subheader("📊 Blok ve Rulo Kesim Hareketleri Raporu")
+    elif st.session_state.blok_kesim_page == 'rapor':
+        # Geri Dönüş Başlığı
+        c_nav1, c_nav2 = st.columns([2.5, 7.5])
+        with c_nav1:
+            if st.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_rapor"):
+                st.session_state.blok_kesim_page = 'menu'
+                st.rerun()
+        with c_nav2:
+            st.subheader("📊 Blok ve Rulo Kesim Raporları")
+
+        st.markdown("---")
         
         if not har_df.empty:
-            # Sütun isimlerini normalize edelim
             har_df.columns = [str(c).strip() for c in har_df.columns]
             
             # Sadece Kesim/Sarf ve Üretim/Giriş işlemlerini listeleyelim
