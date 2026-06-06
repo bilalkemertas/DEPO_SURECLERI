@@ -173,7 +173,7 @@ def run_blok_kesim(conn):
                 excel_sheets = pd.ExcelFile(is_emri_file)
                 sheet_name = None
                 for s in excel_sheets.sheet_names:
-                    if any(x in s.upper() for x in ["HAZIRLIK", "SHEET4", "PLAN", "KESIM", "KESİM", "Sayfa1"]):
+                    if any(x in s.upper() for x in ["HAZIRLIK", "SHEET4", "PLAN", "KESIM", "KESİM"]):
                         sheet_name = s
                         break
                 if sheet_name is None:
