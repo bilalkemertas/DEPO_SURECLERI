@@ -6,6 +6,152 @@ import math
 import os
 from datetime import datetime
 
+# --- ZIRHLI EŞLEŞTİRME MATRİSİ SÜTUN AYRIŞTIRICI MOTORU ---
+def find_eslesme_columns(columns):
+    plaka_col = None
+    plaka_adi_col = None
+    blok_col = None
+    blok_adi_col = None
+    
+    # 1. Öncelikli ve spesifik aramalar (Tam eşleşmeye yakın)
+    # Blok Kodu (Bağlı Blok Stok Kodu)
+    for c in columns:
+        cu = str(c).upper().strip()
+        if any(x in cu for x in ["BAĞLI BLOK STOK KODU", "BAĞLI BLOK KODU", "BAĞLI KOD", "BLOK KODU", "PARENT KOD"]):
+            blok_col = c
+            break
+            
+    # Blok Adı (Bağlı Blok Stok Adı)
+    for c in columns:
+        cu = str(c).upper().strip()
+        if any(x in cu for x in ["BAĞLI BLOK STOK ADI", "BAĞLI BLOK ADI", "BAĞLI AD", "BLOK ADI", "PARENT AD"]):
+            blok_adi_col = c
+            break
+
+    # Plaka Kodu (Semi-finished plate code / hammadde kodu)
+    for c in columns:
+        cu = str(c).upper().strip()
+        if c == blok_col or c == blok_adi_col:
+            continue
+        if any(x in cu for x in ["HAMMADDE KODU", "HAMMADDE KOD", "YARI MAMUL KODU", "YARI MAMUL KOD", "YARIMAMUL KODU", "PLAKA KODU"]):
+            plaka_col = c
+            break
+            
+    # Plaka Adı (Semi-finished plate name / YARI MAMUL ADI)
+    for c in columns:
+        cu = str(c).upper().strip()
+        if c == blok_col or c == blok_adi_col or c == plaka_col:
+            continue
+        if any(x in cu for x in ["YARI MAMUL ADI", "YARIMAMUL ADI", "PLAKA ADI"]):
+            plaka_adi_col = c
+            break
+
+    # 2. Geniş aramalı ikincil öncelikli aramalar (Eğer hala bulunamadıysa)
+    if not plaka_col:
+        for c in columns:
+            cu = str(c).upper().strip()
+            if c == blok_col or c == blok_adi_col:
+                continue
+            if any(x in cu for x in ["STOK KODU", "STOK_KODU", "MALZEME KODU", "KOD", "CODE"]):
+                plaka_col = c
+                break
+                
+    if not plaka_adi_col:
+        for c in columns:
+            cu = str(c).upper().strip()
+            if c == blok_col or c == blok_adi_col or c == plaka_col:
+                continue
+            if any(x in cu for x in ["STOK ADI", "STOK_ADI", "MALZEME ADI", "ADI", "NAME", "TANIM", "AÇIKLAMA", "ACIKLAMA"]):
+                plaka_adi_col = c
+                break
+
+    # 3. Kalan boş sütunları güvenli ve benzersiz şekilde doldurma (Çakışma Koruması)
+    all_cols = list(columns)
+    assigned = [plaka_col, plaka_adi_col, blok_col, blok_adi_col]
+    unused = [c for c in all_cols if c not in assigned]
+    
+    if not plaka_col and unused:
+        plaka_col = unused.pop(0)
+    if not plaka_adi_col and unused:
+        plaka_adi_col = unused.pop(0)
+    if not blok_col and unused:
+        blok_col = unused.pop(0)
+    if not blok_adi_col and unused:
+        blok_adi_col = unused.pop(0)
+        
+    return plaka_col, plaka_adi_col, blok_col, blok_adi_col
+
+
+# --- ZIRHLI İŞ EMRİ EXCEL SÜTUN AYRIŞTIRICI MOTORU ---
+def find_work_order_columns(columns):
+    col_sip_no = None
+    col_plaka_kodu = None
+    col_plaka_adi = None
+    col_plaka_adet = None
+    
+    # 1. Sipariş No tespiti
+    for c in columns:
+        cu = str(c).upper().strip()
+        if any(x in cu for x in ['SİPARİŞ NO', 'SIPARIS NO', 'SİPARİŞ_NO', 'ORDER NO', 'ORDER_NO']):
+            col_sip_no = c
+            break
+            
+    # 2. Plaka Kodu (Stok Kodu) tespiti
+    for c in columns:
+        cu = str(c).upper().strip()
+        if cu in ['STOK KODU', 'STOK_KODU', 'PLAKA KODU', 'PLAKA_KODU']:
+            col_plaka_kodu = c
+            break
+    if not col_plaka_kodu:
+        for c in columns:
+            cu = str(c).upper().strip()
+            if any(x in cu for x in ['MALZEME KODU', 'ÜRÜN KODU', 'URUN KODU', 'KOD', 'CODE']):
+                col_plaka_kodu = c
+                break
+
+    # 3. Plaka Adı (Stok Adı / Açıklama) tespiti
+    for c in columns:
+        cu = str(c).upper().strip()
+        if cu in ['STOK ADI', 'STOK_ADI', 'PLAKA ADI', 'PLAKA_ADI']:
+            col_plaka_adi = c
+            break
+    if not col_plaka_adi:
+        for c in columns:
+            cu = str(c).upper().strip()
+            if any(x in cu for x in ['MALZEME ADI', 'ÜRÜN ADI', 'URUN_ADI', 'ADI', 'NAME', 'TANIM', 'AÇIKLAMA', 'ACIKLAMA']):
+                col_plaka_adi = c
+                break
+
+    # 4. Plaka Adet (Miktar / Sipariş Miktarı) tespiti
+    for c in columns:
+        cu = str(c).upper().strip()
+        if cu in ['SİPARİŞ MİKTARI', 'SIPARIS MIKTARI', 'MİKTAR', 'MIKTAR', 'ADET', 'PLAKA ADET', 'PLAKA_ADET']:
+            col_plaka_adet = c
+            break
+    if not col_plaka_adet:
+        for c in columns:
+            cu = str(c).upper().strip()
+            if any(x in cu for x in ['MİKTAR', 'MIKTAR', 'ADET', 'QTY', 'GELEN MİKTAR', 'GELEN_MIKTAR']):
+                col_plaka_adet = c
+                break
+
+    # 5. Kalan boşlukları benzersiz şekilde doldurma
+    all_cols = list(columns)
+    assigned = [col_sip_no, col_plaka_kodu, col_plaka_adi, col_plaka_adet]
+    unused = [c for c in all_cols if c not in assigned]
+    
+    if not col_sip_no and unused:
+        col_sip_no = unused.pop(0)
+    if not col_plaka_kodu and unused:
+        col_plaka_kodu = unused.pop(0)
+    if not col_plaka_adi and unused:
+        col_plaka_adi = unused.pop(0)
+    if not col_plaka_adet and unused:
+        col_plaka_adet = unused.pop(0)
+        
+    return col_sip_no, col_plaka_kodu, col_plaka_adi, col_plaka_adet
+
+
 def run_blok_kesim(conn):
     st.markdown("""
         <style>
@@ -194,7 +340,7 @@ def run_blok_kesim(conn):
                 st.rerun()
 
     # =========================================================================
-    # EKRAN 1: PLAN & İŞ EMRİ YÜKLEME (DRIVE SENKRONİZE - DETAYLI VE YÜKLEME BUTONLU)
+    # EKRAN 1: PLAN & İŞ EMRİ YÜKLEME (DRIVE SENKRONİZE)
     # =========================================================================
     elif st.session_state.blok_kesim_page == 'plan':
         c_nav1, c_nav2 = st.columns([2.5, 7.5])
@@ -285,48 +431,28 @@ def run_blok_kesim(conn):
                     df_raw.columns = [str(c).strip() for c in df_raw.columns]
                     st.write(f"📝 Okunan Sekme: **{sheet_name}** ({len(df_raw)} satır)")
 
-                    # Sütun analizleri ve haritalama
-                    col_sip_no = None
-                    col_plaka_kodu = None
-                    col_plaka_adi = None
-                    col_plaka_adet = None
+                    # Sütun analizleri ve haritalama (Kurşun Geçirmez Ayrıştırıcı Motoru)
+                    col_sip_no, col_plaka_kodu, col_plaka_adi, col_plaka_adet = find_work_order_columns(df_raw.columns)
 
-                    for c in df_raw.columns:
-                        cu = c.upper()
-                        if any(x in cu for x in ['SİPARİŞ NO', 'SIPARIS NO', 'SİPARİŞ_NO', 'ORDER NO', 'ORDER_NO']):
-                            col_sip_no = c
-                        elif any(x in cu for x in ['STOK KODU', 'STOK_KODU', 'MALZEME KODU', 'ÜRÜN KODU', 'URUN KODU', 'PLAKA KODU', 'KOD', 'CODE']):
-                            col_plaka_kodu = c
-                        elif any(x in cu for x in ['STOK ADI', 'STOK_ADI', 'MALZEME ADI', 'MALZEME_ADI', 'ÜRÜN ADI', 'URUN_ADI', 'PLAKA ADI', 'TANIM', 'NAME']):
-                            col_plaka_adi = c
-                        elif any(x in cu for x in ['MİKTAR', 'MIKTAR', 'ADET', 'SİPARİŞ MİKTARI', 'SIPARIS MIKTARI', 'PLAKA ADET', 'QTY']):
-                            col_plaka_adet = c
-
-                    if not col_plaka_kodu and len(df_raw.columns) > 0: col_plaka_kodu = df_raw.columns[0]
-                    if not col_plaka_adi and len(df_raw.columns) > 1: col_plaka_adi = df_raw.columns[1]
-                    if not col_plaka_adet and len(df_raw.columns) > 2: col_plaka_adet = df_raw.columns[2]
-                    if not col_sip_no: col_sip_no = df_raw.columns[0]
+                    st.info(f"📋 **Yüklenen İş Emri Sütunları Başarıyla Eşleşti:** \n"
+                            f"• Sipariş No: **{col_sip_no}** \n"
+                            f"• Plaka Kodu (Stok Kodu): **{col_plaka_kodu}** \n"
+                            f"• Plaka Adı (Stok Adı): **{col_plaka_adi}** \n"
+                            f"• Plaka Adet (Miktar): **{col_plaka_adet}**")
 
                     # Eşleştirme matrisinden blok karşılıklarını bulma
                     eslesme = st.session_state.eslesme_df
                     eslesme_dict = {}
+                    
                     if not eslesme.empty:
-                        plaka_col = None
-                        blok_col = None
-                        blok_adi_col = None
+                        # Eşleştirme matrisi sütunlarını kurşun geçirmez ayrıştırıcı ile eşleme
+                        plaka_col, plaka_adi_col, blok_col, blok_adi_col = find_eslesme_columns(eslesme.columns)
                         
-                        for c in eslesme.columns:
-                            cu = str(c).upper()
-                            if any(x in cu for x in ["YARI", "PLAKA", "HAM", "PRODUCT", "STOK"]):
-                                plaka_col = c
-                            elif any(x in cu for x in ["BAĞLI KOD", "BLOK KOD", "HAM KOD", "PARENT KOD"]):
-                                blok_col = c
-                            elif any(x in cu for x in ["BAĞLI AD", "BLOK AD", "HAM AD", "PARENT AD"]):
-                                blok_adi_col = c
-                        
-                        if not plaka_col: plaka_col = eslesme.columns[0]
-                        if not blok_col and len(eslesme.columns) > 1: blok_col = eslesme.columns[1]
-                        if not blok_adi_col and len(eslesme.columns) > 2: blok_adi_col = eslesme.columns[2]
+                        st.success(f"🔗 **Eşleştirme Matrisi Sütunları Başarıyla Tanımlandı:** \n"
+                                   f"• Plaka Kodu Sütunu: **{plaka_col}** \n"
+                                   f"• Plaka Adı Sütunu: **{plaka_adi_col}** \n"
+                                   f"• Blok Kodu Sütunu: **{blok_col}** \n"
+                                   f"• Blok Adı Sütunu: **{blok_adi_col}**")
 
                         for _, r in eslesme.iterrows():
                             p_k = normalize_code(r.get(plaka_col, ''))
@@ -469,7 +595,8 @@ def run_blok_kesim(conn):
 
                     # Sunger_Kesim planından bu hammaddeye ait açık siparişleri getirelim
                     for col in ['Plaka Adet', 'Üretilen Plaka Miktarı', 'Blok Adet', 'Kesilen Blok Miktarı']:
-                        sunger_kesim_df[col] = pd.to_numeric(sunger_kesim_df[col], errors='coerce').fillna(0.0)
+                        if col in sunger_kesim_df.columns:
+                            sunger_kesim_df[col] = pd.to_numeric(sunger_kesim_df[col], errors='coerce').fillna(0.0)
 
                     sunger_kesim_df['Blok_Kodu_Norm'] = sunger_kesim_df['Blok Kodu'].apply(normalize_code)
                     
