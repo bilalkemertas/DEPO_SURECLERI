@@ -175,29 +175,52 @@ def run_blok_kesim(conn):
 
     # --- MASTER DATA YÜKLEME (TÜRKÇE KARAKTER ZIRHLI & CACHED) ---
     if 'eslesme_df' not in st.session_state:
-        csv_path = "eslesme_matrisi.csv"
-        if os.path.exists(csv_path):
+        df_eslesme = pd.DataFrame()
+        
+        # Önce XLSX desteği (Kullanıcı için en kolayı)
+        if os.path.exists("eslesme_matrisi.xlsx"):
+            try:
+                df_eslesme = pd.read_excel("eslesme_matrisi.xlsx", dtype=str)
+            except:
+                pass
+        
+        # XLSX yoksa veya boşsa CSV dene (Noktalı virgül korumalı)
+        if df_eslesme.empty and os.path.exists("eslesme_matrisi.csv"):
             encodings = ['utf-8', 'windows-1254', 'iso-8859-9', 'cp1254', 'utf-8-sig']
+            separators = [';', ',', '\t']
             success = False
-            for enc in encodings:
-                try:
-                    st.session_state.eslesme_df = pd.read_csv(csv_path, dtype=str, encoding=enc)
-                    st.session_state.eslesme_df.columns = [c.strip() for c in st.session_state.eslesme_df.columns]
-                    success = True
+            for sep in separators:
+                for enc in encodings:
+                    try:
+                        temp_df = pd.read_csv("eslesme_matrisi.csv", dtype=str, encoding=enc, sep=sep)
+                        if len(temp_df.columns) > 1: # Doğru ayrıştırıldı!
+                            df_eslesme = temp_df
+                            success = True
+                            break
+                    except:
+                        continue
+                if success:
                     break
+            
+            # Eğer tek sütunlu bile olsa son çare oku
+            if df_eslesme.empty:
+                try:
+                    df_eslesme = pd.read_csv("eslesme_matrisi.csv", dtype=str, encoding='utf-8')
                 except:
-                    continue
-            if not success:
-                st.session_state.eslesme_df = pd.DataFrame()
+                    pass
+
+        if not df_eslesme.empty:
+            df_eslesme.columns = [str(c).strip() for c in df_eslesme.columns]
+            st.session_state.eslesme_df = df_eslesme
         else:
-            st.warning("⚠️ 'eslesme_matrisi.csv' dosyası kök dizinde bulunamadı! Eşleştirme matrisi devre dışı.")
+            st.warning("⚠️ 'eslesme_matrisi.xlsx' veya 'eslesme_matrisi.csv' dosyası bulunamadı ya da okunamadı! Eşleştirme devre dışı.")
             st.session_state.eslesme_df = pd.DataFrame()
 
     # --- PANDAS ONDALIK (.0) VE BARKOD KOD NORMALİZASYON MOTORU ---
     def normalize_code(val):
         if pd.isna(val) or str(val).strip() == "":
             return ""
-        s = str(val).strip()
+        s = str(val).strip().upper()
         if s.endswith(".0"):
             s = s[:-2]
         return s
@@ -460,11 +483,14 @@ def run_blok_kesim(conn):
                         # Eşleştirme matrisi sütunlarını kurşun geçirmez ayrıştırıcı ile eşleme
                         plaka_col, plaka_adi_col, blok_col, blok_adi_col = find_eslesme_columns(eslesme.columns)
                         
-                        st.success(f"🔗 **Eşleştirme Matrisi Sütunları Başarıyla Tanımlandı:** \n"
-                                   f"• Plaka Kodu Sütunu: **{plaka_col}** \n"
-                                   f"• Plaka Adı Sütunu: **{plaka_adi_col}** \n"
-                                   f"• Blok Kodu Sütunu: **{blok_col}** \n"
-                                   f"• Blok Adı Sütunu: **{blok_adi_col}**")
+                        if not plaka_col or not blok_col:
+                            st.error("❌ Eşleştirme matrisinde Plaka Kodu veya Blok Kodu sütunu okunamadı! Matris dosyasındaki (Excel/CSV) sütun isimlerini veya formatını kontrol edin.")
+                        else:
+                            st.success(f"🔗 **Eşleştirme Matrisi Sütunları Başarıyla Tanımlandı:** \n"
+                                       f"• Plaka Kodu Sütunu: **{plaka_col}** \n"
+                                       f"• Plaka Adı Sütunu: **{plaka_adi_col}** \n"
+                                       f"• Blok Kodu Sütunu: **{blok_col}** \n"
+                                       f"• Blok Adı Sütunu: **{blok_adi_col}**")
 
                         for _, r in eslesme.iterrows():
                             p_k = normalize_code(r.get(plaka_col, ''))
