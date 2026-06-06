@@ -427,9 +427,21 @@ def run_blok_kesim(conn):
                     if sheet_name is None:
                         sheet_name = excel_sheets.sheet_names[0]
                     
-                    df_raw = pd.read_excel(is_emri_file, sheet_name=sheet_name)
+                    # --- DİNAMİK BAŞLIK AVCISI BAŞLANGIÇ ---
+                    raw_df = pd.read_excel(is_emri_file, sheet_name=sheet_name, header=None)
+                    header_idx = 0
+                    
+                    for i in range(min(20, len(raw_df))):
+                        row_str = " ".join(str(val).upper() for val in raw_df.iloc[i].values if pd.notna(val))
+                        if any(k in row_str for k in ['SİPARİŞ', 'SIPARIS', 'STOK', 'PLAKA', 'KOD', 'ÜRÜN', 'URUN', 'TANIM', 'MALZEME']) and \
+                           any(k in row_str for k in ['MİKTAR', 'MIKTAR', 'ADET', 'QTY']):
+                            header_idx = i
+                            break
+                            
+                    df_raw = pd.read_excel(is_emri_file, sheet_name=sheet_name, header=header_idx)
                     df_raw.columns = [str(c).strip() for c in df_raw.columns]
-                    st.write(f"📝 Okunan Sekme: **{sheet_name}** ({len(df_raw)} satır)")
+                    st.write(f"📝 Okunan Sekme: **{sheet_name}** ({len(df_raw)} satır) | Algılanan Başlık Satırı: {header_idx + 1}")
+                    # --- DİNAMİK BAŞLIK AVCISI BİTİŞ ---
 
                     # Sütun analizleri ve haritalama (Kurşun Geçirmez Ayrıştırıcı Motoru)
                     col_sip_no, col_plaka_kodu, col_plaka_adi, col_plaka_adet = find_work_order_columns(df_raw.columns)
