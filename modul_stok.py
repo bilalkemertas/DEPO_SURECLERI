@@ -262,6 +262,9 @@ def goster():
                     "Sistem Kullanıcısı"
                 )
                 
+                # 🔧 FIX: İşlem sayısını önceden kaydet
+                islem_sayisi = len(st.session_state.gecici_liste)
+                
                 hata_listesi = []
                 df_stok_temp = df_stok.copy()
                 df_har_temp = df_har.copy()
@@ -342,7 +345,8 @@ def goster():
                     veritabani.update_data("Stok", df_stok_temp)
                     veritabani.update_data("Hareketler", df_har_temp)
                     st.session_state.gecici_liste = []
-                    st.success(f"✅ {len(st.session_state.gecici_liste)} işlem başarıyla kaydedildi!")
+                    # 🔧 FIX: İşlem sayısını önceden kaydedilen değerden göster
+                    st.success(f"✅ {islem_sayisi} işlem başarıyla kaydedildi!")
                     st.rerun()
 
     st.markdown("---")
