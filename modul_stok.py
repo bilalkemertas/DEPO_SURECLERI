@@ -26,6 +26,17 @@ def goster():
     df_stok = veritabani.get_internal_data("Stok")
     df_har = veritabani.get_internal_data("Hareketler")
     
+    # --- 🛡️ STOK VE HAREKETLER BOŞ TABLO ZIRHI (KEYERROR ÇÖZÜMÜ) ---
+    if df_stok is None or df_stok.empty:
+        df_stok = pd.DataFrame(columns=["Kod", "İsim", "Adres", "Miktar", "Durum"])
+    else:
+        df_stok.columns = [str(c).strip() for c in df_stok.columns]
+        
+    if df_har is None or df_har.empty:
+        df_har = pd.DataFrame(columns=["Tarih", "İşlem", "İş Emri", "Kod", "İsim", "Adres", "Miktar", "Personel", "Durum", "Lot"])
+    else:
+        df_har.columns = [str(c).strip() for c in df_har.columns]
+
     # Kendi modülündeki KeyError'u önlemek için geçici zırh kontrolü
     df_check_is = veritabani.get_internal_data("Is_Emirleri")
     if df_check_is is not None and not df_check_is.empty:
