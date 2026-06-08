@@ -164,11 +164,12 @@ def goster():
                         if dm.any(): df_stok.loc[dm, 'Miktar'] += satir["Miktar"]
                         else: df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])], ignore_index=True)
 
-            df_har = pd.concat([df_har, pd.DataFrame([{
-                "Tarih": zaman, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
-                "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
-                "Miktar": satir["Miktar"], "Personel": aktif_user, "Durum": satir["Durum"], "Lot": satir["Lot"]
-            }])], ignore_index=True)
+                # --- BU SATIR İÇERİ ALINDI (DÖNGÜNÜN İÇİNE) ---
+                df_har = pd.concat([df_har, pd.DataFrame([{
+                    "Tarih": zaman, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
+                    "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
+                    "Miktar": satir["Miktar"], "Personel": aktif_user, "Durum": satir["Durum"], "Lot": satir["Lot"]
+                }])], ignore_index=True)
 
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_har)
