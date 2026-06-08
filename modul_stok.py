@@ -37,17 +37,21 @@ def goster():
                     veritabani.update_data("Is_Emirleri", df_check_is)
                     break
 
-    df_k = veritabani.get_internal_data("Urun_Listesi")
-    if df_k is None or df_k.empty:
-        df_k = veritabani.get_internal_data("Katalog")
+    # --- 🛡️ KATALOĞU HAFIZAYA KİLİTLEME ZIRHI (SESSION STATE AMNESIA ÇÖZÜMÜ) ---
+    if "katalog_hafiza" not in st.session_state or not st.session_state["katalog_hafiza"]:
+        df_k = veritabani.get_internal_data("Urun_Listesi")
+        if df_k is None or df_k.empty:
+            df_k = veritabani.get_internal_data("Katalog")
 
-    if df_k is None or df_k.empty:
-        katalog = []
-    else:
-        df_k.columns = [str(c).strip() for c in df_k.columns]
-        k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
-        n_col = 'İsim' if 'İsimm' in df_k.columns or 'İsim' in df_k.columns else df_k.columns[1]
-        katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
+        if df_k is None or df_k.empty:
+            st.session_state["katalog_hafiza"] = []
+        else:
+            df_k.columns = [str(c).strip() for c in df_k.columns]
+            k_col = 'Kod' if 'Kod' in df_k.columns else df_k.columns[0]
+            n_col = 'İsim' if 'İsimm' in df_k.columns or 'İsim' in df_k.columns else df_k.columns[1]
+            ham_katalog = (df_k[k_col].astype(str) + " | " + df_k[n_col].astype(str)).tolist()
+            # Listeyi alfabetik sıralayıp tekrar edenleri engelliyoruz
+            st.session_state["katalog_hafiza"] = sorted(list(set(ham_katalog)))
 
     if "gecici_liste" not in st.session_state:
         st.session_state.gecici_liste = []
@@ -64,7 +68,7 @@ def goster():
         # ÜRÜN SEÇİMİ
         st.selectbox(
             "🔍 Ürün Seç:", 
-            options=katalog,
+            options=st.session_state["katalog_hafiza"], # <-- DOĞRUDAN HAFIZADAN ÇEKİYORUZ
             index=None,
             placeholder="Ürün seçmek için tıklayın...",
             key="sec_box",
@@ -149,11 +153,11 @@ def goster():
                         if dm.any(): df_stok.loc[dm, 'Miktar'] += satir["Miktar"]
                         else: df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": satir["Kod"], "İsim": satir["İsim"], "Adres": satir["Hedef"], "Miktar": satir["Miktar"], "Durum": satir["Durum"]}])], ignore_index=True)
 
-                df_har = pd.concat([df_har, pd.DataFrame([{
-                    "Tarih": zaman, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
-                    "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
-                    "Miktar": satir["Miktar"], "Personel": aktif_user, "Durum": satir["Durum"], "Lot": satir["Lot"]
-                }])], ignore_index=True)
+            df_har = pd.concat([df_har, pd.DataFrame([{
+                "Tarih": zaman, "İşlem": satir["İşlem"], "İş Emri": "-", "Kod": satir["Kod"],
+                "İsim": satir["İsim"], "Adres": satir["Hedef"] if satir["İşlem"] == "GİRİŞ" else satir["Kaynak"],
+                "Miktar": satir["Miktar"], "Personel": aktif_user, "Durum": satir["Durum"], "Lot": satir["Lot"]
+            }])], ignore_index=True)
 
             veritabani.update_data("Stok", df_stok)
             veritabani.update_data("Hareketler", df_har)
