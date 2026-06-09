@@ -42,7 +42,7 @@ def run_blok_kesim(conn):
                 row_str = " ".join(row_vals)
                 
                 # Sütunları yakalamak için esnek anahtar kelime varyasyonları
-                has_tanim = any(k in row_str for k in ["TANIM", "ÜRÜN", "URUN", "MALZEME", "PLAKA", "Plaka Adı"])
+                has_tanim = any(k in row_str for k in ["TANIM", "ÜRÜN", "URUN", "MALZEME", "Plaka adı"])
                 has_miktar = any(k in row_str for k in ["Adet", "MİKTAR", "MIKTAR", "PLAN", "ADEDİ", "ADEDI"])
                 
                 if has_tanim and has_miktar:
