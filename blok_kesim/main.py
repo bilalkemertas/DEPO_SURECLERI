@@ -178,4 +178,18 @@ def run_blok_kesim(conn):
                                 }])
                                 
                                 # Veritabanına tek bir paket halinde güvenle yaz
-                                success = update_stock_
+                                success = update_stock_and_logs(stok_df, yeni_log)
+                                if success:
+                                    st.balloons()
+                                    st.success("🎉 Kesim işlemi başarıyla tamamlandı ve stoklar güncellendi!")
+                                    st.rerun()
+                    else:
+                        st.error("❌ Okutulan blok kalitesi veya ölçüsü, yüklenen listedeki hiçbir ürünle matris bazında eşleşmedi!")
+                else:
+                    st.error("❌ Okutulan barkoda ait hammadde/blok stokta bulunamadı!")
+                    
+        except Exception as e:
+            st.error(f"Kritik Hata: Dosya işleme motoru çöktü -> {e}")
+            
+    st.markdown("---")
+    st.markdown("<p style='text-align: center; color: gray;'>🚀 BRN Depo Komuta Merkezi 2026</p>", unsafe_allow_html=True)
