@@ -4,7 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 
 # 1. GITHUB'DAKİ TÜM MODÜLLERİ İÇE AKTARIYORUZ
 import teslim_alma
-import blok_kesim
+import blok_kesim  # Yeni modüler paket yapısını tetikler (blok_kesim/ klasörünü okur)
 import modul_stok
 import modul_uretim
 import modul_sayim
@@ -142,7 +142,7 @@ else:
                 st.session_state['page'] = 'blok_kesim'
                 st.rerun()
         with col3:
-            if st.button("🏗️\nÜretim Hazırlık", type="primary", use_container_width=True):
+            if st.button("🏗️\nÜretim Hazirlik", type="primary", use_container_width=True):
                 st.session_state['page'] = 'uretim'
                 st.rerun()
 
@@ -152,7 +152,7 @@ else:
                 st.session_state['page'] = 'stok'
                 st.rerun()
         with col5:
-            if st.button("📊\nDepo Sayım", type="primary", use_container_width=True):
+            if st.button("📊\nDepo Sayim", type="primary", use_container_width=True):
                 st.session_state['page'] = 'sayim'
                 st.rerun()
         with col6:
@@ -178,6 +178,7 @@ else:
         if st.session_state['page'] == 'mal_kabul':
             teslim_alma.run(conn)
         elif st.session_state['page'] == 'blok_kesim':
+            # Yeni klasör altındaki __init__.py üzerinden yönlendirilen ana fonksiyon çağrılır
             blok_kesim.run_blok_kesim(conn)
         elif st.session_state['page'] == 'uretim':
             modul_uretim.goster() 
