@@ -41,9 +41,9 @@ def run_blok_kesim(conn):
                 row_vals = [str(x).upper().strip() for x in raw_df.iloc[i].dropna().values]
                 row_str = " ".join(row_vals)
                 
-                # Sütunları yakalamak için esnek anahtar kelime varyasyonları
-                has_tanim = any(k in row_str for k in ["TANIM", "ÜRÜN", "URUN", "MALZEME", "Plaka adı"])
-                has_miktar = any(k in row_str for k in ["Adet", "MİKTAR", "MIKTAR", "PLAN", "ADEDİ", "ADEDI"])
+                # Sütunları yakalamak için esnek anahtar kelime varyasyonları (Tamamı Büyük Harf)
+                has_tanim = any(k in row_str for k in ["TANIM", "ÜRÜN", "URUN", "MALZEME", "PLAKA"])
+                has_miktar = any(k in row_str for k in ["ADET", "MİKTAR", "MIKTAR", "PLAN", "ADEDİ", "ADEDI"])
                 
                 if has_tanim and has_miktar:
                     header_idx = i
@@ -134,4 +134,48 @@ def run_blok_kesim(conn):
                             verim = plaka_sayisi_hesapla(plaka_info, blok_info)
                             if verim > 0:
                                 siparis_adet = safe_float(row.get(miktar_col, 0))
-                                gereken_dilim = math.ceil(siparis_adet / verim) if verim
+                                gereken_dilim = math.ceil(siparis_adet / verim)
+                                kalinlik = plaka_info['kalinlik']
+                                harcanacak_cm = gereken_dilim * kalinlik
+                                
+                                uygun_satirlar.append({
+                                    "Plaka Adı": urun_adi,
+                                    "Sipariş Adet": siparis_adet,
+                                    "Bloktan Çıkan": verim,
+                                    "Gereken Dilim": gereken_dilim,
+                                    "Harcanacak (cm)": harcanacak_cm
+                                })
+                                toplam_dusulecek_cm += harcanacak_cm
+                                
+                    if uygun_satirlar:
+                        st.markdown("#### 📊 Eşleşen ve Kesilebilecek Plaka Detayları")
+                        st.table(pd.DataFrame(uygun_satirlar))
+                        
+                        # Gerçek Zamanlı Stok Durum Metrikleri
+                        c_m1, c_m2 = st.columns(2)
+                        c_m1.metric("Mevcut Stok (cm)", f"{mevcut_miktar:.2f}")
+                        c_m2.metric("Düşülecek Toplam (cm)", f"{toplam_dusulecek_cm:.2f}")
+                        
+                        if mevcut_miktar < toplam_dusulecek_cm:
+                            st.error("❌ Stok yetersiz! Seçilen bloktan bu siparişlerin tamamı kesilemez.")
+                        else:
+                            # 5. Kesim Onay Mekanizması ve Veritabanı Kayıt İşlemi
+                            if st.button("🚀 KESİMİ ONAYLA VE STOKTAN DÜŞ", type="primary"):
+                                # Stok miktarından düşüm yapıyoruz
+                                idx_stok = stok_df[stok_df[barkod_col].astype(str).str.strip() == str(barkod)].index
+                                stok_df.loc[idx_stok, 'Miktar'] = mevcut_miktar - toplam_dusulecek_cm
+                                
+                                # Hareket tablosu için log fişi (Journal satırı) hazırlama
+                                yeni_log = pd.DataFrame([{
+                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "Barkod": barkod,
+                                    "Stok Kodu": blok_kod,
+                                    "Stok Adı": blok_isim,
+                                    "İşlem": "KESİM/SARF",
+                                    "Miktar": toplam_dusulecek_cm,
+                                    "Personel": st.session_state.get('kullanici_adi', 'Otomasyon Sorumlusu'),
+                                    "Durum": "Tamamlandı"
+                                }])
+                                
+                                # Veritabanına tek bir paket halinde güvenle yaz
+                                success = update_stock_
