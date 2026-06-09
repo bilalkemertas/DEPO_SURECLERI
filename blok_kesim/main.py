@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
+import math
 from datetime import datetime
 
-# Alt modüllerden importlar
+# Paket içi alt modüllerden işlevsel fonksiyonları çağırıyoruz
 from .state import init_blok_kesim_state
 from .matching import load_local_eslesme_matrisi, karakter_match
 from .database import fetch_live_data, update_stock_and_logs
@@ -11,60 +12,77 @@ from .data_processor import ayikla_karakter_ve_olcu, plaka_sayisi_hesapla, safe_
 def run_blok_kesim(conn):
     st.subheader("🧱 Blok & Rulo Sünger Kesim Otomasyonu")
     
-    # 1. State Başlatma
+    # 1. State Yönetim Mekanizmasını Başlat
     init_blok_kesim_state()
     
-    # Local Eşleşme Matrisini Cache'e Al veya Yükle
+    # Yerel Eşleşme Matrisini Belleğe Al (Cache Koruma)
     if st.session_state.eslesme_df is None or st.session_state.eslesme_df.empty:
         st.session_state.eslesme_df = load_local_eslesme_matrisi()
         
-    # 2. Veritabanından Canlı Veri Çekimi
+    # 2. Veritabanından Stok ve Hareketler Verilerini Çek
     stok_df, har_df = fetch_live_data()
     if stok_df.empty:
-        st.warning("Stok verisi yüklenemedi veya boş.")
+        st.warning("⚠️ Stok verisi veritabanından yüklenemedi veya tablo boş.")
         return
 
-    # 3. Dosya Yükleme Alanı (İş Emri Kesim Listesi)
+    # 3. Dosya Yükleme Alanı (Kesim / İş Emri Listesi)
     up = st.file_uploader("📋 Kesim Listesi Excel Dosyasını Yükleyin", type=["xlsx", "xls"])
     
     if up is not None:
         try:
-            # Akıllı Başlık Satırı Avcısı (Dynamic Header Row Finder)
+            # Akıllı Başlık Satırı Avcısı (Zırhlı Versiyon)
             raw_df = pd.read_excel(up, header=None)
             header_idx = 0
             tanim_col = None
             miktar_col = None
             
-            # İlk 20 satırı tarayarak başlıkları bul
+            # İlk 20 satırı agresif şekilde tarayarak başlık satırını bulur
             for i in range(min(20, len(raw_df))):
-                row_vals = [str(x).lower() for x in raw_df.iloc[i].dropna()]
-                if any(k in row_vals for k in ["ürün", "tanım", "malzeme", "plaka", "adet", "miktar"]):
+                row_vals = [str(x).upper().strip() for x in raw_df.iloc[i].dropna().values]
+                row_str = " ".join(row_vals)
+                
+                # Sütunları yakalamak için esnek anahtar kelime varyasyonları
+                has_tanim = any(k in row_str for k in ["TANIM", "ÜRÜN", "URUN", "MALZEME", "PLAKA"])
+                has_miktar = any(k in row_str for k in ["ADET", "MİKTAR", "MIKTAR", "PLAN", "ADEDİ", "ADEDI"])
+                
+                if has_tanim and has_miktar:
                     header_idx = i
                     break
                     
+            # Belirlenen doğru satırdan itibaren Excel'i oku
             df_kesim = pd.read_excel(up, header=header_idx)
+            # Sütun başlıklarındaki sağ-sol görünmez boşlukları temizle
             df_kesim.columns = [str(c).strip() for c in df_kesim.columns]
             
-            # Kolon Yakalama
+            # Kolon Yakalama Motoru (Regex ve İçerik Bazlı)
             for col in df_kesim.columns:
-                c_low = col.lower()
-                if "tanım" in c_low or "ürün" in c_low or "malzeme" in c_low:
+                c_upper = col.upper()
+                
+                # Ürün Tanımı / Plaka Sütunu Yakalayıcı
+                if any(k in c_upper for k in ["TANIM", "ÜRÜN", "URUN", "MALZEME", "PLAKA"]):
                     tanim_col = col
-                if "adet" in c_low or "miktar" in c_low or "plan" in c_low:
+                
+                # Miktar / Adet Sütunu Yakalayıcı
+                if any(k in c_upper for k in ["ADET", "MİKTAR", "MIKTAR", "PLAN", "ADEDİ", "ADEDI", "TOPLAM"]):
                     miktar_col = col
                     
+            # ZIRH SİGORTASI: Eğer otomatik algılanamadıysa arayüzden personele seçtir (Fallback Modu)
             if not tanim_col or not miktar_col:
-                st.error("Excel sütunlarında 'Ürün Tanımı' veya 'Miktar/Adet' alanları tespit edilemedi!")
-                return
+                st.error("⚠️ Sütunlar Otomatik Tespit Edilemedi!")
+                st.info(f"💡 Excel'inizdeki Sütunlar: {list(df_kesim.columns)}")
                 
-            st.success("✅ Kesim Listesi Başarıyla Çözümlendi!")
+                c_sel1, c_sel2 = st.columns(2)
+                tanim_col = c_sel1.selectbox("🎯 Ürün Tanımı / Plaka Sütununu Seçin:", df_kesim.columns, index=0)
+                miktar_col = c_sel2.selectbox("🔢 Adet / Miktar Sütununu Seçin:", df_kesim.columns, index=min(1, len(df_kesim.columns)-1))
             
-            # 4. Barkod Girişi ve Blok Seçim Alanı
+            st.success(f"✅ Eşleşme Başarılı! (Eşleşenler -> Ürün: '{tanim_col}', Miktar: '{miktar_col}')")
+            
+            # 4. Barkod Okutma ve Blok Seçim Katmanı
             st.markdown("### 🔍 Kesilecek Hammadde / Blok Seçimi")
             barkod = st.text_input("🎯 Blok Barkodunu Okutun veya Kod Girin:", key="blok_barkod_input").strip()
             
             if barkod:
-                # Stok Kartı Filtreleme (Zırhlı Arama)
+                # Stok Tablosunda Barkod Sütununu Bul (Dinamik Sütun Dedektörü)
                 barkod_col = None
                 for c in stok_df.columns:
                     if "barkod" in c.lower() or "kod" in c.lower():
@@ -72,7 +90,7 @@ def run_blok_kesim(conn):
                         break
                         
                 if not barkod_col:
-                    st.error("Stok veritabanında barkod/kod sütunu bulunamadı.")
+                    st.error("❌ Stok veritabanında barkod/kod sütunu bulunamadı.")
                     return
                     
                 match_blok = stok_df[stok_df[barkod_col].astype(str).str.strip() == str(barkod)]
@@ -84,11 +102,11 @@ def run_blok_kesim(conn):
                     
                     st.info(f"📦 **Bulunan Blok:** {blok_isim} | **Mevcut Miktar:** {blok.get('Miktar', 0)} cm/Mt")
                     
-                    # Blok Ölçülerini Ayıkla
+                    # Blok Ölçülerini ve Kalitesini regex ile çöz
                     blok_info = ayikla_karakter_ve_olcu(blok_isim)
                     mevcut_miktar = safe_float(blok.get('Miktar', 0))
                     
-                    # İş Emri Eşleşme Hesaplamaları
+                    # İş Emri Listesindeki Ürünlerin Blok ile Uyumluluğunu Hesapla
                     uygun_satirlar = []
                     toplam_dusulecek_cm = 0.0
                     
@@ -99,10 +117,10 @@ def run_blok_kesim(conn):
                             
                         plaka_info = ayikla_karakter_ve_olcu(urun_adi)
                         
-                        # Karakter, Kalite ve Verim Kontrolü
+                        # Kalite, Yoğunluk (DNS) ve Karakter Eşleşme Doğrulaması
                         karakter_ok = karakter_match(plaka_info['karakter'], blok_info['karakter'])
                         
-                        # Matris üzerinden kod sorgulama (Yedek zırh)
+                        # Eşleşme matrisi üzerinden kod kontrolü (Yedek Zırh)
                         matris_ok = False
                         if not st.session_state.eslesme_df.empty:
                             m_match = st.session_state.eslesme_df[
@@ -112,65 +130,8 @@ def run_blok_kesim(conn):
                                 matris_ok = True
                         
                         if karakter_ok or matris_ok:
+                            # Blok Verimliliğini (En-Boy Kombinasyon) Hesapla
                             verim = plaka_sayisi_hesapla(plaka_info, blok_info)
                             if verim > 0:
                                 siparis_adet = safe_float(row.get(miktar_col, 0))
-                                gereken_dilim = math.ceil(siparis_adet / verim) if verim else 0
-                                kalinlik = plaka_info['kalinlik']
-                                harcanacak_cm = gereken_dilim * kalinlik
-                                
-                                uygun_satirlar.append({
-                                    "Plaka Adı": urun_adi,
-                                    "Sipariş Adet": siparis_adet,
-                                    "Bloktan Çıkan": verim,
-                                    "Gereken Dilim": gereken_dilim,
-                                    "Harcanacak (cm)": harcanacak_cm
-                                })
-                                toplam_dusulecek_cm += harcanacak_cm
-                                
-                    if uygun_satirlar:
-                        st.markdown("#### 📊 Eşleşen ve Kesilebilecek Plaka Detayları")
-                        st.table(pd.DataFrame(uygun_satirlar))
-                        
-                        # Metrik Paneli
-                        c_m1, c_m2 = st.columns(2)
-                        c_m1.metric("Mevcut Stok (cm)", f"{mevcut_miktar:.2f}")
-                        c_m2.metric("Düşülecek Toplam (cm)", f"{toplam_dusulecek_cm:.2f}")
-                        
-                        if mevcut_miktar < toplam_dusulecek_cm:
-                            st.error("❌ Stok yetersiz! Seçilen bloktan bu siparişlerin tamamı kesilemez.")
-                        else:
-                            # 5. KESİM ONAY BUTONU VE TRANSACTION MANTIĞI
-                            if st.button("🚀 KESİMİ ONAYLA VE STOKTAN DÜŞ", type="primary"):
-                                # Stok Güncelleme
-                                idx_stok = stok_df[stok_df[barkod_col].astype(str).str.strip() == str(barkod)].index
-                                stok_df.loc[idx_stok, 'Miktar'] = mevcut_miktar - toplam_dusulecek_cm
-                                
-                                # Hareket Kaydı Logu Oluşturma
-                                yeni_log = pd.DataFrame([{
-                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "Barkod": barkod,
-                                    "Stok Kodu": blok_kod,
-                                    "Stok Adı": blok_isim,
-                                    "İşlem": "KESİM/SARF",
-                                    "Miktar": toplam_dusulecek_cm,
-                                    "Personel": st.session_state.get('kullanici_adi', 'Otomasyon Sorumlusu'),
-                                    "Durum": "Tamamlandı"
-                                }])
-                                
-                                # Veritabanına Yazma
-                                success = update_stock_and_logs(stok_df, yeni_log)
-                                if success:
-                                    st.balloons()
-                                    st.success("🎉 Kesim işlemi başarıyla tamamlandı ve veritabanı güncellendi!")
-                                    st.rerun()
-                    else:
-                        st.error("❌ Okutulan blok kalitesi veya ölçüsü, yüklenen listedeki hiçbir ürünle matris bazında eşleşmedi!")
-                else:
-                    st.error("❌ Okutulan barkoda ait hammadde/blok stokta bulunamadı!")
-                    
-        except Exception as e:
-            st.error(f"Dosya okuma esnasında kritik hata oluştu: {e}")
-            
-    st.markdown("---")
-    st.markdown("🚀 Bilal Kemertaş BRN 2026", unsafe_allow_html=True)
+                                gereken_dilim = math.ceil(siparis_adet / verim) if verim
