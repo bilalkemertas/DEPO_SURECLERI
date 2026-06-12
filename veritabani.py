@@ -1,97 +1,179 @@
 import pandas as pd
 import gspread
-from google.oauth2.service_account import Credentials
 import requests
 import base64
 import json
 import streamlit as st
 from io import StringIO
+"""
+Veritabanı İşlemleri
+====================
 
-# --- 1. GÜVENLİK VE AYARLAR ---
-# GitHub Ayarları
-GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
-REPO_OWNER = "bilalkemertas"
-REPO_NAME = "depo_surecleri"
-GITHUB_FILE_PATH = "data/hafiza.csv"
+Google Drive (veritabani modülü) ile veri yükleme ve kaydetme.
+"""
 
-# Google Drive Ayarları
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+import streamlit as st
+import math
+import os
+from blok_kesim.data_processor import DataCleaner
 
-# --- 2. BAĞLANTI KURULUMU ---
-try:
-    # Senin paylaştığın secrets formatına ( [connections.gsheets] ) tam uyum:
-    gcp_info = st.secrets["connections"]["gsheets"]
-    creds = Credentials.from_service_account_info(gcp_info, scopes=SCOPE)
-    client = gspread.authorize(creds)
-    # Drive'daki ana dosyanın adı
-    sheet = client.open("Depo_Veritabani")
-except Exception as e:
-    st.error(f"⚠️ Bağlantı Hatası: {e}")
 
-# --- 3. GITHUB (HAFIZA) FONKSİYONLARI ---
-
-def get_github_data():
-    """GitHub'daki hafiza.csv dosyasını okur."""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{GITHUB_FILE_PATH}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    response = requests.get(url, headers=headers)
+def load_sheet(sheet_name: str, conn=None) -> pd.DataFrame:
+    """
+    Drive'dan veri yükle
     
-    if response.status_code == 200:
-        content = response.json()
-        decoded_data = base64.b64decode(content['content']).decode('utf-8')
-        return pd.read_csv(StringIO(decoded_data))
-    else:
-        # Dosya yoksa şablon döner
-        return pd.DataFrame(columns=['SAS_No', 'Parti No', 'Malzeme Kodu', 'Teslimat Miktarı'])
-
-def update_github_data(df, commit_message="Veri guncellendi"):
-    """GitHub'daki hafiza.csv dosyasını günceller."""
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{GITHUB_FILE_PATH}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    Args:
+        sheet_name: Sayfa adı (örn: "Stok", "Hareketler", "Sunger_Kesim")
+        conn: Veritabanı bağlantısı (isteğe bağlı)
     
-    res = requests.get(url, headers=headers)
-    sha = res.json().get('sha') if res.status_code == 200 else None
-    
-    csv_content = df.to_csv(index=False)
-    encoded_content = base64.b64encode(csv_content.encode('utf-8')).decode('utf-8')
-    
-    payload = {
-        "message": commit_message,
-        "content": encoded_content
-    }
-    if sha:
-        payload["sha"] = sha
-        
-    response = requests.put(url, headers=headers, data=json.dumps(payload))
-    return response.status_code in [200, 201]
-
-# --- 4. GOOGLE DRIVE (ANA VERİ) FONKSİYONLARI ---
-
-def get_internal_data(sheet_name):
-    """Drive üzerindeki herhangi bir sekmeyi (Stok, Satin_Alma vb.) DataFrame olarak çeker."""
+    Returns:
+        DataFrame (boş ise boş DataFrame döner)
+    """
     try:
-        worksheet = sheet.worksheet(sheet_name)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
-    except:
+        import veritabani
+        
+        try:
+            df = veritabani.get_internal_data(sheet_name)
+        except AttributeError:
+            try:
+                df = veritabani.get_data(sheet_name, conn) if conn else veritabani.get_data(sheet_name)
+            except Exception as e:
+                st.warning(f"⚠️ '{sheet_name}' yükleme hatası: {e}")
+                df = None
+        
+        if df is not None and not df.empty:
+            df.columns = [str(c).strip() for c in df.columns]
+            return df
+        else:
+            # Varsayılan boş DataFrame döndür
+            if sheet_name == "Sunger_Kesim":
+                return pd.DataFrame(columns=[
+                    'Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Blok Kodu', 'Blok Adı', 
+                    'Plaka Adet', 'Blok Adet', 'Üretilen Plaka Miktarı', 'Kesilen Blok Miktarı'
+                ])
+            elif sheet_name == "Stok":
+                return pd.DataFrame(columns=[
+                    'Adres', 'Kod', 'Malzeme_Adi', 'Miktar', 'Birim'
+                ])
+            elif sheet_name == "Hareketler":
+                return pd.DataFrame(columns=[
+                    'Tarih', 'İşlem', 'Adres', 'Kod', 'Malzeme_Adi', 'Miktar', 'Birim'
+                ])
+            else:
+                return pd.DataFrame()
+    
+    except ImportError:
+        st.error("❌ 'veritabani' modülü bulunamadı!")
         return pd.DataFrame()
 
-def update_data(sheet_name, df):
-    """Drive üzerindeki tabloyu tamamen günceller."""
+
+def save_sheet(sheet_name: str, df: pd.DataFrame, conn=None) -> bool:
+    """
+    Drive'a veri kaydet
+    
+    Args:
+        sheet_name: Sayfa adı
+        df: Kaydedilecek DataFrame
+        conn: Veritabanı bağlantısı (isteğe bağlı)
+    
+    Returns:
+        Başarılı mı?
+    """
     try:
-        worksheet = sheet.worksheet(sheet_name)
-        worksheet.clear()
-        # NaN değerleri boş stringe çevir (Google Sheet hatası almamak için)
-        df_filled = df.fillna("")
-        worksheet.update([df_filled.columns.values.tolist()] + df_filled.values.tolist())
-        return True
-    except Exception as e:
-        st.error(f"Güncelleme hatası: {e}")
+        import veritabani
+        
+        # DataFrame'i temizle (NaN ve Inf'ler)
+        df_clean = DataCleaner.clean_dataframe(df)
+        
+        success = False
+        try:
+            veritabani.update_data(sheet_name, df_clean)
+            success = True
+        except TypeError:
+            try:
+                veritabani.update_data(sheet_name, df_clean, conn)
+                success = True
+            except Exception as e:
+                st.error(f"❌ '{sheet_name}' kaydedilirken hata: {e}")
+        except Exception as e:
+            st.error(f"❌ '{sheet_name}' kaydedilirken hata: {e}")
+        
+        return success
+    
+    except ImportError:
+        st.error("❌ 'veritabani' modülü bulunamadı!")
         return False
 
-def get_katalog():
-    """Drive'daki Katalog sekmesinden ürün listesini çeker."""
-    df = get_internal_data("Katalog")
-    if not df.empty:
-        return (df['Kod'].astype(str) + " | " + df['İsim'].astype(str)).tolist()
-    return []
+
+def load_matching_matrix() -> pd.DataFrame:
+    """
+    Eşleştirme matrisini dosyadan yükle
+    
+    Önce XLSX, sonra CSV dene.
+    
+    Returns:
+        Eşleştirme matris DataFrame
+    """
+    # XLSX dene
+    if os.path.exists("eslesme_matrisi.xlsx"):
+        try:
+            df = pd.read_excel("eslesme_matrisi.xlsx", dtype=str)
+            if not df.empty:
+                df.columns = [str(c).strip() for c in df.columns]
+                return df
+        except Exception:
+            pass
+    
+    # CSV dene (Türkçe karakter korumalı)
+    if os.path.exists("eslesme_matrisi.csv"):
+        encodings = ['utf-8', 'windows-1254', 'iso-8859-9', 'cp1254', 'utf-8-sig']
+        separators = [';', ',', '\t']
+        
+        for sep in separators:
+            for enc in encodings:
+                try:
+                    df = pd.read_csv("eslesme_matrisi.csv", dtype=str, encoding=enc, sep=sep)
+                    if len(df.columns) > 1:  # Doğru ayrıştırıldı
+                        df.columns = [str(c).strip() for c in df.columns]
+                        return df
+                except Exception:
+                    continue
+        
+        # Son çare - UTF-8 ile oku
+        try:
+            df = pd.read_csv("eslesme_matrisi.csv", dtype=str, encoding='utf-8')
+            if not df.empty:
+                df.columns = [str(c).strip() for c in df.columns]
+                return df
+        except Exception:
+            pass
+    
+    st.warning("⚠️ 'eslesme_matrisi.xlsx' veya 'eslesme_matrisi.csv' dosyası bulunamadı!")
+    return pd.DataFrame()
+
+
+def detect_excel_header_row(df_raw: pd.DataFrame) -> int:
+    """
+    Excel dosyasında başlık satırını tespit et
+    
+    Args:
+        df_raw: Başlıksız DataFrame (header=None ile okunmuş)
+    
+    Returns:
+        Başlık satırı indeksi (0-based)
+    """
+    for i in range(min(20, len(df_raw))):
+        row_str = " ".join(str(val).upper() for val in df_raw.iloc[i].values if pd.notna(val))
+        
+        # Başlık satırının kriterleri
+        has_column_names = any(k in row_str for k in [
+            'SİPARİŞ', 'SIPARIS', 'STOK', 'PLAKA', 'KOD', 'ÜRÜN', 'URUN', 'TANIM', 'MALZEME'
+        ])
+        has_quantity = any(k in row_str for k in [
+            'MİKTAR', 'MIKTAR', 'ADET', 'QTY'
+        ])
+        
+        if has_column_names and has_quantity:
+            return i
+    
+    return 0  # Varsayılan olarak ilk satır
