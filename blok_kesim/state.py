@@ -2,9 +2,16 @@
 Blok Kesim State Yönetimi
 """
 
-import streamlit as st
-from typing import Optional, List, Dict
-import pandas as pd
+# blok_kesim/__init__.py
+from .state import init_blok_kesim_state
+from .main import run_blok_kesim
+
+__all__ = ["init_blok_kesim_state", "run_blok_kesim"]
+
+def init_blok_kesim_state():
+    if 'eslesme_df' not in st.session_state:
+        st.session_state.eslesme_df = None
+    # Diğer gerekli state tanımlamaların varsa buraya ekle
 
 
 class BlokKesimState:
