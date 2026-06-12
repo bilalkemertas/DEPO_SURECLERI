@@ -8,3 +8,7 @@ pandas
 openpyxl
 st-gsheets-connection
 xlsxwriter
+streamlit==1.31.1
+pandas==2.1.1
+openpyxl==3.10.10
+python-docx==0.8.11
