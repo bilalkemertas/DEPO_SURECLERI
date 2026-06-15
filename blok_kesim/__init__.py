@@ -5,7 +5,7 @@ Blok ve Rulo Sünger Kesim Otomasyonu
 Ana paket.
 """
 
-from blok_kesim.state import BlokKesimState, Messages
+from blok_kesim.state import blok_kesim_State, Messages
 from blok_kesim.main import run_blok_kesim
 
 __version__ = "2.0.0"
