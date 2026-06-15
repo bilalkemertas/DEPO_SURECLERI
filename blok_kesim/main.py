@@ -33,7 +33,17 @@ def run_blok_kesim(conn):
     
     # Veritabanı Verilerini Çek
     stok_df, har_df = fetch_live_data()
-    
+
+    try:
+    import veritabani
+    test_df = veritabani.get_internal_data("Stok")
+    if test_df is not None and not test_df.empty:
+        st.success(f"✅ BAĞLANTI BAŞARILI: Tam {len(test_df)} satır veri okundu!")
+    else:
+        st.error("❌ BAĞLANTI VAR AMA TABLO BOŞ GELDİ! (Muhtemelen Sütun İsimleri Uyuşmuyor)")
+except Exception as e:
+    st.error(f"🚨 GİZLİ HATA YAKALANDI: {e}")
+
     if stok_df.empty:
         st.error("❌ Stok veri yüklenemedi", icon="🔴")
         return
