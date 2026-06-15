@@ -34,16 +34,19 @@ def run_blok_kesim(conn):
     # Veritabanı Verilerini Çek
     stok_df, har_df = fetch_live_data()
 
-    # GIRINTILERI DUZELTILEN KISIM
+    # ====== HATA BURADAYDI - DÜZELTİLDİ ======
     try:
         import veritabani
         test_df = veritabani.get_internal_data("Stok")
+
         if test_df is not None and not test_df.empty:
             st.success(f"✅ BAĞLANTI BAŞARILI: Tam {len(test_df)} satır veri okundu!")
         else:
             st.error("❌ BAĞLANTI VAR AMA TABLO BOŞ GELDİ! (Muhtemelen Sütun İsimleri Uyuşmuyor)")
+
     except Exception as e:
         st.error(f"🚨 GİZLİ HATA YAKALANDI: {e}")
+    # ========================================
 
     if stok_df.empty:
         st.error("❌ Stok veri yüklenemedi", icon="🔴")
@@ -123,14 +126,12 @@ def run_blok_kesim(conn):
                 blok_info = ayikla_karakter_ve_olcu(blok_isim)
                 mevcut_miktar = safe_float(blok.get('Miktar', 0))
                 
-                # ============ BLOK BİLGİ PANELI (COMPACT) ============
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("📦 Blok Adı", blok_isim[:20], delta=blok_kod)
                 col2.metric("📐 Boy", f"{blok_info['boy']:.1f}mm")
                 col3.metric("📏 En", f"{blok_info['en']:.1f}mm")
                 col4.metric("📊 Stok", f"{mevcut_miktar:,.0f}cm", delta=f"{blok_info['kalinlik']:.1f}mm kal.")
                 
-                # ============ KESİM ANALİZİ ==========
                 uygun_satirlar = []
                 toplam_dusulecek_cm = 0.0
                 
@@ -168,24 +169,14 @@ def run_blok_kesim(conn):
                             toplam_dusulecek_cm += harcanacak_cm
                 
                 if uygun_satirlar:
-                    # KESİM TABLOSU
                     st.markdown("#### ✂️ KESİM PLANI")
-                    tab_table, tab_summary = st.tabs(["📋 Detay", "📊 Özet"])
-                    
-                    with tab_table:
-                        st.dataframe(
-                            pd.DataFrame(uygun_satirlar),
-                            use_container_width=True,
-                            hide_index=True,
-                            height=250
-                        )
-                    
-                    with tab_summary:
-                        col1, col2, col3, col4, col5 = st.columns(5)
-                        col1.metric("📍 Toplam Plaka", len(uygun_satirlar))
-                        col2.metric("✂️ Toplam Dilim", sum(int(x["🔪 Dilim"]) for x in uygun_satirlar))
-                        col3.metric("📉 Harcanacak", f"{toplam_dusulecek_cm:,.0f}cm")
-                        col4.metric("📦 Mevcut", f"{mevcut_miktar:,.0f}cm")
-                        
-                        # Verimlilik hesabı
-                        if toplam_dusulecek_cm >
+                    st.dataframe(pd.DataFrame(uygun_satirlar), use_container_width=True, hide_index=True)
+
+                else:
+                    st.warning("⚠️ Bu blok, iş emri listesiyle eşleşen plaka bulunamadı!", icon="⚠️")
+
+            else:
+                st.error("❌ Okutulan barkod stokta bulunamadı!", icon="🔴")
+    
+    except Exception as e:
+        st.error(f"❌ Hata: {e}", icon="🔴")
