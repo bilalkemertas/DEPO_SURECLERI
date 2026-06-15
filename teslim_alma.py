@@ -169,22 +169,39 @@ def run(conn):
     elif st.session_state.teslim_page == 'secim':
         st.subheader("🔎 SAS Seçimi")
         df_s = veritabani.get_internal_data("Satin_Alma")
-        df_s['Sipariş Miktarı'] = pd.to_numeric(df_s['Sipariş Miktarı'], errors='coerce').fillna(0)
-        df_s['Gelen Miktar'] = pd.to_numeric(df_s['Gelen Miktar'], errors='coerce').fillna(0)
-        df_incomplete = df_s[df_s['Sipariş Miktarı'] > df_s['Gelen Miktar']]
         
-        with st.container(border=True):
-            ted_list = ["Tümü"] + sorted(df_incomplete['Tedarikçi'].unique().tolist())
-            sec_ted = st.selectbox("🏢 Tedarikçi Filtrele:", ted_list)
-            filtered_sas = df_incomplete[df_incomplete['Tedarikçi'] == sec_ted] if sec_ted != "Tümü" else df_incomplete
-            sip_options = sorted(filtered_sas['Sipariş No'].unique().tolist())
-            sec_sip = st.selectbox("📄 SAS No Seçin:", ["Seçiniz..."] + sip_options)
-            irs = st.text_input("🧾 İrsaliye No:").upper().strip()
-            if st.button("🚀 DEVAM", use_container_width=True, type="primary") and sec_sip != "Seçiniz..." and irs:
-                st.session_state.sel_siparis = sec_sip
-                st.session_state.sel_tedarikci = df_s[df_s['Sipariş No'] == sec_sip]['Tedarikçi'].iloc[0]
-                st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
-                st.session_state.teslim_page = 'kabul'; st.rerun()
+        # 🟢 HATA DÜZELTMESİ (KeyError Koruması) BURAYA EKLENDİ 🟢
+        if df_s is not None and not df_s.empty:
+            # Sütun isimlerindeki boşlukları temizler
+            df_s.columns = [str(c).strip() for c in df_s.columns]
+            
+            # Tabloda aradığımız sütunlar var mı kontrolü
+            gerekli_sutunlar = ['Sipariş Miktarı', 'Gelen Miktar', 'Tedarikçi', 'Sipariş No']
+            eksik_sutunlar = [s for s in gerekli_sutunlar if s not in df_s.columns]
+            
+            if eksik_sutunlar:
+                st.error(f"⚠️ HATA: Veritabanında şu sütunlar bulunamadı: {eksik_sutunlar}")
+                st.info(f"Mevcut Sütunların: {list(df_s.columns)}")
+            else:
+                # Sayısal dönüşümleri hataya karşı korumalı (errors='coerce') olarak yapıyoruz
+                df_s['Sipariş Miktarı'] = pd.to_numeric(df_s['Sipariş Miktarı'], errors='coerce').fillna(0)
+                df_s['Gelen Miktar'] = pd.to_numeric(df_s['Gelen Miktar'], errors='coerce').fillna(0)
+                df_incomplete = df_s[df_s['Sipariş Miktarı'] > df_s['Gelen Miktar']]
+                
+                with st.container(border=True):
+                    ted_list = ["Tümü"] + sorted(df_incomplete['Tedarikçi'].unique().tolist())
+                    sec_ted = st.selectbox("🏢 Tedarikçi Filtrele:", ted_list)
+                    filtered_sas = df_incomplete[df_incomplete['Tedarikçi'] == sec_ted] if sec_ted != "Tümü" else df_incomplete
+                    sip_options = sorted(filtered_sas['Sipariş No'].unique().tolist())
+                    sec_sip = st.selectbox("📄 SAS No Seçin:", ["Seçiniz..."] + sip_options)
+                    irs = st.text_input("🧾 İrsaliye No:").upper().strip()
+                    if st.button("🚀 DEVAM", use_container_width=True, type="primary") and sec_sip != "Seçiniz..." and irs:
+                        st.session_state.sel_siparis = sec_sip
+                        st.session_state.sel_tedarikci = df_s[df_s['Sipariş No'] == sec_sip]['Tedarikçi'].iloc[0]
+                        st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
+                        st.session_state.teslim_page = 'kabul'; st.rerun()
+        else:
+            st.warning("Veritabanında açık SAS kaydı bulunamadı!")
 
     # --- MAL KABUL GİRİŞ ---
     elif st.session_state.teslim_page == 'kabul':
