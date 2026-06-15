@@ -34,15 +34,16 @@ def run_blok_kesim(conn):
     # Veritabanı Verilerini Çek
     stok_df, har_df = fetch_live_data()
 
+    # GIRINTILERI DUZELTILEN KISIM
     try:
-    import veritabani
-    test_df = veritabani.get_internal_data("Stok")
-    if test_df is not None and not test_df.empty:
-        st.success(f"✅ BAĞLANTI BAŞARILI: Tam {len(test_df)} satır veri okundu!")
-    else:
-        st.error("❌ BAĞLANTI VAR AMA TABLO BOŞ GELDİ! (Muhtemelen Sütun İsimleri Uyuşmuyor)")
-except Exception as e:
-    st.error(f"🚨 GİZLİ HATA YAKALANDI: {e}")
+        import veritabani
+        test_df = veritabani.get_internal_data("Stok")
+        if test_df is not None and not test_df.empty:
+            st.success(f"✅ BAĞLANTI BAŞARILI: Tam {len(test_df)} satır veri okundu!")
+        else:
+            st.error("❌ BAĞLANTI VAR AMA TABLO BOŞ GELDİ! (Muhtemelen Sütun İsimleri Uyuşmuyor)")
+    except Exception as e:
+        st.error(f"🚨 GİZLİ HATA YAKALANDI: {e}")
 
     if stok_df.empty:
         st.error("❌ Stok veri yüklenemedi", icon="🔴")
@@ -187,55 +188,4 @@ except Exception as e:
                         col4.metric("📦 Mevcut", f"{mevcut_miktar:,.0f}cm")
                         
                         # Verimlilik hesabı
-                        if toplam_dusulecek_cm > 0:
-                            verimlilik = (toplam_dusulecek_cm / mevcut_miktar * 100) if mevcut_miktar > 0 else 0
-                            col5.metric("⚡ Verimlilik", f"%{verimlilik:.1f}", 
-                                       delta="✅ Yeterli" if mevcut_miktar >= toplam_dusulecek_cm else "❌ YETERSİZ")
-                    
-                    # KESİM DURUMU VE ONAY
-                    st.divider()
-                    
-                    if mevcut_miktar < toplam_dusulecek_cm:
-                        st.error(
-                            f"❌ **STOK YETERSİZ**\n\n"
-                            f"Gerekli: {toplam_dusulecek_cm:,.0f}cm | Mevcut: {mevcut_miktar:,.0f}cm | "
-                            f"Eksik: {toplam_dusulecek_cm - mevcut_miktar:,.0f}cm",
-                            icon="🚫"
-                        )
-                    else:
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            st.success(
-                                f"✅ **KESİM HAZIR**\n\n"
-                                f"Harcanacak: {toplam_dusulecek_cm:,.0f}cm | Kalan: {mevcut_miktar - toplam_dusulecek_cm:,.0f}cm",
-                                icon="✅"
-                            )
-                        
-                        with c2:
-                            if st.button("🚀 KESİMİ ONAYLA", type="primary", use_container_width=True, key="blok_kesim_onayla"):
-                                idx_stok = stok_df[stok_df[barkod_col].astype(str).str.strip() == str(barkod)].index
-                                stok_df.loc[idx_stok, 'Miktar'] = mevcut_miktar - toplam_dusulecek_cm
-                                
-                                yeni_log = pd.DataFrame([{
-                                    "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    "Barkod": barkod,
-                                    "Stok Kodu": blok_kod,
-                                    "Stok Adı": blok_isim,
-                                    "İşlem": "KESİM/SARF",
-                                    "Miktar": toplam_dusulecek_cm,
-                                    "Personel": st.session_state.get('kullanici_adi', 'Otomasyon'),
-                                    "Durum": "Tamamlandı"
-                                }])
-                                
-                                success = update_stock_and_logs(stok_df, yeni_log)
-                                if success:
-                                    st.balloons()
-                                    st.success("🎉 **KESIM TAMAMLANDI** - Stoklar güncellendi!")
-                                    st.rerun()
-                else:
-                    st.warning("⚠️ Bu blok, iş emri listesiyle eşleşen plaka bulunamadı!", icon="⚠️")
-            else:
-                st.error("❌ Okutulan barkod stokta bulunamadı!", icon="🔴")
-    
-    except Exception as e:
-        st.error(f"❌ Hata: {e}", icon="🔴")
+                        if toplam_dusulecek_cm >
