@@ -5,6 +5,7 @@ import streamlit as st
 
 
 def connect_gsheet():
+    """Google Sheets'e bağlan"""
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
@@ -20,6 +21,7 @@ def connect_gsheet():
 
 
 def get_internal_data(sheet_name):
+    """Veri oku"""
     try:
         sh = connect_gsheet()
         worksheet = sh.worksheet(sheet_name)
@@ -37,6 +39,7 @@ def get_internal_data(sheet_name):
 
 
 def update_data(sheet_name, df):
+    """Veri yaz"""
     try:
         sh = connect_gsheet()
 
@@ -60,4 +63,5 @@ def update_data(sheet_name, df):
 
 
 def get_data(sheet_name, conn=None):
+    """Uyumluluk"""
     return get_internal_data(sheet_name)
