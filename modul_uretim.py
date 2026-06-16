@@ -6,6 +6,7 @@ from datetime import datetime
 
 # --- GÜVENLİ BAŞLATICI ---
 def init_state():
+    """Streamlit session state'i başlat"""
     if 'uretim_page' not in st.session_state:
         st.session_state.uretim_page = 'menu'
     
@@ -26,23 +27,29 @@ def init_state():
     if 'local_movements' not in st.session_state:
         st.session_state.local_movements = []
 
+
 # --- NAVİGASYON ---
 def go_home(): 
+    """Ana menüye dön"""
     init_state()
     st.session_state.page = 'home'
     st.session_state.uretim_page = 'menu'
 
+
 def go_uretim_menu(): 
+    """Üretim menüsüne dön"""
     init_state()
     st.session_state.uretim_page = 'menu'
     st.session_state.sel_is_emri = None
-    st.session_state.local_db_active = None # Belleği temizle
-    st.session_state.local_movements = [] # RAM Hareketleri temizle
+    st.session_state.local_db_active = None
+    st.session_state.local_movements = []
     
     if 'local_emirler' in st.session_state:
         del st.session_state.local_emirler
 
+
 def goster():
+    """Ana üretim hazırlık arayüzü"""
     init_state()
     
     st.markdown("""
@@ -158,7 +165,9 @@ def goster():
                 if st.button("🚀 TÜMÜNÜ VERİTABANINA YÜKLE", type="primary", use_container_width=True):
                     # Birleştirme sırasında veritabanını tekrar tazeleyerek oku
                     df_refresh_db = veritabani.get_internal_data("Is_Emirleri")
-                    if df_refresh_db is not None: df_refresh_db.columns = [str(c).strip() for c in df_refresh_db.columns]
+                    if df_refresh_db is not None: 
+                        df_refresh_db.columns = [str(c).strip() for c in df_refresh_db.columns]
+                    
                     df_master_concat = pd.concat([df_refresh_db, df_to_upload], ignore_index=True)
                     
                     # DRIVE GÜNCELLEME
@@ -166,7 +175,7 @@ def goster():
                     st.success(f"✅ Başarılı! {len(successfully_parsed_names)} iş emri sisteme Yüklendi.")
                     st.rerun()
 
-    # --- 2. SEÇİM EKRANI (ZIRHLANMIŞ OKUMA) ---
+    # --- 2. SEÇİM EKRANI ---
     elif st.session_state.uretim_page == 'hazirlik_secim':
         if st.button("⬅️ GERİ"):
             go_uretim_menu()
@@ -180,6 +189,7 @@ def goster():
         # KRİTİK KONTROL
         if df_db_select is not None and not df_db_select.empty:
             df_db_select.columns = [str(c).strip() for c in df_db_select.columns]
+            
             # Sayısal zırh
             if 'İhtiyaç Miktarı' in df_db_select.columns:
                 df_db_select['İhtiyaç Miktarı'] = pd.to_numeric(df_db_select['İhtiyaç Miktarı'], errors='coerce').fillna(0)
@@ -192,6 +202,7 @@ def goster():
             }).reset_index()
             
             def calculate_status(row_data):
+                """Hazırlık durumunu hesapla"""
                 if row_data['Hazırlanan Adet'] >= row_data['İhtiyaç Miktarı'] - 0.001:
                     return "✅ Tamamlandı"
                 elif row_data['Hazırlanan Adet'] > 0:
@@ -221,7 +232,7 @@ def goster():
                         # 🟢 KRİTİK: Drive'dan RAM'e Tek Seferlik Okuma
                         st.session_state.local_db_active = df_db_select.copy()
                         st.session_state.local_stok = veritabani.get_internal_data("Stok")
-                        st.session_state.local_movements = [] # Yeni hazırlık için temizle
+                        st.session_state.local_movements = []
                         st.session_state.uretim_page = 'hazirlik_panel'
                         st.rerun()
             else:
@@ -231,7 +242,7 @@ def goster():
             if st.button("🔄 VERİLERİ YENİDEN TARA"):
                 st.rerun()
 
-    # --- 3. HAZIRLIK PANELİ (RAM ÜZERİNDEN ÇALIŞMA + DİNAMİK HAREKET ENTEGRASYONU) ---
+    # --- 3. HAZIRLIK PANELİ ---
     elif st.session_state.uretim_page == 'hazirlik_panel':
         if st.button("⬅️ SEÇİM EKRANINA DÖN"):
             st.session_state.uretim_page = 'hazirlik_secim'
@@ -293,17 +304,10 @@ def goster():
                         if "Adres Seçiniz..." in raw_address_selection or output_quantity_input <= 0:
                             st.warning("⚠️ Lütfen geçerli bir raf ve miktar girin.")
                         else:
-                            # 🟢 Akıllı Kullanıcı Zırhı
-                            islem_yapan = (
-                                st.session_state.get('username') or 
-                                st.session_state.get('kullanici') or 
-                                st.session_state.get('user') or 
-                                st.session_state.get('user_name') or 
-                                st.session_state.get('aktif_kullanici') or 
-                                'Bilal Kemertaş'
-                            )
+                            # Kullanıcı adı
+                            islem_yapan = "Bilal Kemertaş"
                             
-                            # Adres belirleme (Stokta yoksa sanal raf oluştur)
+                            # Adres belirleme
                             if "STOKTA YOK" in raw_address_selection:
                                 actual_address = "SİSTEM-GİRİŞ"
                                 current_shelf_qty = 0.0
@@ -312,7 +316,7 @@ def goster():
 
                             eksik_miktar = output_quantity_input - current_shelf_qty
 
-                            # 1. OTOMATİK GİRİŞ KONTROLÜ (Stok yetersizse aradaki farkı otomatik gir)
+                            # 1. OTOMATİK GİRİŞ KONTROLÜ
                             if eksik_miktar > 0:
                                 st.session_state.local_movements.append({
                                     "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -369,7 +373,6 @@ def goster():
         if st.button("💾 HAZIRLIK KAYDINI TAMAMLA (DRIVE'A SENKRON ET)", use_container_width=True, type="primary"):
             with st.spinner("Drive veritabanı senkronize ediliyor..."):
                 
-                # === HATA BURADAYDI, ARTIK BOŞ KAYITTA SİLME YAPAMAZ ===
                 if st.session_state.local_movements:
                     df_har_db = veritabani.get_internal_data("Hareketler")
                     if df_har_db is None: 
@@ -378,12 +381,13 @@ def goster():
                     df_har_master = pd.concat([df_har_db, df_new_movs], ignore_index=True)
                     veritabani.update_data("Hareketler", df_har_master)
                 
-                # TÜMÜNÜ YAZ VE GÜNCELLE (Hareket yoksa bile stok/emir güncellenir)
+                # TÜMÜNÜ YAZ VE GÜNCELLE
                 veritabani.update_data("Stok", df_stok_active)
                 veritabani.update_data("Is_Emirleri", df_db_active)
                 
-                st.session_state.local_movements = [] # RAM'i sıfırla
-                st.success("✅ Tüm işlemler başarıyla Drive'a kaydedildi!"); st.rerun()
+                st.session_state.local_movements = []
+                st.success("✅ Tüm işlemler başarıyla Drive'a kaydedildi!")
+                st.rerun()
 
         else:
             if pending_items.empty:
@@ -392,7 +396,7 @@ def goster():
         st.divider()
         st.dataframe(sub_view[["Kalem No", "Mamül Adı", "Stok Kodu", "Stok Adı", "İhtiyaç Miktarı", "Hazırlanan Adet", "Birim"]], use_container_width=True, hide_index=True)
 
-    # --- 4. RAPOR (GELİŞMİŞ ANALİZ) ---
+    # --- 4. RAPOR ---
     elif st.session_state.uretim_page == 'rapor':
         if st.button("⬅️ ANA MENÜYE DÖN"):
             go_uretim_menu()
@@ -422,9 +426,11 @@ def goster():
             report_f_mamul = filter_c2.selectbox("🏗️ Mamül Filtresi:", report_mamul_list)
 
             report_final_view = temp_report_df.copy()
-            if report_f_mamul != "Tümü": report_final_view = report_final_view[report_final_view['Mamül Adı'] == report_f_mamul]
+            if report_f_mamul != "Tümü": 
+                report_final_view = report_final_view[report_final_view['Mamül Adı'] == report_f_mamul]
             st.dataframe(report_final_view, use_container_width=True, hide_index=True)
-        else: st.info("Raporlanacak veri bulunamadı.")
+        else: 
+            st.info("Raporlanacak veri bulunamadı.")
 
     # --- SAYFA SONU İMZASI ---
     st.markdown("---")
@@ -439,3 +445,7 @@ def goster():
             """, 
             unsafe_allow_html=True
         )
+
+
+if __name__ == "__main__":
+    goster()
