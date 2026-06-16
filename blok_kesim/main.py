@@ -1,3 +1,5 @@
+from .state import BlokKesimState
+
 def run_blok_kesim(conn=None):
     """Ana Blok Kesim Ekranı Kontrol Merkezi"""
     
