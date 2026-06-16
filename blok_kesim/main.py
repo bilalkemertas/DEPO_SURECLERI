@@ -1,27 +1,16 @@
-"""Blok & Rulo Sünger Kesim Otomasyonu - Ana Modül
-
-Bu modül, sekmeler yerine bağımsız ekranlar (state routing) kullanarak
-İş Emri Yükleme, Operatör Kesim Listesi Oluşturma ve Raporlama süreçlerini yönetir.
-"""
-
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-
-# Clean Architecture - Göreli İçe Aktarımlar
-from .state import init_blok_kesim_state
-from .matching import load_local_eslesme_matrisi
-from .database import fetch_live_data, update_stock_and_logs
-from .data_processor import safe_float
-
-def go_menu():
-    st.session_state.bk_page = 'menu'
-
 def run_blok_kesim(conn=None):
     """Ana Blok Kesim Ekranı Kontrol Merkezi"""
     
     # --- 1. HAFIZA VE DURUM BAŞLATMA (STATE INIT) ---
     init_blok_kesim_state()
+    
+    # Eksik anahtarları güvenli şekilde tanımla
+    if 'stok_data' not in st.session_state:
+        st.session_state.stok_data = None
+    if 'har_data' not in st.session_state:
+        st.session_state.har_data = None
+    if 'eslesme_df' not in st.session_state:
+        st.session_state.eslesme_df = None
     
     # Ekran yönlendirme anahtarı
     if 'bk_page' not in st.session_state:
