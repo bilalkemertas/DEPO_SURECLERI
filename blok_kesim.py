@@ -134,7 +134,6 @@ def find_work_order_columns(columns):
             if any(x in cu for x in ['MİKTAR', 'MIKTAR', 'ADET', 'QTY', 'GELEN MİKTAR', 'GELEN_MIKTAR']):
                 col_plaka_adet = c
                 break
-
     # 5. Kalan boşlukları benzersiz şekilde doldurma
     all_cols = list(columns)
     assigned = [col_sip_no, col_plaka_kodu, col_plaka_adi, col_plaka_adet]
@@ -177,7 +176,7 @@ def run_blok_kesim(conn):
     if 'eslesme_df' not in st.session_state:
         df_eslesme = pd.DataFrame()
         
-        # Önce XLSX desteği (Kullanıcı için en kolayı)
+    # Önce XLSX desteği (Kullanıcı için en kolayı)
         if os.path.exists("eslesme_matrisi.xlsx"):
             try:
                 df_eslesme = pd.read_excel("eslesme_matrisi.xlsx", dtype=str)
