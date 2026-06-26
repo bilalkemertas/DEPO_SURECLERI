@@ -134,7 +134,7 @@ def run(conn):
                 ted_m = st.text_input("🏢 Tedarikçi Firma:").upper()
                 df_ref = veritabani.get_internal_data("Stok")
                 
-                # --- HATA DÜZELTİLDİ: NaN ve Float olan değerler stringe çevrildi ---
+                # --- TYPE ERROR DÜZELTMESİ (GÜVENLİ SIRALAMA) ---
                 if not df_ref.empty and 'Kod' in df_ref.columns:
                     kod_list = sorted(list(set(str(x).strip() for x in df_ref['Kod'].dropna() if str(x).strip() != "")))
                 else:
@@ -148,6 +148,7 @@ def run(conn):
                 col_m1, col_m2 = st.columns(2)
                 m_kod_sec = col_m1.selectbox("🔎 Malzeme Kod:", ["Seçiniz..."] + kod_list)
                 
+                # Malzeme Koduna göre güvenli Malzeme Adı filtreleme
                 def_ad_val = "Seçiniz..."
                 if m_kod_sec != "Seçiniz...":
                     filtre = df_ref[df_ref['Kod'].astype(str).str.strip() == m_kod_sec]
@@ -162,8 +163,19 @@ def run(conn):
                 final_barkod = parti_no if parti_no else "BEKLIYOR"
 
                 if st.button("➕ KALEMİ LİSTEYE EKLE", use_container_width=True):
-                    f_kod = m_kod_sec if m_kod_sec != "Seçiniz..." else (df_ref[df_ref['İsim'].astype(str).str.strip() == m_ad_sec]['Kod'].iloc[0] if m_ad_sec != "Seçiniz..." and not df_ref[df_ref['İsim'].astype(str).str.strip() == m_ad_sec].empty else "")
-                    f_ad = m_ad_sec if m_ad_sec != "Seçiniz..." else (df_ref[df_ref['Kod'].astype(str).str.strip() == m_kod_sec]['İsim'].iloc[0] if m_kod_sec != "Seçiniz..." and not df_ref[df_ref['Kod'].astype(str).str.strip() == m_kod_sec].empty else "")
+                    # Seçilenleri güvenli bir şekilde tespit et
+                    f_kod = m_kod_sec if m_kod_sec != "Seçiniz..." else ""
+                    f_ad = m_ad_sec if m_ad_sec != "Seçiniz..." else ""
+                    
+                    if f_kod == "" and f_ad != "":
+                        f_kod_fil = df_ref[df_ref['İsim'].astype(str).str.strip() == f_ad]
+                        if not f_kod_fil.empty:
+                            f_kod = str(f_kod_fil['Kod'].iloc[0]).strip()
+                            
+                    if f_ad == "" and f_kod != "":
+                        f_ad_fil = df_ref[df_ref['Kod'].astype(str).str.strip() == f_kod]
+                        if not f_ad_fil.empty:
+                            f_ad = str(f_ad_fil['İsim'].iloc[0]).strip()
 
                     if f_kod and sip_mik > 0:
                         st.session_state.manuel_sas_liste.append({
@@ -229,16 +241,23 @@ def run(conn):
                 df_incomplete = df_s[df_s['Sipariş Miktarı'] > df_s['Gelen Miktar']]
 
                 with st.container(border=True):
-                    ted_list = ["Tümü"] + sorted(df_incomplete['Tedarikçi'].astype(str).unique().tolist())
+                    # TYPE ERROR DÜZELTMESİ (GÜVENLİ SIRALAMA - Tedarikçi & Sipariş No)
+                    ted_list = ["Tümü"] + sorted(list(set(str(x).strip() for x in df_incomplete['Tedarikçi'].dropna() if str(x).strip() != "")))
                     sec_ted = st.selectbox("🏢 Tedarikçi Filtrele:", ted_list)
-                    filtered_sas = df_incomplete[df_incomplete['Tedarikçi'] == sec_ted] if sec_ted != "Tümü" else df_incomplete
-                    sip_options = sorted(filtered_sas['Sipariş No'].astype(str).unique().tolist())
+                    
+                    filtered_sas = df_incomplete[df_incomplete['Tedarikçi'].astype(str).str.strip() == sec_ted] if sec_ted != "Tümü" else df_incomplete
+                    
+                    sip_options = sorted(list(set(str(x).strip() for x in filtered_sas['Sipariş No'].dropna() if str(x).strip() != "")))
                     sec_sip = st.selectbox("📄 SAS No Seçin:", ["Seçiniz..."] + sip_options)
+                    
                     irs = st.text_input("🧾 İrsaliye No:").upper().strip()
                     if st.button("🚀 DEVAM", use_container_width=True, type="primary") and sec_sip != "Seçiniz..." and irs:
                         st.session_state.sel_siparis = sec_sip
-                        st.session_state.sel_tedarikci = df_s[df_s['Sipariş No'] == sec_sip]['Tedarikçi'].iloc[0]
-                        st.session_state.full_sas_data = df_s[df_s['Sipariş No'] == sec_sip]
+                        
+                        siparis_filtre = df_s[df_s['Sipariş No'].astype(str).str.strip() == sec_sip]
+                        st.session_state.sel_tedarikci = str(siparis_filtre['Tedarikçi'].iloc[0]) if not siparis_filtre.empty else ""
+                        st.session_state.full_sas_data = siparis_filtre
+                        
                         st.session_state.teslim_page = 'kabul'
                         st.rerun()
         else:
