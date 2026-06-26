@@ -96,7 +96,8 @@ def handle_barcode():
         "Miktar": float(row['Sipariş Miktarı']),
         "Adres": st.session_state.def_adres,
         "Durum": st.session_state.def_durum,
-        "SAS_Kalem_ID": row.name
+        "SAS_Kalem_ID": row.name,
+        "Siparis_No": row.get('Sipariş No', '') # HANGİ SAS'A AİT OLDUĞUNU HAFIZAYA ALDIK
     }
     st.session_state.scan_counter += 1
 
@@ -148,7 +149,6 @@ def run(conn):
                 col_m1, col_m2 = st.columns(2)
                 m_kod_sec = col_m1.selectbox("🔎 Malzeme Kod:", ["Seçiniz..."] + kod_list)
                 
-                # Malzeme Koduna göre güvenli Malzeme Adı filtreleme
                 def_ad_val = "Seçiniz..."
                 if m_kod_sec != "Seçiniz...":
                     filtre = df_ref[df_ref['Kod'].astype(str).str.strip() == m_kod_sec]
@@ -163,7 +163,6 @@ def run(conn):
                 final_barkod = parti_no if parti_no else "BEKLIYOR"
 
                 if st.button("➕ KALEMİ LİSTEYE EKLE", use_container_width=True):
-                    # Seçilenleri güvenli bir şekilde tespit et
                     f_kod = m_kod_sec if m_kod_sec != "Seçiniz..." else ""
                     f_ad = m_ad_sec if m_ad_sec != "Seçiniz..." else ""
                     
@@ -241,20 +240,25 @@ def run(conn):
                 df_incomplete = df_s[df_s['Sipariş Miktarı'] > df_s['Gelen Miktar']]
 
                 with st.container(border=True):
-                    # TYPE ERROR DÜZELTMESİ (GÜVENLİ SIRALAMA - Tedarikçi & Sipariş No)
                     ted_list = ["Tümü"] + sorted(list(set(str(x).strip() for x in df_incomplete['Tedarikçi'].dropna() if str(x).strip() != "")))
                     sec_ted = st.selectbox("🏢 Tedarikçi Filtrele:", ted_list)
                     
                     filtered_sas = df_incomplete[df_incomplete['Tedarikçi'].astype(str).str.strip() == sec_ted] if sec_ted != "Tümü" else df_incomplete
                     
                     sip_options = sorted(list(set(str(x).strip() for x in filtered_sas['Sipariş No'].dropna() if str(x).strip() != "")))
-                    sec_sip = st.selectbox("📄 SAS No Seçin:", ["Seçiniz..."] + sip_options)
+                    
+                    # --- ÇOKLU SAS SEÇİMİ (MULTISELECT) EKLENDİ ---
+                    sec_sip_list = st.multiselect("📄 SAS No(ları) Seçin:", sip_options)
                     
                     irs = st.text_input("🧾 İrsaliye No:").upper().strip()
-                    if st.button("🚀 DEVAM", use_container_width=True, type="primary") and sec_sip != "Seçiniz..." and irs:
-                        st.session_state.sel_siparis = sec_sip
+                    
+                    # Eğer en az 1 SAS seçildiyse DEVAM butonu aktif
+                    if st.button("🚀 DEVAM", use_container_width=True, type="primary") and len(sec_sip_list) > 0 and irs:
+                        st.session_state.sel_siparis = ", ".join(sec_sip_list) # UI'da göstermek için birleştirdik
                         
-                        siparis_filtre = df_s[df_s['Sipariş No'].astype(str).str.strip() == sec_sip]
+                        # Seçilen SAS listesinin içindeki tüm kalemleri filtrele
+                        siparis_filtre = df_s[df_s['Sipariş No'].astype(str).str.strip().isin(sec_sip_list)]
+                        
                         st.session_state.sel_tedarikci = str(siparis_filtre['Tedarikçi'].iloc[0]) if not siparis_filtre.empty else ""
                         st.session_state.full_sas_data = siparis_filtre
                         
@@ -281,7 +285,8 @@ def run(conn):
             if mask.any():
                 sas_filter.loc[mask, 'Gelen (Yeni)'] = b_data['Miktar']
 
-        st.dataframe(sas_filter[['Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']], use_container_width=True, hide_index=True)
+        # Ekrana SAS Numarasını da getirdik ki birden fazla SAS varsa hangi ürün nereden belli olsun
+        st.dataframe(sas_filter[['Sipariş No', 'Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']], use_container_width=True, hide_index=True)
 
         if st.session_state.mk_gecici_liste:
             if st.button("🚀 STOĞA AKTARIMI TAMAMLA", type="primary", use_container_width=True):
@@ -291,7 +296,11 @@ def run(conn):
 
                 for b_code, b_data in st.session_state.mk_gecici_liste.items():
                     df_stok = pd.concat([df_stok, pd.DataFrame([{"Kod": b_data['Kod'], "İsim": b_data['Ad'], "Adres": b_data['Adres'], "Miktar": b_data['Miktar'], "Durum": b_data['Durum'], "Tedarikçi Barkod": b_code}])], ignore_index=True)
-                    df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": st.session_state.sel_siparis, "Kod": b_data['Kod'], "İsim": b_data['Ad'], "Miktar": b_data['Miktar'], "Personel": "Bilal", "Adres": b_data['Adres'], "Tedarikçi Barkod": b_code, "Durum": b_data['Durum']}])], ignore_index=True)
+                    
+                    # Hareketler tablosuna kaydederken kendi orjinal "Siparis_No" sunu ekliyoruz
+                    gercek_siparis_no = b_data.get('Siparis_No', st.session_state.sel_siparis)
+                    df_har = pd.concat([df_har, pd.DataFrame([{"Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ", "İş Emri": gercek_siparis_no, "Kod": b_data['Kod'], "İsim": b_data['Ad'], "Miktar": b_data['Miktar'], "Personel": "Bilal", "Adres": b_data['Adres'], "Tedarikçi Barkod": b_code, "Durum": b_data['Durum']}])], ignore_index=True)
+                    
                     df_sas_up.loc[b_data['SAS_Kalem_ID'], 'Gelen Miktar'] = b_data['Miktar']
                     df_sas_up.loc[b_data['SAS_Kalem_ID'], 'Tedarikçi Barkodu'] = b_code
 
