@@ -176,7 +176,7 @@ def run_blok_kesim(conn):
     if 'eslesme_df' not in st.session_state:
         df_eslesme = pd.DataFrame()
         
-    # Önce XLSX desteği (Kullanıcı için en kolayı)
+        # Önce XLSX desteği (Kullanıcı için en kolayı)
         if os.path.exists("eslesme_matrisi.xlsx"):
             try:
                 df_eslesme = pd.read_excel("eslesme_matrisi.xlsx", dtype=str)
@@ -272,7 +272,7 @@ def run_blok_kesim(conn):
         df_clean = df.copy()
         for col in df_clean.columns:
             if df_clean[col].dtype == 'object':
-                df_clean[col] = df_clean[col].fillna("")
+                df_clean[col] = df_clean[col].fillna("").astype(str)
             else:
                 df_clean[col] = df_clean[col].fillna(0.0)
         df_clean = df_clean.replace([math.inf, -math.inf], 0.0)
@@ -311,6 +311,13 @@ def run_blok_kesim(conn):
                 renames[col] = 'Malzeme_Adi'
         if renames:
             stok_df = stok_df.rename(columns=renames)
+            
+        # Zırhlı Tip Dönüşümü: ArrowInvalid hatasını engellemek için metin kolonlarını zorla str yapıyoruz
+        for col in stok_df.columns:
+            if col in ['Kod', 'Adres', 'Malzeme_Adi']:
+                stok_df[col] = stok_df[col].fillna("").astype(str)
+            elif col == 'Miktar':
+                stok_df[col] = pd.to_numeric(stok_df[col], errors='coerce').fillna(0.0)
 
     # Dinamik stok barkod sütunu tespiti
     stok_barkod_col = None
@@ -372,12 +379,10 @@ def run_blok_kesim(conn):
     # =========================================================================
     elif st.session_state.blok_kesim_page == 'plan':
         c_nav1, c_nav2 = st.columns([2.5, 7.5])
-        with c_nav1:
-            if st.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_plan"):
-                st.session_state.blok_kesim_page = 'menu'
-                st.rerun()
-        with c_nav2:
-            st.subheader("📋 Drive Sünger Kesim Planı Yönetimi")
+        if c_nav1.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_plan"):
+            st.session_state.blok_kesim_page = 'menu'
+            st.rerun()
+        c_nav2.subheader("📋 Drive Sünger Kesim Planı Yönetimi")
         
         st.markdown("---")
 
@@ -390,10 +395,12 @@ def run_blok_kesim(conn):
             else:
                 st.success("🔄 **Canlı Veri:** Google Drive'daki güncel 'Sunger_Kesim' planı listeleniyor.")
                 
-                # Sayısal sütunların dönüştürülmesi
-                for col in ['Plaka Adet', 'Blok Adet', 'Üretilen Plaka Miktarı', 'Kesilen Blok Miktarı']:
-                    if col in sunger_kesim_df.columns:
+                # Sayısal sütunların dönüştürülmesi ve dtypes güvenliği
+                for col in sunger_kesim_df.columns:
+                    if col in ['Plaka Adet', 'Blok Adet', 'Üretilen Plaka Miktarı', 'Kesilen Blok Miktarı']:
                         sunger_kesim_df[col] = pd.to_numeric(sunger_kesim_df[col], errors='coerce').fillna(0.0)
+                    else:
+                        sunger_kesim_df[col] = sunger_kesim_df[col].fillna("").astype(str)
 
                 # Kalan ihtiyaçların hesaplanması
                 sunger_kesim_df['Kalan Plaka Adet'] = sunger_kesim_df['Plaka Adet'] - sunger_kesim_df['Üretilen Plaka Miktarı']
@@ -414,6 +421,11 @@ def run_blok_kesim(conn):
                     "Kalan Blok Adet": "sum"
                 }).reset_index()
                 pivot_df.columns = ["Blok Kodu", "Blok Adı", "Gerekli Toplam (Adet)", "Kesilen (Adet)", "Kalan İhtiyaç (Adet)"]
+                
+                # Arrow uyumluluğu için pivot tablonun tiplerini de sabitliyoruz
+                for col in pivot_df.columns:
+                    if col in ["Blok Kodu", "Blok Adı"]:
+                        pivot_df[col] = pivot_df[col].astype(str)
                 st.dataframe(pivot_df, use_container_width=True, hide_index=True)
 
                 # 2. Tüm Kalemlerin Gösterimi
@@ -500,7 +512,7 @@ def run_blok_kesim(conn):
                         for _, r in eslesme.iterrows():
                             p_k = normalize_code(r.get(plaka_col, ''))
                             b_k = normalize_code(r.get(blok_col, ''))
-                            b_a = str(r.get(blok_adi_col, '')) if blok_adi_col else ""
+                            b_a = str(r.get(blok_adi_col, '')).strip() if blok_adi_col else ""
                             if p_k:
                                 eslesme_dict[p_k] = {"blok_kodu": b_k, "blok_adi": b_a}
 
@@ -544,11 +556,11 @@ def run_blok_kesim(conn):
                         b_adet = math.ceil(p_adet / max_plaka)
 
                         mapped_rows.append({
-                            "Sipariş No": sip_no,
-                            "Plaka Kodu": p_kodu,
-                            "Plaka Adı": p_adi,
-                            "Blok Kodu": b_kodu,
-                            "Blok Adı": b_adi,
+                            "Sipariş No": str(sip_no),
+                            "Plaka Kodu": str(p_kodu),
+                            "Plaka Adı": str(p_adi),
+                            "Blok Kodu": str(b_kodu),
+                            "Blok Adı": str(b_adi),
                             "Plaka Adet": float(p_adet),
                             "Blok Adet": float(b_adet),
                             "Üretilen Plaka Miktarı": 0.0,
@@ -580,16 +592,21 @@ def run_blok_kesim(conn):
                             else:
                                 df_final = pd.concat([sunger_kesim_df, df_mapped], ignore_index=True)
 
-                            # NaN'ları temizle ve kaydet
-                            df_final = df_final.fillna(0.0)
+                            # Güvenli tip sabitlemesi
+                            for col in df_final.columns:
+                                if col in ['Plaka Adet', 'Blok Adet', 'Üretilen Plaka Miktarı', 'Kesilen Blok Miktarı']:
+                                    df_final[col] = pd.to_numeric(df_final[col], errors='coerce').fillna(0.0)
+                                else:
+                                    df_final[col] = df_final[col].fillna("").astype(str)
+
                             success_write = save_sheet("Sunger_Kesim", df_final)
 
                             if success_write:
                                 st.balloons()
-                                st.success(f"🎉 Harika! {len(df_mapped)} satırlık yeni kesim planı Google Drive'a başarıyla yazıldı ve sabitlendi!")
+                                st.success(f"🎉 Harika! {len(df_mapped)} satırlık yeni kesim planı Google Drive'a başarıyla yazıldı!")
                                 st.rerun()
                             else:
-                                st.error("❌ Drive'a kaydetme başarısız oldu. Lütfen veritabanı bağlantı yetkisini veya sayfa adını kontrol edin.")
+                                st.error("❌ Drive'a kaydetme başarısız oldu. Lütfen veritabanı bağlantı yetkisini kontrol edin.")
                 except Exception as e:
                     st.error(f"❌ Excel işlenirken kritik hata: {e}")
 
@@ -598,23 +615,23 @@ def run_blok_kesim(conn):
     # =========================================================================
     elif st.session_state.blok_kesim_page == 'kesim_menu':
         c_nav1, c_nav2 = st.columns([2.5, 7.5])
-        with c_nav1:
-            if st.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_kesim_menu"):
-                st.session_state.blok_kesim_page = 'menu'
-                st.session_state.operator_work_orders = []
-                st.rerun()
-        with c_nav2:
-            st.subheader("🧱 Operatör Kesim Terminali - İş Emri Hazırlama")
+        if c_nav1.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_kesim_menu"):
+            st.session_state.blok_kesim_page = 'menu'
+            st.session_state.operator_work_orders = []
+            st.rerun()
+        c_nav2.subheader("🧱 Operatör Kesim Terminali - İş Emri Hazırlama")
 
         st.markdown("---")
 
         if sunger_kesim_df.empty:
             st.error("⚠️ Drive'da aktif bir kesim planı ('Sunger_Kesim') bulunamadı. Kesim başlatmak için önce 'Plan & İş Emri Yükle' ekranından plan kaydedin!")
         else:
-            # Açık siparişleri filtrele (henüz başlanmamışlar)
-            for col in ['Plaka Adet', 'Üretilen Plaka Miktarı', 'Blok Adet', 'Kesilen Blok Miktarı']:
-                if col in sunger_kesim_df.columns:
+            # Sütun tiplerini normalize et
+            for col in sunger_kesim_df.columns:
+                if col in ['Plaka Adet', 'Üretilen Plaka Miktarı', 'Blok Adet', 'Kesilen Blok Miktarı']:
                     sunger_kesim_df[col] = pd.to_numeric(sunger_kesim_df[col], errors='coerce').fillna(0.0)
+                else:
+                    sunger_kesim_df[col] = sunger_kesim_df[col].fillna("").astype(str)
 
             acik_siparisler = sunger_kesim_df[
                 sunger_kesim_df['Üretilen Plaka Miktarı'] < sunger_kesim_df['Plaka Adet']
@@ -623,29 +640,21 @@ def run_blok_kesim(conn):
             if acik_siparisler.empty:
                 st.success("✅ Tüm siparişler tamamlanmıştır! Yeni bir plan yüklemek için 'Plan & İş Emri Yükle' sekmesine gidin.")
             else:
-                # Plaka yüksekliklerini çıkart
                 acik_siparisler['Kalinlik'] = acik_siparisler['Plaka Adı'].apply(lambda x: ayikla_karakter_ve_olcu(x)['kalinlik'])
                 acik_siparisler['Kalan Plaka'] = acik_siparisler['Plaka Adet'] - acik_siparisler['Üretilen Plaka Miktarı']
                 
                 st.write(f"📊 **{len(acik_siparisler)} adet açık kesim emri mevcut. Aynı yükseklikte olanları seçerek bir iş emri oluşturun:**")
                 st.markdown("---")
 
-                # Tablo gösterimi - checkbox'larla
+                # Başlık Satırı
                 col_checks = st.columns([0.5, 1.5, 2, 2, 1.5, 1.5, 1.5])
-                with col_checks[0]:
-                    st.write("**✓**")
-                with col_checks[1]:
-                    st.write("**Sipariş No**")
-                with col_checks[2]:
-                    st.write("**Plaka Adı**")
-                with col_checks[3]:
-                    st.write("**Plaka Kodu**")
-                with col_checks[4]:
-                    st.write("**Kalan (Adet)**")
-                with col_checks[5]:
-                    st.write("**Yükseklik (cm)**")
-                with col_checks[6]:
-                    st.write("**Blok Adı**")
+                col_checks[0].write("**✓**")
+                col_checks[1].write("**Sipariş No**")
+                col_checks[2].write("**Plaka Adı**")
+                col_checks[3].write("**Plaka Kodu**")
+                col_checks[4].write("**Kalan (Adet)**")
+                col_checks[5].write("**Yükseklik (cm)**")
+                col_checks[6].write("**Blok Adı**")
 
                 selected_indices = []
                 for idx, (i, row) in enumerate(acik_siparisler.iterrows()):
@@ -653,18 +662,12 @@ def run_blok_kesim(conn):
                     with col_check[0]:
                         if st.checkbox("", key=f"select_row_{i}_{idx}"):
                             selected_indices.append(i)
-                    with col_check[1]:
-                        st.write(f"{row['Sipariş No']}")
-                    with col_check[2]:
-                        st.write(f"{row['Plaka Adı']}")
-                    with col_check[3]:
-                        st.write(f"{row['Plaka Kodu']}")
-                    with col_check[4]:
-                        st.write(f"{int(row['Kalan Plaka'])}")
-                    with col_check[5]:
-                        st.write(f"{row['Kalinlik']:.1f}")
-                    with col_check[6]:
-                        st.write(f"{row['Blok Adı']}")
+                    col_check[1].write(f"{row['Sipariş No']}")
+                    col_check[2].write(f"{row['Plaka Adı']}")
+                    col_check[3].write(f"{row['Plaka Kodu']}")
+                    col_check[4].write(f"{int(row['Kalan Plaka'])}")
+                    col_check[5].write(f"{row['Kalinlik']:.1f}")
+                    col_check[6].write(f"{row['Blok Adı']}")
 
                 st.markdown("---")
 
@@ -673,13 +676,10 @@ def run_blok_kesim(conn):
                         st.error("❌ Lütfen en az bir plaka seçiniz!")
                     else:
                         selected_rows = acik_siparisler.loc[selected_indices]
-                        
-                        # Yükseklik kontrolü
                         heights = selected_rows['Kalinlik'].unique()
                         if len(heights) > 1:
-                            st.error(f"❌ **HATA:** Seçili plakalar farklı yüksekliklerde! ({heights}) Aynı yükseklikte olan plakları seçiniz. Farklı yükseklikteler aynı karusel makinesinde üretilelemez!")
+                            st.error(f"❌ **HATA:** Seçili plakalar farklı yüksekliklerde! ({heights}) Aynı yükseklikte olan plakları seçiniz.")
                         else:
-                            # İş emrini oluştur
                             work_order = {
                                 'selected_rows': selected_rows.reset_index(drop=True),
                                 'kalinlik': heights[0],
@@ -688,9 +688,7 @@ def run_blok_kesim(conn):
                                 'kalan_plaka_adet': selected_rows['Kalan Plaka'].sum(),
                             }
                             st.session_state.operator_work_orders.append(work_order)
-                            
-                            st.success(f"✅ İş emri oluşturuldu! Toplam {len(work_order['selected_rows'])} ürün, Yükseklik: {work_order['kalinlik']:.1f} cm")
-                            st.info(f"📋 Oluşturulan iş emirleri: {len(st.session_state.operator_work_orders)}")
+                            st.success(f"✅ İş emri oluşturuldu! Ürün sayısı: {len(work_order['selected_rows'])}, Yükseklik: {work_order['kalinlik']:.1f} cm")
                             st.rerun()
 
                 st.markdown("---")
@@ -704,8 +702,13 @@ def run_blok_kesim(conn):
                             st.write(f"• **Blok Gereksinimi:** {wo['blok_adet']:.0f} adet")
                             st.write(f"• **Toplam Plaka Adet:** {wo['toplam_plaka_adet']:.0f} adet")
                             st.write(f"• **Kalan Üretilecek:** {wo['kalan_plaka_adet']:.0f} adet")
-                            st.markdown("**Detaylar:**")
-                            st.dataframe(wo['selected_rows'][['Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Kalan Plaka', 'Blok Adı']], use_container_width=True, hide_index=True)
+                            
+                            # Arrow uyumluluğu için alt datanın str tiplerini zorla
+                            view_wo_df = wo['selected_rows'][['Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Kalan Plaka', 'Blok Adı']].copy()
+                            for col in view_wo_df.columns:
+                                if col != 'Kalan Plaka':
+                                    view_wo_df[col] = view_wo_df[col].astype(str)
+                            st.dataframe(view_wo_df, use_container_width=True, hide_index=True)
                             
                             if st.button(f"🗑️ Bu İş Emrini Sil", key=f"delete_wo_{wo_idx}"):
                                 st.session_state.operator_work_orders.pop(wo_idx)
@@ -721,20 +724,17 @@ def run_blok_kesim(conn):
     # =========================================================================
     elif st.session_state.blok_kesim_page == 'kesim':
         c_nav1, c_nav2 = st.columns([2.5, 7.5])
-        with c_nav1:
-            if st.button("⬅️ GERİ (İŞ EMRİ SEÇ)", use_container_width=True, key="back_from_kesim"):
-                st.session_state.blok_kesim_page = 'kesim_menu'
-                st.session_state.current_work_order_idx = None
-                st.rerun()
-        with c_nav2:
-            st.subheader("🔧 Kesim Operasyonu - Barkod Okuma")
+        if c_nav1.button("⬅️ GERİ (İŞ EMRİ SEÇ)", use_container_width=True, key="back_from_kesim"):
+            st.session_state.blok_kesim_page = 'kesim_menu'
+            st.session_state.current_work_order_idx = None
+            st.rerun()
+        c_nav2.subheader("🔧 Kesim Operasyonu - Barkod Okuma")
 
         st.markdown("---")
 
         if not st.session_state.operator_work_orders:
             st.error("❌ Hiçbir iş emri hazırlanmamıştır! Lütfen geri gidip iş emri oluşturunuz.")
         else:
-            # İş emri seçimi
             st.subheader("📋 Hangi İş Emrinde Çalışmak İstiyorsunuz?")
             
             wo_options = [f"İş Emri #{idx + 1} - Yükseklik: {wo['kalinlik']:.1f} cm ({len(wo['selected_rows'])} SKU)" 
@@ -749,27 +749,27 @@ def run_blok_kesim(conn):
             st.markdown("---")
             st.write("**Bu İş Emrinin Detayları:**")
             col_info1, col_info2, col_info3 = st.columns(3)
-            with col_info1:
-                st.metric("Plaka Yüksekliği", f"{current_wo['kalinlik']:.1f} cm")
-            with col_info2:
-                st.metric("Blok Gereksinimi", f"{current_wo['blok_adet']:.0f} Adet")
-            with col_info3:
-                st.metric("Kalan Plaka", f"{current_wo['kalan_plaka_adet']:.0f} Adet")
+            col_info1.metric("Plaka Yüksekliği", f"{current_wo['kalinlik']:.1f} cm")
+            col_info2.metric("Blok Gereksinimi", f"{current_wo['blok_adet']:.0f} Adet")
+            col_info3.metric("Kalan Plaka", f"{current_wo['kalan_plaka_adet']:.0f} Adet")
 
             st.markdown("---")
             st.subheader("📝 Ürünler (Bu İş Emrinde)")
-            st.dataframe(current_wo['selected_rows'][['Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Blok Adı', 'Kalan Plaka']], 
-                        use_container_width=True, hide_index=True)
+            
+            # Tip sabitleme koruması
+            grid_df = current_wo['selected_rows'][['Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Blok Adı', 'Kalan Plaka']].copy()
+            for col in grid_df.columns:
+                if col != 'Kalan Plaka':
+                    grid_df[col] = grid_df[col].astype(str)
+            st.dataframe(grid_df, use_container_width=True, hide_index=True)
 
             st.markdown("---")
             st.subheader("🔍 Blok/Rulo Barkodu Okutunuz")
-            
             barkod_giris = st.text_input("🔍 KESİLECEK BLOK VEYA RULO BARKODUNU OKUTUNUZ:", key="operator_scanned_barcode")
 
             if barkod_giris:
                 scanned_norm = normalize_code(barkod_giris)
 
-                # Stoktan barkodu normalize kodla bulalım
                 if stok_barkod_col is not None and not stok_df.empty:
                     stok_df_temp = stok_df.copy()
                     stok_df_temp['Barcode_Norm'] = stok_df_temp[stok_barkod_col].apply(normalize_code)
@@ -791,18 +791,20 @@ def run_blok_kesim(conn):
 
                     st.info(f"📍 **Bulunan Hammadde Stoğu:** {blok_adi} ({blok_kod}) | **Mevcut:** {stok_miktari} Adet | **Adres:** {blok_adres}")
 
-                    # Mevcut iş emrindeki ürünleri filtrelenmiş eşleştir
                     current_wo_items = current_wo['selected_rows'].copy()
                     current_wo_items['Blok_Kodu_Norm'] = current_wo_items['Blok Kodu'].apply(normalize_code)
                     
-                    # Eşleşen öğeleri bul
                     matching_items = current_wo_items[current_wo_items['Blok_Kodu_Norm'] == blok_kod]
 
                     if not matching_items.empty:
                         st.success(f"🎯 Bu blok ile eşleşen {len(matching_items)} ürün bulundu!")
-                        st.dataframe(matching_items[['Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Kalan Plaka']], use_container_width=True, hide_index=True)
+                        
+                        view_matching = matching_items[['Sipariş No', 'Plaka Kodu', 'Plaka Adı', 'Kalan Plaka']].copy()
+                        for col in view_matching.columns:
+                            if col != 'Kalan Plaka':
+                                view_matching[col] = view_matching[col].astype(str)
+                        st.dataframe(view_matching, use_container_width=True, hide_index=True)
 
-                        # Seçim - hangi ürüne kesim yapılacak
                         if len(matching_items) == 1:
                             secilen_sip_idx = 0
                         else:
@@ -813,23 +815,18 @@ def run_blok_kesim(conn):
                             )
 
                         secilen_row = matching_items.iloc[secilen_sip_idx]
-                        original_idx = secilen_row.name
-                        
                         plaka_kodu = secilen_row['Plaka Kodu']
                         plaka_adi = secilen_row['Plaka Adı']
                         kalan_plaka_adedi = secilen_row['Kalan Plaka']
 
-                        # Ölçü ve Fire Hesaplama
                         ham_olcu = ayikla_karakter_ve_olcu(blok_adi)
                         plaka_olcu = ayikla_karakter_ve_olcu(plaka_adi)
 
                         st.write("---")
                         st.subheader("📐 Akıllı Verim Hesaplama")
                         col_o1, col_o2 = st.columns(2)
-                        with col_o1:
-                            st.write(f"🧱 **Blok Ölçüsü:** {ham_olcu['boy']}x{ham_olcu['en']}x{ham_olcu['kalinlik']} cm")
-                        with col_o2:
-                            st.write(f"📐 **Plaka Ölçüsü:** {plaka_olcu['boy']}x{plaka_olcu['en']}x{plaka_olcu['kalinlik']} cm")
+                        col_o1.write(f"🧱 **Blok Ölçüsü:** {ham_olcu['boy']}x{ham_olcu['en']}x{ham_olcu['kalinlik']} cm")
+                        col_o2.write(f"📐 **Plaka Ölçüsü:** {plaka_olcu['boy']}x{plaka_olcu['en']}x{plaka_olcu['kalinlik']} cm")
 
                         if plaka_olcu['boy'] > 0 and plaka_olcu['en'] > 0 and plaka_olcu['kalinlik'] > 0:
                             en_kat = math.floor(ham_olcu['en'] / plaka_olcu['en'])
@@ -840,32 +837,19 @@ def run_blok_kesim(conn):
                         else:
                             max_plaka = 0
 
-                        # Girdi alanları
                         val_uret = int(max_plaka) if max_plaka > 0 else 1
                         if val_uret > kalan_plaka_adedi:
                             val_uret = int(kalan_plaka_adedi)
 
-                        kesim_adedi = st.number_input(
-                            "Üretilen Plaka Miktarını Girin (Adet):",
-                            min_value=1,
-                            max_value=10000,
-                            value=val_uret
-                        )
-
-                        blok_sarf_adedi = st.number_input(
-                            "Tüketilen Blok Miktarını Girin (Adet):",
-                            min_value=1.0,
-                            max_value=float(stok_miktari) if stok_miktari > 0 else 1.0,
-                            value=1.0,
-                            step=1.0
-                        )
+                        kesim_adedi = st.number_input("Üretilen Plaka Miktarını Girin (Adet):", min_value=1, max_value=10000, value=val_uret)
+                        blok_sarf_adedi = st.number_input("Tüketilen Blok Miktarını Girin (Adet):", min_value=1.0, max_value=float(stok_miktari) if stok_miktari > 0 else 1.0, value=1.0, step=1.0)
 
                         if st.button("🔥 KESİMİ GERÇEKLEŞTİR VE DRIVE'A YAZ", type="primary"):
                             try:
-                                # 1. DRIVE KESİM PLANINI GÜNCELLE (Sunger_Kesim)
+                                # 1. DRIVE KESİM PLANINI GÜNCELLE
                                 original_index = sunger_kesim_df[
-                                    (sunger_kesim_df['Sipariş No'] == secilen_row['Sipariş No']) &
-                                    (sunger_kesim_df['Plaka Kodu'] == plaka_kodu)
+                                    (sunger_kesim_df['Sipariş No'].astype(str) == str(secilen_row['Sipariş No'])) &
+                                    (sunger_kesim_df['Plaka Kodu'].astype(str) == str(plaka_kodu))
                                 ].index[0]
                                 
                                 sunger_kesim_df.at[original_index, 'Üretilen Plaka Miktarı'] += kesim_adedi
@@ -891,10 +875,10 @@ def run_blok_kesim(conn):
                                     stok_df.at[p_idx, 'Miktar'] = mevcut_p_mik + kesim_adedi
                                 else:
                                     yeni_plaka_satir = {
-                                        "Adres": blok_adres,
-                                        "Kod": plaka_kodu,
-                                        "Malzeme_Adi": plaka_adi,
-                                        "Miktar": kesim_adedi,
+                                        "Adres": str(blok_adres),
+                                        "Kod": str(plaka_kodu),
+                                        "Malzeme_Adi": str(plaka_adi),
+                                        "Miktar": float(kesim_adedi),
                                         "Birim": "AD"
                                     }
                                     for col in stok_df.columns:
@@ -904,30 +888,22 @@ def run_blok_kesim(conn):
 
                                 # 4. HAREKET GEÇMİŞİNİ YAZMA
                                 t_tarih = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                har_sarf = {
-                                    "Tarih": t_tarih,
-                                    "İşlem": "KESİM/SARF",
-                                    "Adres": blok_adres,
-                                    "Kod": blok_kod,
-                                    "Malzeme_Adi": blok_adi,
-                                    "Miktar": -blok_sarf_adedi,
-                                    "Birim": "AD"
-                                }
-                                har_uret = {
-                                    "Tarih": t_tarih,
-                                    "İşlem": "ÜRETİM/GİRİŞ",
-                                    "Adres": blok_adres,
-                                    "Kod": plaka_kodu,
-                                    "Malzeme_Adi": plaka_adi,
-                                    "Miktar": kesim_adedi,
-                                    "Birim": "AD"
-                                }
+                                har_sarf = {"Tarih": t_tarih, "İşlem": "KESİM/SARF", "Adres": blok_adres, "Kod": blok_kod, "Malzeme_Adi": blok_adi, "Miktar": -blok_sarf_adedi, "Birim": "AD"}
+                                har_uret = {"Tarih": t_tarih, "İşlem": "ÜRETİM/GİRİŞ", "Adres": blok_adres, "Kod": plaka_kodu, "Malzeme_Adi": plaka_adi, "Miktar": kesim_adedi, "Birim": "AD"}
 
                                 for col in har_df.columns:
                                     if col not in har_sarf: har_sarf[col] = ""
                                     if col not in har_uret: har_uret[col] = ""
 
                                 har_df = pd.concat([har_df, pd.DataFrame([har_sarf, har_uret])], ignore_index=True)
+
+                                # Tip Güvenliklerini Kilitle (Arrow Çökmesini Engelleme)
+                                for col in stok_df.columns:
+                                    if col in ['Kod', 'Adres', 'Malzeme_Adi', 'Birim']:
+                                        stok_df[col] = stok_df[col].fillna("").astype(str)
+                                for col in sunger_kesim_df.columns:
+                                    if col not in ['Plaka Adet', 'Blok Adet', 'Üretilen Plaka Miktarı', 'Kesilen Blok Miktarı']:
+                                        sunger_kesim_df[col] = sunger_kesim_df[col].fillna("").astype(str)
 
                                 # Hepsini Drive'a Kaydet
                                 run_kesim_save = save_sheet("Sunger_Kesim", sunger_kesim_df)
@@ -952,37 +928,34 @@ def run_blok_kesim(conn):
     # =========================================================================
     elif st.session_state.blok_kesim_page == 'rapor':
         c_nav1, c_nav2 = st.columns([2.5, 7.5])
-        with c_nav1:
-            if st.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_rapor"):
-                st.session_state.blok_kesim_page = 'menu'
-                st.rerun()
-        with c_nav2:
-            st.subheader("📊 Blok ve Rulo Kesim Analiz Raporları")
+        if c_nav1.button("⬅️ GERİ (ANA MENÜ)", use_container_width=True, key="back_from_rapor"):
+            st.session_state.blok_kesim_page = 'menu'
+            st.rerun()
+        c_nav2.subheader("📊 Blok ve Rulo Kesim Analiz Raporları")
 
         st.markdown("---")
 
         if not har_df.empty:
             har_df.columns = [str(c).strip() for c in har_df.columns]
-            
-            # Sadece Kesim/Sarf ve Üretim/Giriş işlemlerini süzme
             kesim_hareketleri = har_df[har_df['İşlem'].isin(['KESİM/SARF', 'ÜRETİM/GİRİŞ'])].copy()
             
             if not kesim_hareketleri.empty:
-                # Yeni işlemler üstte görünecek
                 kesim_hareketleri = kesim_hareketleri.iloc[::-1]
                 
-                # Toplam İstatistikler
                 total_sarf = abs(pd.to_numeric(kesim_hareketleri[kesim_hareketleri['İşlem'] == 'KESİM/SARF']['Miktar'], errors='coerce').fillna(0.0).sum())
                 total_giris = pd.to_numeric(kesim_hareketleri[kesim_hareketleri['İşlem'] == 'ÜRETİM/GİRİŞ']['Miktar'], errors='coerce').fillna(0.0).sum()
                 
                 col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    st.metric("🧱 Tüketilen Toplam Blok (Hammadde)", f"{total_sarf:.1f} Adet")
-                with col_m2:
-                    st.metric("🎯 Üretilen Toplam Plaka (Mamul)", f"{total_giris:.1f} Adet")
+                col_m1.metric("🧱 Tüketilen Toplam Blok (Hammadde)", f"{total_sarf:.1f} Adet")
+                col_m2.metric("🎯 Üretilen Toplam Plaka (Mamul)", f"{total_giris:.1f} Adet")
                 
                 st.markdown("---")
                 st.write("📋 **Kesim İşlemleri Günlüğü (Canlı Hareketler):**")
+                
+                # Çökme Koruması: Rapor tablosundaki tüm sütunları güvenli tipe dönüştür
+                for col in kesim_hareketleri.columns:
+                    if col != 'Miktar':
+                        kesim_hareketleri[col] = kesim_hareketleri[col].fillna("").astype(str)
                 st.dataframe(kesim_hareketleri, use_container_width=True, hide_index=True)
             else:
                 st.info("ℹ️ Sistemde henüz gerçekleştirilmiş bir sünger kesim hareketi bulunmamaktadır.")
