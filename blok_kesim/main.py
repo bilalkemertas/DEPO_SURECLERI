@@ -1,4 +1,12 @@
-from .state import BlokKesimState
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# Paket içi alt modüllerden işlevsel fonksiyonları çağırıyoruz
+from .state import init_blok_kesim_state
+from .matching import load_local_eslesme_matrisi
+from .database import fetch_live_data, update_stock_and_logs
+from .data_processor import safe_float  # Eğer metin motoru kullanılıyorsa ekledik
 
 def run_blok_kesim(conn=None):
     """Ana Blok Kesim Ekranı Kontrol Merkezi"""
@@ -41,6 +49,10 @@ def run_blok_kesim(conn=None):
                 st.session_state.stok_data = s_df
                 st.session_state.har_data = h_df
         return st.session_state.stok_data, st.session_state.har_data
+
+    # Menü yönlendirme fonksiyonu (on_click dışındaki manuel geçiş butonları için güvenlik)
+    def go_menu():
+        st.session_state.bk_page = 'menu'
 
     # ==========================================
     # 0. ANA MENÜ EKRANI
@@ -154,7 +166,6 @@ def run_blok_kesim(conn=None):
                 st.info(f"🧱 Gereken Blok: **{sec_kod}** - {sec_ad}")
                 
                 if st.button("➕ Kendi Kesim Listeme Ekle"):
-                    # Listede zaten yoksa ekle
                     mevcut = st.session_state.operator_kesim_listesi
                     if not ((mevcut['Plaka'] == secilen_plaka) & (mevcut['Gerekli Blok Kodu'] == sec_kod)).any():
                         yeni_satir = pd.DataFrame([{"Plaka": secilen_plaka, "Gerekli Blok Kodu": sec_kod, "Gerekli Blok Adı": sec_ad}])
@@ -198,7 +209,6 @@ def run_blok_kesim(conn=None):
                         else:
                             st.success(f"🎯 DOĞRU BLOK! ({okutulan_kod})")
                             
-                            # Aynı bloktan birden fazla plaka kesilebilir, operatöre hangisini kestiğini soralım
                             uyumlu_plakalar = uyumlu_satirlar['Plaka'].tolist()
                             kesilen_plaka = st.selectbox("Hangi Plakayı Kesiyorsunuz?", uyumlu_plakalar)
                             
@@ -235,7 +245,6 @@ def run_blok_kesim(conn=None):
                                             durum = update_stock_and_logs(stok_df, st.session_state.har_data, yeni_log)
                                             
                                         if durum:
-                                            # Rapor ekranı için RAM'e gerçekleşen üretim kaydını ekle
                                             st.session_state.gerceklesen_kesimler.append({
                                                 "Plaka": kesilen_plaka,
                                                 "Sarf Edilen (cm)": sarf_miktari,
@@ -272,18 +281,15 @@ def run_blok_kesim(conn=None):
         # --- RAPOR 1: PLAKA ÜRETİM İLERLEMESİ ---
         st.subheader("📊 1. Plaka Kesim İlerleme Raporu")
         
-        # İş emrindeki ihtiyaçları topla
         ihtiyac_df = df_emir.groupby(tanim_col, as_index=False)[miktar_col].sum()
         ihtiyac_df.rename(columns={tanim_col: "Plaka Tanımı", miktar_col: "İstenen Adet"}, inplace=True)
         
-        # Gerçekleşenleri topla
         gerceklesen_df = pd.DataFrame(st.session_state.gerceklesen_kesimler)
         if not gerceklesen_df.empty:
             gercek_grup = gerceklesen_df.groupby("Plaka", as_index=False)["Çıkan Adet"].sum()
         else:
             gercek_grup = pd.DataFrame(columns=["Plaka", "Çıkan Adet"])
             
-        # Birleştir (Merge)
         rapor1 = pd.merge(ihtiyac_df, gercek_grup, left_on="Plaka Tanımı", right_on="Plaka", how="left")
         rapor1['Çıkan Adet'] = rapor1['Çıkan Adet'].fillna(0).astype(int)
         rapor1['Kalan İhtiyaç'] = rapor1['İstenen Adet'] - rapor1['Çıkan Adet']
@@ -296,7 +302,6 @@ def run_blok_kesim(conn=None):
         # --- RAPOR 2: BLOK STOK / İHTİYAÇ ANALİZİ ---
         st.subheader("🧱 2. İhtiyaç Duyulan Blokların Canlı Stok Durumu")
         
-        # Rapor1'deki kalan ihtiyacı > 0 olan plakaları bul
         kalan_plakalar = rapor1[rapor1['Kalan İhtiyaç'] > 0]
         
         blok_rapor = []
@@ -308,11 +313,9 @@ def run_blok_kesim(conn=None):
                 b_kod = str(eslesme.iloc[0][m_blok_kod_col]).strip()
                 b_ad = str(eslesme.iloc[0][m_blok_adi_col]).strip()
                 
-                # Bu blok kodunun depodaki toplam miktarı
                 stok_satirlari = stok_df[stok_df[s_kod_col].astype(str).str.strip() == b_kod]
                 depo_mevcut = pd.to_numeric(stok_satirlari[s_miktar_col], errors='coerce').sum() if not stok_satirlari.empty else 0
                 
-                # Listeye ekle (Aynı bloktan birden fazla talep olabilir, sonra gruplayacağız)
                 blok_rapor.append({
                     "Blok Kodu": b_kod,
                     "Blok Adı": b_ad,
@@ -322,10 +325,8 @@ def run_blok_kesim(conn=None):
                 
         if blok_rapor:
             df_blok = pd.DataFrame(blok_rapor)
-            # Eğer aynı blok birden fazla plaka için lazımsa benzersiz listele
             df_blok_unique = df_blok.drop_duplicates(subset=["Blok Kodu"]).reset_index(drop=True)
             
-            # Kritik Stok Uyarı Renklendirmesi
             def highlight_stok(val):
                 color = '#ff9999' if val <= 0 else '#99ff99'
                 return f'background-color: {color}'
