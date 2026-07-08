@@ -1,0 +1,10 @@
+[server]
+# Bağlantının kopmasını önlemek için ping aralıklarını ve websocket limitlerini optimize ediyoruz
+serverAddress = "0.0.0.0"
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 200
+
+[browser]
+# Tarayıcı tarafında bağlantının canlı kalmasını zorlar
+gatherUsageStats = false
