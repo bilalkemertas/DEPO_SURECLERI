@@ -14,7 +14,7 @@ def run_uretim_bitis(conn):
         import veritabani
         df_stok = veritabani.load_sheet("Stok") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Stok")
         df_is_emirleri = veritabani.load_sheet("Is_Emirleri") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Is_Emirleri")
-        df_hareketler = veritabani.load_sheet("Hareketler") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("HAREKETLER")
+        df_Hareketler = veritabani.load_sheet("Hareketler") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Hareketler")
     except:
         st.error("🚨 Veritabanı modülü yüklenirken veya Google Sheets sekmeleri okunurken hata oluştu!")
         return
@@ -38,13 +38,13 @@ def run_uretim_bitis(conn):
     bugun = datetime.now().strftime("%Y-%m-%d")
     toplam_gunluk_uretim = 0
     
-    if df_hareketler is not None and not df_hareketler.empty:
+    if df_Hareketler is not None and not df_Hareketler.empty:
         # Tarih ve İşlem sütun isimlerini standartlaştır
-        df_hareketler.columns = [c.strip() for c in df_hareketler.columns]
-        if 'Tarih' in df_hareketler.columns and 'İşlem' in df_hareketler.columns:
-            df_hareketler['Tarih_Kisa'] = df_hareketler['Tarih'].astype(str).str[:10]
+        df_Hareketler.columns = [c.strip() for c in df_Hareketler.columns]
+        if 'Tarih' in df_Hareketler.columns and 'İşlem' in df_Hareketler.columns:
+            df_Hareketler['Tarih_Kisa'] = df_Hareketler['Tarih'].astype(str).str[:10]
             # 'MAMÜL GİRİŞ' tipindeki bugünün kayıtlarını filtrele
-            bugunku_girisler = df_hareketler[(df_hareketler['Tarih_Kisa'] == bugun) & (df_hareketler['İşlem'] == 'MAMÜL GİRİŞ')]
+            bugunku_girisler = df_Hareketler[(df_Hareketler['Tarih_Kisa'] == bugun) & (df_Hareketler['İşlem'] == 'MAMÜL GİRİŞ')]
             if 'Miktar' in bugunku_girisler.columns:
                 toplam_gunluk_uretim = pd.to_numeric(bugunku_girisler['Miktar'], errors='coerce').sum()
 
@@ -122,10 +122,10 @@ def run_uretim_bitis(conn):
                 
                 if st.button("🚀 ÜRETİMİ BİTİR VE STOKLARDAN OTOMATİK DÜŞ", type="primary", use_container_width=True):
                     zaman_damgasi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    yeni_hareketler = []
+                    yeni_Hareketler = []
                     
                     # A. Üretilen Mamül İçin Giriş Hareketi OLUŞTUR
-                    yeni_hareketler.append({
+                    yeni_Hareketler.append({
                         "Tarih": zaman_damgasi,
                         "İşlem": "MAMÜL GİRİŞ",
                         "İş Emri": secilen_siparis,
@@ -139,7 +139,7 @@ def run_uretim_bitis(conn):
                     
                     # B. Reçetedeki Hammadde / Yarı Mamüller İçin Tüketim Hareketi OLUŞTUR
                     for t in tuketim_plani:
-                        yeni_hareketler.append({
+                        yeni_Hareketler.append({
                             "Tarih": zaman_damgasi,
                             "İşlem": "ÜRETİM TÜKETİM",
                             "İş Emri": secilen_siparis,
@@ -152,7 +152,7 @@ def run_uretim_bitis(conn):
                         })
                         
                     # Hareketleri veritabanına ekle
-                    df_har_yeni = pd.concat([df_hareketler, pd.DataFrame(yeni_hareketler)], ignore_index=True)
+                    df_har_yeni = pd.concat([df_Hareketler, pd.DataFrame(yeni_Hareketler)], ignore_index=True)
                     
                     # Anlık canlı stok tablosunu (Stok sekmesini) güncelle (Mevcut fonksiyonunuza göre tetiklenir)
                     if df_stok is not None and not df_stok.empty:
@@ -175,7 +175,7 @@ def run_uretim_bitis(conn):
                             veritabani._save_df(df_har_yeni, "Hareketler")
                             veritabani._save_df(df_stok, "Stok")
                         elif hasattr(veritabani, 'update_data'):
-                            veritabani.update_data("HAREKETLER", df_har_yeni)
+                            veritabani.update_data("Hareketler", df_har_yeni)
                             veritabani.update_data("Stok", df_stok)
                         st.success(f"🎉 Sipariş {secilen_siparis} başarıyla tamamlandı! Mamül stoğu artırıldı ve tüm alt bileşenler stoktan düşüldü.")
                         st.balloons()
