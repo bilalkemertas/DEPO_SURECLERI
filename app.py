@@ -1,17 +1,29 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
+import streamlit.components.v1 as components
 
-# 1. GITHUB'DAKİ TÜM MODÜLLERİ İÇE AKTARIYORUZ
+# 1. GITHUB'DAKİ TÜM MODÜLLERİ VE YENİ ÜRETİM BİTİŞ MODÜLÜNÜ İÇE AKTARIYORUZ
 import teslim_alma
 import blok_kesim  # Yeni modüler paket yapısını tetikler (blok_kesim/ klasörünü okur)
 import modul_stok
 import modul_uretim
 import modul_sayim
 import modul_rapor
+import modul_uretim_bitis  # 🆕 Yeni Eklenen Mamül Bazlı Üretim Bitiş Modülü
 
 # --- SAYFA AYARLARI VE KURUMSAL TEMA ---
 st.set_page_config(page_title="BRN WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
+
+# 🖥️ STREAMLIT OTURUMU CANLI TUTMA SİHİRBAZI (KEEP-ALIVE)
+# Bu görünmez HTML/JS bileşeni tarayıcı arka plana atılsa veya terminal kilitlense bile her 30 saniyede bir ping atarak oturumu açık tutar.
+components.html("""
+    <script>
+    const interval = setInterval(function() {
+        window.parent.postMessage({type: 'streamlit:render'}, '*');
+    }, 30000); // 30 Saniyede bir tetikler
+    </script>
+""", height=0)
 
 # Garantili, Simetrik ve Ayrıştırılmış CSS Tasarımı
 st.markdown("""
@@ -93,7 +105,7 @@ if 'page' not in st.session_state:
     st.session_state['page'] = 'main'
 
 # Güvenli Yönlendirme Kontrolü
-gecerli_sayfalar = ['main', 'home', 'mal_kabul', 'blok_kesim', 'uretim', 'stok', 'sayim', 'rapor']
+gecerli_sayfalar = ['main', 'home', 'mal_kabul', 'blok_kesim', 'uretim', 'stok', 'sayim', 'rapor', 'uretim_bitis']
 if st.session_state['page'] not in gecerli_sayfalar:
     st.session_state['page'] = 'main'
 
@@ -112,7 +124,7 @@ if not st.session_state['logged_in']:
                     if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize() 
-                        # Sayım modülünün beklediği değişkeni senkronize ediyoruz
+                        # Sayım ve Üretim modüllerinin beklediği ortak değişkeni senkronize ediyoruz
                         st.session_state['user'] = kadi.capitalize()
                         st.rerun()
                     else:
@@ -148,14 +160,21 @@ else:
 
         col4, col5, col6 = st.columns(3)
         with col4:
+            if st.button("🏭\nÜretim Bitiş Kaydı", type="primary", use_container_width=True): # 🆕 Yeni Menü Butonu
+                st.session_state['page'] = 'uretim_bitis'
+                st.rerun()
+        with col5:
             if st.button("📍\nStok & Adresleme", type="primary", use_container_width=True):
                 st.session_state['page'] = 'stok'
                 st.rerun()
-        with col5:
+        with col6:
             if st.button("📊\nDepo Sayim", type="primary", use_container_width=True):
                 st.session_state['page'] = 'sayim'
                 st.rerun()
-        with col6:
+                
+        # Alt sıraya tek kalan Raporlar butonunu hizalayalım
+        col7, col8, col9 = st.columns(3)
+        with col7:
             if st.button("📈\nRaporlar", type="primary", use_container_width=True):
                 st.session_state['page'] = 'rapor'
                 st.rerun()
@@ -182,6 +201,8 @@ else:
             blok_kesim.run_blok_kesim(conn)
         elif st.session_state['page'] == 'uretim':
             modul_uretim.goster() 
+        elif st.session_state['page'] == 'uretim_bitis': # 🆕 Yeni Yönlendirme Koşulu
+            modul_uretim_bitis.run_uretim_bitis(conn)
         elif st.session_state['page'] == 'stok':
             modul_stok.goster() 
         elif st.session_state['page'] == 'sayim':
