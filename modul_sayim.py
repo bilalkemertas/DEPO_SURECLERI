@@ -253,6 +253,16 @@ def goster(conn=None):
     if 'def_s_barcode' not in st.session_state:
         st.session_state.def_s_barcode = ""
 
+    # --- 🟢 KRİTİK: FORM SIFIRLAMA (WIDGETLAR OLUŞMADAN ÖNCE YAPILMALI) ---
+    if st.session_state.get('clear_sayim_form'):
+        st.session_state.def_s_kod = ""
+        st.session_state.def_s_isim = ""
+        st.session_state.def_s_mik = 0.0
+        st.session_state.def_s_barcode = ""
+        if 'supplier_barcode_key' in st.session_state:
+            st.session_state.supplier_barcode_key = ""
+        st.session_state.clear_sayim_form = False
+
     # GitHub Dosya Yolları / URL Ayarları (Varsayılan Yereldir, Ayarlardan Değişebilir)
     if 'github_form_sunger_url' not in st.session_state:
         st.session_state.github_form_sunger_url = "FORM_SUNGER.xlsx"
@@ -708,11 +718,7 @@ def goster(conn=None):
 
                 # Temizle butonu ile formu boşaltma imkanı sağla
                 if st.button("🧹 Girişleri Temizle", use_container_width=True):
-                    st.session_state.def_s_kod = ""
-                    st.session_state.def_s_isim = ""
-                    st.session_state.def_s_mik = 0.0
-                    st.session_state.def_s_barcode = ""
-                    st.session_state.supplier_barcode_key = ""
+                    st.session_state.clear_sayim_form = True
                     st.rerun()
 
                 if st.button("➕ EKLE", use_container_width=True):
@@ -737,11 +743,7 @@ def goster(conn=None):
                         st.toast("Listeye Eklendi", icon="📥")
                         
                         # Ekleme yapıldıktan sonra geçici barkod hafızasını sıfırla
-                        st.session_state.def_s_kod = ""
-                        st.session_state.def_s_isim = ""
-                        st.session_state.def_s_mik = 0.0
-                        st.session_state.def_s_barcode = ""
-                        st.session_state.supplier_barcode_key = ""
+                        st.session_state.clear_sayim_form = True
                         st.rerun()
 
             if st.session_state['gecici_sayim_listesi']:
