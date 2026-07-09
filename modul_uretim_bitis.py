@@ -5,7 +5,7 @@ from datetime import datetime
 
 def run_uretim_bitis(conn):
     st.header("🏭 Üretim Planlama, Takip ve Bitiş Onay Merkezi")
-    st.write("Planlanan ve devreden hedefleri izleyin, iş emirlerinden ana mamülleri seçerek tüketimleri yapın.")
+    st.write("Haftalık üretim planlarınızı oluşturun ve günlük hedeflere göre üretim bitiş kayıtlarını yönetin.")
     st.divider()
 
     # --- 1. VERİLERİ ÇEK ---
@@ -14,11 +14,8 @@ def run_uretim_bitis(conn):
         df_stok = veritabani.load_sheet("Stok") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Stok")
         df_is_emirleri = veritabani.load_sheet("Is_Emirleri") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Is_Emirleri")
         df_Hareketler = veritabani.load_sheet("Hareketler") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Hareketler")
-        
-        # 🗓️ HAFTALIK/GÜNLÜK ÜRETİM PLANI TABLOSU (Format: Tarih, Plan_Miktar)
-        df_plan = veritabani.load_sheet("Uretim_Plani") if hasattr(veritabani, 'load_sheet') else veritabani.get_internal_data("Uretim_Plani")
-    except:
-        st.error("🚨 Veritabanı katmanı veya sayfaları yüklenirken bir sorun oluştu!")
+    except Exception as e:
+        st.error(f"🚨 Veritabanı katmanı veya sayfaları yüklenirken bir sorun oluştu: {e}")
         return
 
     # Reçete matrisini yerelden oku
@@ -34,151 +31,220 @@ def run_uretim_bitis(conn):
         st.error("🚨 Kök dizinde 'eslesme_matrisi.csv' bulunamadı! Tüketim hesaplanamaz.")
         return
 
-    # Sütun isimlerindeki boşlukları ve veri tiplerini standartlaştır
+    # Sütun isimlerindeki boşlukları temizle ve zorunlu sütunları garanti et
     if df_is_emirleri is not None and not df_is_emirleri.empty:
         df_is_emirleri.columns = [c.strip() for c in df_is_emirleri.columns]
+        for col in ['Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']:
+            if col not in df_is_emirleri.columns:
+                df_is_emirleri[col] = ""
+    else:
+        st.warning("⚠️ Sistemde aktif iş emri kaydı bulunamadı.")
+        return
+
     if df_Hareketler is not None and not df_Hareketler.empty:
         df_Hareketler.columns = [c.strip() for c in df_Hareketler.columns]
-    if df_plan is not None and not df_plan.empty:
-        df_plan.columns = [c.strip() for c in df_plan.columns]
     else:
-        # Plan tablosu boş veya yoksa çökmemesi için boş bir şablon üretelim
-        df_plan = pd.DataFrame(columns=["Tarih", "Plan_Miktar"])
+        df_Hareketler = pd.DataFrame(columns=["Tarih", "İşlem", "İş Emri", "Kod", "İsim", "Miktar", "Personel", "Adres", "Durum"])
 
-    # Tarihleri datetime tipine çevirelim (Karşılaştırma için)
-    bugun_dt = datetime.now().date()
-    bugun_str = bugun_dt.strftime("%Y-%m-%d")
+    if df_stok is not None and not df_stok.empty:
+        df_stok.columns = [c.strip() for c in df_stok.columns]
 
-    # --- 2. DİNAMİK HEDEF VE DEVREDEN (BACKLOG) HESAPLAMA MOTORU ---
-    # Toplam fiili üretimleri tarih bazlı özetleyelim
-    df_Hareketler['Tarih_Kisa'] = ""
-    if 'Tarih' in df_Hareketler.columns and not df_Hareketler.empty:
-        df_Hareketler['Tarih_Kisa'] = df_Hareketler['Tarih'].astype(str).str[:10]
-    
-    # Bugün yapılan toplam mamül girişi
-    bugunku_fiili_uretim = 0
-    if not df_Hareketler.empty and 'İşlem' in df_Hareketler.columns:
-        bugunku_fiili_uretim = pd.to_numeric(
-            df_Hareketler[(df_Hareketler['Tarih_Kisa'] == bugun_str) & (df_Hareketler['İşlem'] == 'MAMÜL GİRİŞ')]['Miktar'], 
-            errors='coerce'
-        ).sum()
+    # Dinamik Sütun Eşleme Zırhı
+    ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
+    iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
 
-    # Plan tablosundaki tarihleri sanitize et
-    df_plan['Tarih_Dt'] = pd.to_datetime(df_plan['Tarih'], errors='coerce').dt.date
-    df_plan['Plan_Miktar'] = pd.to_numeric(df_plan['Plan_Miktar'], errors='coerce').fillna(0)
+    # Güncel tarih bilgileri
+    bugun_str = datetime.now().strftime("%Y-%m-%d")
 
-    # A. Bugünün net planı
-    bugun_plani = df_plan[df_plan['Tarih_Dt'] == bugun_dt]['Plan_Miktar'].sum()
+    # --- SESSİON STATE YÖNETİMİ ---
+    if "gecici_plan_listesi" not in st.session_state:
+        st.session_state["gecici_plan_listesi"] = []
 
-    # B. Geçmiş günlerden devreden (Backlog) hesabı
-    gecmis_planlar = df_plan[df_plan['Tarih_Dt'] < bugun_dt]
-    devreden_eksik_hedef = 0
+    # --- SEKME YAPISI (RADIO BUTON YOK) ---
+    tab_planlama, tab_uretim_bitis = st.tabs(["📅 Haftalık Üretim Planlama", "🏭 Günlük Üretim Bitiş Kaydı & Takip"])
 
-    for idx, row in gecmis_planlar.iterrows():
-        p_tarih = row['Tarih_Dt'].strftime("%Y-%m-%d")
-        p_miktar = row['Plan_Miktar']
+    # =========================================================================
+    # SEKME 1: HAFTALIK ÜRETİM PLANLAMA
+    # =========================================================================
+    with tab_planlama:
+        st.subheader("📝 Haftalık Plan Oluşturma Ekranı")
         
-        # O geçmiş tarihte yapılan toplam mamül girişi
-        gecmis_fiili = 0
-        if not df_Hareketler.empty and 'İşlem' in df_Hareketler.columns:
-            gecmis_fiili = pd.to_numeric(
-                df_Hareketler[(df_Hareketler['Tarih_Kisa'] == p_tarih) & (df_Hareketler['İşlem'] == 'MAMÜL GİRİŞ')]['Miktar'],
+        with st.container(border=True):
+            # 1. En üstte plan tarihi
+            secilen_plan_tarihi = st.date_input("1️⃣ Plan Tarihi Seçiniz:", value=datetime.now().date())
+            plan_tarihi_str = secilen_plan_tarihi.strftime("%Y-%m-%d")
+            
+            # 2. Seçilen tarihte hangi siparişten ürün yapılacağı
+            siparis_nolar = sorted(df_is_emirleri['Sipariş No'].dropna().unique().astype(str))
+            secilen_siparis = st.selectbox("2️⃣ Sipariş No Seçiniz:", ["Seçiniz..."] + siparis_nolar)
+            
+            if secilen_siparis != "Seçiniz...":
+                # Seçilen siparişe ait mamülleri filtrele
+                df_sip_mamuller = df_is_emirleri[df_is_emirleri['Sipariş No'].astype(str) == secilen_siparis]
+                mamul_listesi = df_sip_mamuller[iad].unique().tolist()
+                
+                # 3. Hangi mamülden kaç adet üretileceği
+                secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
+                
+                # Seçilen mamülün kodunu çek
+                mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
+                
+                plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
+                
+                # Listeye Ekle Butonu
+                if st.button("➕ Listeye Ekle", use_container_width=True):
+                    st.session_state["gecici_plan_listesi"].append({
+                        "Plan Tarihi": plan_tarihi_str,
+                        "Sipariş No": secilen_siparis,
+                        "Ürün Kodu": mamul_kodu,
+                        "Ürün Adı": secilen_mamul,
+                        "Plan Miktarı": plan_miktari
+                    })
+                    st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
+
+        # 4. Kaydetmeden önce görebileceğimiz tablo
+        st.subheader("📋 Plan Önizleme Tablosu")
+        if st.session_state["gecici_plan_listesi"]:
+            df_onizleme = pd.DataFrame(st.session_state["gecici_plan_listesi"])
+            st.dataframe(df_onizleme, use_container_width=True, hide_index=True)
+            
+            if st.button("🗑️ Önizleme Listesini Temizle"):
+                st.session_state["gecici_plan_listesi"] = []
+                st.rerun()
+                
+            # --- ANA BUTON: DRİVE'A KAYDET ---
+            st.write("---")
+            if st.button("💾 ÜRETİM PLANINI ONAYLA VE DRIVE'A KAYDET", type="primary", use_container_width=True):
+                # Is_Emirleri dataframe'i üzerinde güncelleme yap
+                for plan in st.session_state["gecici_plan_listesi"]:
+                    # Sipariş No ve Ürün Kodu eşleşen satırı bul
+                    idx = df_is_emirleri[
+                        (df_is_emirleri['Sipariş No'].astype(str) == str(plan["Sipariş No"])) & 
+                        (df_is_emirleri[ikod].astype(str) == str(plan["Ürün Kodu"]))
+                    ].index
+                    
+                    if not idx.empty:
+                        # Hücreleri doldur
+                        df_is_emirleri.at[idx[0], 'Plan Tarihi'] = str(plan["Plan Tarihi"])
+                        df_is_emirleri.at[idx[0], 'Plan Miktarı'] = str(plan["Plan Miktarı"])
+                
+                # Google Sheets / Drive üzerine yazma kontrolü
+                try:
+                    if hasattr(veritabani, '_save_df'):
+                        veritabani._save_df(df_is_emirleri, "Is_Emirleri")
+                    elif hasattr(veritabani, 'update_data'):
+                        veritabani.update_data("Is_Emirleri", df_is_emirleri)
+                    
+                    st.success("🎉 Planlama verileri 'Is_Emirleri' sekmesine başarıyla kaydedildi! Tablodan hiçbir veri silinmedi.")
+                    # Önizleme listesini temizlemiyoruz (Kural: tablodan veri silmiyor olmamız gerekiyor)
+                    st.balloons()
+                except Exception as ex:
+                    st.error(f"🚨 Drive'a kaydetme sırasında hata oluştu: {ex}")
+        else:
+            st.info("💡 Henüz planlanan bir veri yok. Yukarıdaki formdan ekleme yapabilirsiniz.")
+
+    # =========================================================================
+    # SEKME 2: ÜRETİM BİTİŞ KAYDI EKRANI & DASHBOARD (TARİH SEÇİMİ YOK)
+    # =========================================================================
+    with tab_uretim_bitis:
+        st.subheader("🎯 Bugünün Üretim Hedefleri ve Gerçekleşme Takibi")
+        
+        # Bugün planlananlar ve geçmişten kalan açık (devreden) işleri filtreleme
+        df_is_emirleri['Plan_Miktar_Sayısal'] = pd.to_numeric(df_is_emirleri['Plan Miktarı'], errors='coerce').fillna(0)
+        df_is_emirleri['Uretilen_Miktar_Sayısal'] = pd.to_numeric(df_is_emirleri['Üretilen Miktar'], errors='coerce').fillna(0)
+        
+        # Bugünün saf plan toplamı
+        bugunun_plan_toplami = df_is_emirleri[df_is_emirleri['Plan Tarihi'].astype(str) == bugun_str]['Plan_Miktar_Sayısal'].sum()
+        
+        # Geçmiş günlerden devreden borç (Planlanmış ama Üretilen < Planlanan olanlar)
+        df_gecmis_planlar = df_is_emirleri[(df_is_emirleri['Plan Tarihi'].astype(str) != "") & (df_is_emirleri['Plan Tarihi'].astype(str) < bugun_str)]
+        gecmis_devreden_toplam = 0
+        if not df_gecmis_planlar.empty:
+            gecmis_devreden_toplam = (df_gecmis_planlar['Plan_Miktar_Sayısal'] - df_gecmis_planlar['Uretilen_Miktar_Sayısal']).clip(lower=0).sum()
+            
+        # Toplam Dinamik Hedef
+        toplam_hedef_kume = bugunun_plan_toplami + gecmis_devreden_toplam
+        
+        # Bugün fiili üretilen toplam miktar
+        bugun_fiili_toplam = 0
+        if 'Tarih' in df_Hareketler.columns and not df_Hareketler.empty:
+            df_Hareketler['Tarih_Kisa'] = df_Hareketler['Tarih'].astype(str).str[:10]
+            bugun_fiili_toplam = pd.to_numeric(
+                df_Hareketler[(df_Hareketler['Tarih_Kisa'] == bugun_str) & (df_Hareketler['İşlem'] == 'MAMÜL GİRİŞ')]['Miktar'],
                 errors='coerce'
             ).sum()
+
+        # DASHBOARD METRİKLERİ
+        cm1, cm2, cm3 = st.columns(3)
+        cm1.metric(label="📆 Bugün Fiili Üretilen", value=f"{int(bugun_fiili_toplam)} Adet")
+        cm2.metric(label="🎯 Toplam Günlük Hedef (Plan + Devreden)", value=f"{int(toplam_hedef_kume)} Adet")
         
-        # Eğer o gün planlanandan az üretildiyse aradaki farkı devredene ekle
-        if gecmis_fiili < p_miktar:
-            devreden_eksik_hedef += (p_miktar - gecmis_fiili)
-
-    # Toplam Gerçekleşmesi Gereken Hedef = Bugünün Planı + Geçmişten Kalan Eksikler
-    toplam_dinamik_hedef = bugun_plani + devreden_eksik_hedef
-    if toplam_dinamik_hedef <= 0:
-        toplam_dinamik_hedef = 500  # Master data boşsa koruma amaçlı fallback varsayılan
-
-    # --- 3. SEKME YAPISI (RADIO BUTON YOK) ---
-    tab_dashboard, tab_kayit = st.tabs(["📊 Üretim Dashboard (Canlı Takip)", "🏗️ İş Emirleri & Üretim Bitiş Girişi"])
-
-    # =========================================================================
-    # SEKME 1: DASHBOARD
-    # =========================================================================
-    with tab_dashboard:
-        st.subheader("📈 Gerçek Zamanlı Üretim Performans Göstergeleri")
+        ilerleme = min(1.0, float(bugun_fiili_toplam / toplam_hedef_kume)) if toplam_hedef_kume > 0 else 0.0
+        cm3.metric(label="📈 Hedef Gerçekleşme Oranı", value=f"%{ilerleme * 100:.1f}")
+        st.progress(ilerleme, text="Günlük Kota İlerleme Durumu")
         
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.metric(label="📆 Bugün Üretilen Fiili", value=f"{int(bugunku_fiili_uretim)} Adet")
-        col_m2.metric(label="📋 Bugünün Saf Planı", value=f"{int(bugun_plani)} Adet")
-        col_m3.metric(label="⚠️ Geçmişten Devreden Eksik", value=f"{int(devreden_eksik_hedef)} Adet", delta="-Kalan Yük", delta_color="inverse")
-        col_m4.metric(label="🎯 Toplam Güncel Hedef", value=f"{int(toplam_dinamik_hedef)} Adet")
-
-        st.write("")
-        ilerleme_orani = min(1.0, float(bugunku_fiili_uretim / toplam_dinamik_hedef)) if toplam_dinamik_hedef > 0 else 0.0
-        st.progress(ilerleme_orani, text=f"Kümülatif Günlük Hedef Gerçekleşme Oranı: %{ilerleme_orani * 100:.1f}")
+        st.divider()
+        st.subheader("📋 Bugünün ve Devreden Planların Onay Listesi")
         
-        if devreden_eksik_hedef > 0:
-            st.warning(f"💡 Bilgi: Günlük hedefe, geçmiş günlerde tamamlanamayan **{int(devreden_eksik_hedef)} Adet** üretim borcu dahil edilmiştir.")
+        # Tabloda gösterilecek açık planlı satırları filtrele
+        df_aktif_planlar = df_is_emirleri[
+            (df_is_emirleri['Plan Tarihi'].astype(str) == bugun_str) | 
+            ((df_is_emirleri['Plan Tarihi'].astype(str) != "") & (df_is_emirleri['Plan Tarihi'].astype(str) < bugun_str) & (df_is_emirleri['Uretilen_Miktar_Sayısal'] < df_is_emirleri['Plan_Miktar_Sayısal']))
+        ].copy()
 
-    # =========================================================================
-    # SEKME 2: İŞ EMİRLERİNDEN SEÇEREK ÜRETİM BİTİŞ GİRİŞİ
-    # =========================================================================
-    with tab_kayit:
-        st.subheader("📋 Açık İş Emirleri & Ana Ürün Listesi")
-        st.caption("Aşağıdaki tablodan üretimi tamamlanan ana ürüne tıklayın, alt alanda reçete patlatılacaktır.")
-
-        if df_is_emirleri is None or df_is_emirleri.empty:
-            st.warning("⚠️ Sistemde aktif iş emri kaydı bulunamadı.")
+        if df_aktif_planlar.empty:
+            st.info("✨ Bugün için planlanmış veya geçmişten devretmiş bekleyen bir üretim hedefi bulunmuyor.")
             return
 
-        # Esnek sütun ismi eşleme zırhı
-        ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
-        iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
-        imik = 'Miktar' if 'Miktar' in df_is_emirleri.columns else ('Adet' if 'Adet' in df_is_emirleri.columns else 'Miktar')
-
-        # Tabloyu temizle ve sadece ana ürün satırlarını listelenebilir yap
-        df_gosterim = df_is_emirleri[['Sipariş No', ikod, iad, imik]].dropna(subset=['Sipariş No']).copy()
+        # Sadeleştirilmiş gösterim tablosu
+        df_onay_gosterim = df_aktif_planlar[['Sipariş No', ikod, iad, 'Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']].copy()
         
-        # İnteraktif Satır Seçim Modu (Tek Satır)
+        # İnteraktif Satır Seçimi
         secim_kapsami = st.dataframe(
-            df_gosterim,
+            df_onay_gosterim,
             use_container_width=True,
             hide_index=True,
             selection_mode="single-row",
             on_select="rerun"
         )
 
-        # Satır tıklandığında açılacak onay ve backflush alanı
         if secim_kapsami and "rows" in secim_kapsami["selection"] and len(secim_kapsami["selection"]["rows"]) > 0:
-            secili_indeks = secim_kapsami["selection"]["rows"][0]
-            satir_detay = df_gosterim.iloc[secili_indeks]
+            secili_idx = secim_kapsami["selection"]["rows"][0]
+            satir_detay = df_onay_gosterim.iloc[secili_idx]
 
             secilen_siparis = str(satir_detay['Sipariş No'])
             mamul_kodu = str(satir_detay[ikod])
             mamul_adi = str(satir_detay[iad])
+            
+            # Sayısal güvenli dönüşüm zırhı
+            try:
+                mevcut_uretilmis = float(satir_detay['Üretilen Miktar']) if str(satir_detay['Üretilen Miktar']).strip() != "" else 0.0
+            except:
+                mevcut_uretilmis = 0.0
 
             st.write("---")
-            st.success(f"🏭 **Seçilen İş Emri:** {secilen_siparis}  |  **Ana Ürün:** {mamul_adi} ({mamul_kodu})")
+            st.success(f"🎯 **Seçilen Ürün:** {mamul_adi} ({mamul_kodu}) | **Sipariş:** {secilen_siparis}")
 
-            col_form1, col_form2 = st.columns([1, 2])
-            with col_form1:
+            col_u1, col_u2 = st.columns([1, 2])
+            with col_u1:
                 with st.container(border=True):
-                    st.subheader("🔢 Üretim Miktarı")
-                    uretim_miktari = st.number_input("Fiili Üretilen Adet (Giriş):", min_value=1, value=1, step=1)
+                    st.subheader("🔢 Üretim Girişi")
+                    girilen_uretim_miktari = st.number_input("Bu Dönem Üretilen Miktar (Adet):", min_value=1, value=1, step=1)
             
-            # eslesme_matrisi.csv üzerinden Reçete (BOM) Çözümleme
+            # Reçete (BOM) Hesaplama
             recete_kalemleri = pd.DataFrame()
             if 'Plaka Kodu' in df_recete.columns:
                 recete_kalemleri = df_recete[df_recete['Plaka Kodu'].astype(str).str.strip() == mamul_kodu.strip()]
 
-            with col_form2:
-                st.subheader("📋 Otomatik Tüketilecek Bileşen Projeksiyonu (Hammadde & Yarı Mamül)")
+            with col_u2:
+                st.subheader("📋 Otomatik Tüketilecek Hammadde/Yarı Mamül")
                 if not recete_kalemleri.empty:
                     tuketim_plani = []
                     for _, row in recete_kalemleri.iterrows():
                         b_kodu = row.get('Blok Kodu', 'Bilinmeyen Kod')
                         b_adi = row.get('Blok Adı', 'Bilinmeyen İsim')
-                        
-                        # Kalınlık veya sarfiyat katsayısı çarpanı
                         birim_sarfiyat = float(row.get('Kalinlik', 1)) if 'Kalinlik' in row.columns else 1.0
-                        toplam_tuketim = birim_sarfiyat * uretim_miktari
+                        toplam_tuketim = birim_sarfiyat * girilen_uretim_miktari
 
                         tuketim_plani.append({
                             "Bileşen Kodu": b_kodu,
@@ -186,80 +252,73 @@ def run_uretim_bitis(conn):
                             "Birim Sarfiyat": birim_sarfiyat,
                             "Toplam Tüketim": toplam_tuketim
                         })
-                    
-                    df_tuketim_view = pd.DataFrame(tuketim_plani)
-                    st.dataframe(df_tuketim_view, use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(tuketim_plani), use_container_width=True, hide_index=True)
                 else:
-                    st.warning("⚠️ Bu ürüne ait reçete (BOM) bağlantısı 'eslesme_matrisi.csv' içinde tanımlanmamış!")
+                    st.warning("⚠️ Bu mamüle ait reçete bağlantısı 'eslesme_matrisi.csv' içinde bulunamadı!")
                     tuketim_plani = []
 
-            # --- VERİTABANINA YAZMA VE STOK DÜŞÜM MOTORU ---
+            # --- KAYDET BUTONU ---
             st.write("---")
             aktif_personel = st.session_state.get('user', 'Üretim Personeli')
             
-            if st.button("🚀 ÜRETİM BİTİŞİNİ ONAYLA VE STOKLARI GÜNCELLE", type="primary", use_container_width=True):
+            if st.button("🚀 ÜRETİM MİKTARINI İŞLE VE STOKLARI GÜNCELLE", type="primary", use_container_width=True):
                 zaman_damgasi = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                yeni_Hareketler = []
+                yeni_hareketler = []
 
-                # A. Üretilen Ana Ürün Giriş Hareketi
-                yeni_Hareketler.append({
-                    "Tarih": zaman_damgasi,
-                    "İşlem": "MAMÜL GİRİŞ",
-                    "İş Emri": secilen_siparis,
-                    "Kod": mamul_kodu,
-                    "İsim": mamul_adi,
-                    "Miktar": uretim_miktari,
-                    "Personel": aktif_personel,
-                    "Adres": "ÜRETİM-HATTI",
-                    "Durum": "Kullanılabilir"
+                # 1. HAREKETLER KAYITLARI (Stok geçmişi için)
+                yeni_hareketler.append({
+                    "Tarih": zaman_damgasi, "İşlem": "MAMÜL GİRİŞ", "İş Emri": secilen_siparis,
+                    "Kod": mamul_kodu, "İsim": mamul_adi, "Miktar": girilen_uretim_miktari,
+                    "Personel": aktif_personel, "Adres": "ÜRETİM-HATTI", "Durum": "Kullanılabilir"
                 })
 
-                # B. Alt Bileşenlerin (Hammadde ve Yarı Mamül) Tüketim Hareketi
                 for t in tuketim_plani:
-                    yeni_Hareketler.append({
-                        "Tarih": zaman_damgasi,
-                        "İşlem": "ÜRETİM TÜKETİM",
-                        "İş Emri": secilen_siparis,
-                        "Kod": t["Bileşen Kodu"],
-                        "İsim": t["Bileşen Adı"],
-                        "Miktar": -float(t["Toplam Tüketim"]), # Eksi değer düşüm sağlar
-                        "Personel": aktif_personel,
-                        "Adres": "ÜRETİM-TÜKETİM",
-                        "Durum": "Kullanılabilir"
+                    yeni_hareketler.append({
+                        "Tarih": zaman_damgasi, "İşlem": "ÜRETİM TÜKETİM", "İş Emri": secilen_siparis,
+                        "Kod": t["Bileşen Kodu"], "İsim": t["Bileşen Adı"], "Miktar": -float(t["Toplam Tüketim"]),
+                        "Personel": aktif_personel, "Adres": "ÜRETİM-TÜKETİM", "Durum": "Kullanılabilir"
                     })
 
-                # Hareketleri birleştir
-                df_har_yeni = pd.concat([df_Hareketler, pd.DataFrame(yeni_Hareketler)], ignore_index=True)
+                df_har_son = pd.concat([df_Hareketler, pd.DataFrame(yeni_hareketler)], ignore_index=True)
 
-                # Stok bakiyelerini canlı güncelle
+                # 2. CANLI STOK GÜNCELLEME
                 if df_stok is not None and not df_stok.empty:
-                    df_stok.columns = [c.strip() for c in df_stok.columns]
-                    
-                    # Mamül stoğunu ekle
+                    # Mamül stoğunu artır
                     m_idx = df_stok[df_stok['Kod'].astype(str).str.strip() == mamul_kodu.strip()].index
                     if not m_idx.empty:
-                        df_stok.at[m_idx[0], 'Miktar'] = pd.to_numeric(df_stok.at[m_idx[0], 'Miktar'], errors='coerce') + uretim_miktari
-
-                    # Bileşen stoklarını eksilt
+                        df_stok.at[m_idx[0], 'Miktar'] = pd.to_numeric(df_stok.at[m_idx[0], 'Miktar'], errors='coerce') + girilen_uretim_miktari
+                    
+                    # Bileşen stoklarını düş
                     for t in tuketim_plani:
                         b_idx = df_stok[df_stok['Kod'].astype(str).str.strip() == str(t["Bileşen Kodu"]).strip()].index
                         if not b_idx.empty:
                             eski_stok = pd.to_numeric(df_stok.at[b_idx[0], 'Miktar'], errors='coerce')
                             df_stok.at[b_idx[0], 'Miktar'] = max(0.0, eski_stok - t["Toplam Tüketim"])
 
-                # Google Sheets / Local Drive üzerine yazma kontrolü
+                # 3. İŞ EMİRLERİ SEKLESİNDEKİ "Üretilen Miktar" ALANINI KÜMÜLATİF GÜNCELLEME
+                target_is_emri_idx = df_is_emirleri[
+                    (df_is_emirleri['Sipariş No'].astype(str) == secilen_siparis) & 
+                    (df_is_emirleri[ikod].astype(str) == mamul_kodu)
+                ].index
+                
+                if not target_is_emri_idx.empty:
+                    df_is_emirleri.at[target_is_emri_idx[0], 'Üretilen Miktar'] = str(mevcut_uretilmis + girilen_uretim_miktari)
+
+                # Drive / Sheets Güncellemesi
                 try:
                     if hasattr(veritabani, '_save_df'):
-                        veritabani._save_df(df_har_yeni, "Hareketler")
+                        veritabani._save_df(df_har_son, "Hareketler")
                         veritabani._save_df(df_stok, "Stok")
+                        veritabani._save_df(df_is_emirleri, "Is_Emirleri")
                     elif hasattr(veritabani, 'update_data'):
-                        veritabani.update_data("Hareketler", df_har_yeni)
+                        veritabani.update_data("Hareketler", df_har_son)
                         veritabani.update_data("Stok", df_stok)
-                    
-                    st.success(f"🎉 İş Emri {secilen_siparis} kapatıldı! {uretim_miktari} adet mamül girişi işlendi. Tüm alt bileşenler (hammadde/yarı mamül) stoktan düşüldü.")
+                        veritabani.update_data("Is_Emirleri", df_is_emirleri)
+                        
+                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellendi.")
                     st.balloons()
                     st.rerun()
                 except Exception as ex:
-                    st.error(f"🚨 Kayıt işlenirken veritabanı hatası oluştu: {ex}")
+                    st.error(f"🚨 Veriler kaydedilirken hata oluştu: {ex}")
         else:
-            st.info("💡 İşlem yapmak için yukarıdaki listeden üretimi tamamlanan bir ana ürün satırına tıklayın.")
+            st.info("💡 Yukarıdaki listeden üretimi tamamlanan bir mamül satırına tıklayarak üretim adedini girebilirsiniz.")
