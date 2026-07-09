@@ -91,10 +91,12 @@ def handle_supplier_barcode(barcode_scanned):
     # Sütun isimlerini standartlaştır
     df_sunger.columns = [str(c).strip() for c in df_sunger.columns]
 
-    # Dinamik sütun eşleştirme (Parti No, Malzeme Kodu, Teslimat Miktarı)
+    # Dinamik sütun eşleştirme
     parti_col = next((c for c in df_sunger.columns if "parti" in c.lower() or "lot" in c.lower() or ("no" in c.lower() and "parti" in c.lower())), None)
     malzeme_col = next((c for c in df_sunger.columns if "malzeme" in c.lower() or "kod" in c.lower()), None)
-    miktar_col = next((c for c in df_sunger.columns if "teslimat" in c.lower() or "miktar" in c.lower() or "qty" in c.lower()), None)
+    
+    # Kodu Düzeltilen Kısım: Miktarı sadece 'Toplam M3' veya 'Hacim' sütunlarından çekmeye zorla
+    miktar_col = next((c for c in df_sunger.columns if "m3" in c.lower() or "hacim" in c.lower()), None)
 
     # Bulunamazsa varsayılan veya indeks bazlı atama yap
     if not parti_col: parti_col = "Parti No" if "Parti No" in df_sunger.columns else df_sunger.columns[0]
@@ -123,7 +125,7 @@ def handle_supplier_barcode(barcode_scanned):
     except:
         teslimat_miktari = 0.0
 
-    st.toast(f"✅ Parti No Eşleşti! Malzeme Kodu: {malzeme_kodu}", icon="✔️")
+    st.toast(f"✅ Parti No Eşleşti! Malzeme Kodu: {malzeme_kodu} | Hacim: {teslimat_miktari}", icon="✔️")
 
     # 3. BRN-FORM EŞLEŞME.xlsx Excel Dosyasını Yükle ve Kendi Kodumuzu/Stok Adımızı Bul
     df_eslesme = load_github_xlsx(st.session_state.github_brn_form_url)
@@ -738,7 +740,7 @@ def goster(conn=None):
                     cols = st.columns([3, 1])
                     # Ekranda okutulan Tedarikçi Barkodu bilgisini de gösterelim
                     barkod_metni = f" | 🔌 Barkod: {item['Tedarikçi_Barkodu']}" if item.get('Tedarikçi_Barkodu') else ""
-                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.2f} | 🛠️ {item['Durum']}{barkod_metni}")
+                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.3f} | 🛠️ {item['Durum']}{barkod_metni}")
                     if cols[1].button("🗑️", key=f"d_{idx}"):
                         st.session_state['gecici_sayim_listesi'].pop(idx)
                         st.rerun()
