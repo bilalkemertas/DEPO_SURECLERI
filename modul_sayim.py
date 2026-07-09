@@ -73,7 +73,7 @@ def load_github_csv(url_or_path):
 def handle_supplier_barcode(barcode_scanned):
     """
     Tedarikçi barkodunu okuyup son 10 karakteri ayıklar, form sünger ve
-    eşleşme matrisi dosyalarından malzeme bilgisi ile teslimat miktarını çeker.
+    BRN-FORM EŞLEŞME.xlsx dosyalarından malzeme bilgisi ile teslimat miktarını çeker.
     """
     if not barcode_scanned:
         return
@@ -125,8 +125,8 @@ def handle_supplier_barcode(barcode_scanned):
 
     st.toast(f"✅ Parti No Eşleşti! Malzeme Kodu: {malzeme_kodu}", icon="✔️")
 
-    # 3. eslesme_matrisi.csv Dosyasını Yükle ve Kendi Kodumuzu/Stok Adımızı Bul
-    df_eslesme = load_github_csv(st.session_state.github_eslesme_url)
+    # 3. BRN-FORM EŞLEŞME.xlsx Excel Dosyasını Yükle ve Kendi Kodumuzu/Stok Adımızı Bul
+    df_eslesme = load_github_xlsx(st.session_state.github_brn_form_url)
     
     our_code = malzeme_kodu
     our_name = f"Tedarikçi Kodu: {malzeme_kodu}"
@@ -134,35 +134,54 @@ def handle_supplier_barcode(barcode_scanned):
     if df_eslesme is not None and not df_eslesme.empty:
         df_eslesme.columns = [str(c).strip() for c in df_eslesme.columns]
         
-        # Sütunları dinamik tespit et
-        supp_col = next((c for c in df_eslesme.columns if "malzeme" in c.lower() or "hammadde" in c.lower() or "tedarik" in c.lower() or "plaka" in c.lower() or c.upper() == "KOD"), df_eslesme.columns[0])
-        our_cod_col = next((c for c in df_eslesme.columns if "bağlı" in c.lower() or "bizim" in c.lower() or "stok kod" in c.lower() or "ürün" in c.lower() or "blok kod" in c.lower()), None)
-        our_nam_col = next((c for c in df_eslesme.columns if "isim" in c.lower() or "ad" in c.lower() or "tanım" in c.lower()), None)
+        # Sütunları dinamik ve zırhlı tespit et (FORM KODU ve BRN KODU / BRN ÜRÜN ADI için)
+        form_col = next((c for c in df_eslesme.columns if "form" in c.lower() and "kod" in c.lower()), None)
+        brn_cod_col = next((c for c in df_eslesme.columns if "brn" in c.lower() and "kod" in c.lower()), None)
+        brn_nam_col = next((c for c in df_eslesme.columns if "brn" in c.lower() and ("ad" in c.lower() or "ürün" in c.lower() or "urun" in c.lower())), None)
 
-        if not our_cod_col:
-            our_cod_col = df_eslesme.columns[2] if len(df_eslesme.columns) >= 3 else df_eslesme.columns[0]
-        if not our_nam_col:
-            our_nam_col = df_eslesme.columns[3] if len(df_eslesme.columns) >= 4 else (df_eslesme.columns[1] if len(df_eslesme.columns) >= 2 else df_eslesme.columns[0])
+        # Fallback sütun tespitleri (eğer spesifik kelimeler bulunamazsa varsayılan sütun indisleri atanır)
+        if not form_col:
+            form_col = df_eslesme.columns[0]
+        if not brn_cod_col:
+            brn_cod_col = df_eslesme.columns[1] if len(df_eslesme.columns) > 1 else df_eslesme.columns[0]
+        if not brn_nam_col:
+            brn_nam_col = df_eslesme.columns[2] if len(df_eslesme.columns) > 2 else brn_cod_col
 
-        df_eslesme[supp_col] = df_eslesme[supp_col].astype(str).str.strip()
-        match_eslesme = df_eslesme[df_eslesme[supp_col] == malzeme_kodu]
+        # Karşılaştırma için kodları temizleme fonksiyonu (.0 uzantılarını, boşlukları siler, büyük harf yapar)
+        def clean_code(val):
+            if pd.isna(val): return ""
+            s = str(val).strip().upper()
+            if s.endswith(".0"): s = s[:-2]
+            return s
+
+        df_eslesme[form_col] = df_eslesme[form_col].apply(clean_code)
+        target_code = clean_code(malzeme_kodu)
+        match_eslesme = df_eslesme[df_eslesme[form_col] == target_code]
 
         if not match_eslesme.empty:
             row_eslesme = match_eslesme.iloc[0]
-            our_code = str(row_eslesme.get(our_cod_col, malzeme_kodu)).strip()
-            our_name = str(row_eslesme.get(our_nam_col, 'TANIMSIZ')).strip()
-            st.success(f"🎯 Bizim Kod Eşleşti: {our_code} | Stok: {our_name}")
+            our_code = str(row_eslesme.get(brn_cod_col, malzeme_kodu)).strip()
+            our_name = str(row_eslesme.get(brn_nam_col, 'TANIMSIZ')).strip()
+            st.success(f"🎯 BRN Kod Eşleşti: {our_code} | Stok: {our_name}")
         else:
-            st.warning(f"⚠️ '{malzeme_kodu}' kodu eşleşme matrisinde bulunamadı. Orijinal kod kullanılacak.")
-            # Eğer katalogda varsa ismi oradan almayı dene (Fallback)
-            catalog = get_dinamik_katalog_local()
-            for cat_item in catalog:
-                if cat_item.startswith(malzeme_kodu):
-                    parts = cat_item.split(" | ", 1)
-                    our_name = parts[1].strip() if len(parts) > 1 else our_name
-                    break
+            # Kısmi eşleşme kontrolü (Fallback)
+            match_eslesme_partial = df_eslesme[df_eslesme[form_col].str.contains(target_code, na=False)]
+            if not match_eslesme_partial.empty:
+                row_eslesme = match_eslesme_partial.iloc[0]
+                our_code = str(row_eslesme.get(brn_cod_col, malzeme_kodu)).strip()
+                our_name = str(row_eslesme.get(brn_nam_col, 'TANIMSIZ')).strip()
+                st.success(f"🎯 BRN Kod Eşleşti (Kısmi): {our_code} | Stok: {our_name}")
+            else:
+                st.warning(f"⚠️ '{malzeme_kodu}' kodu BRN-FORM eşleşme tablosunda bulunamadı. Orijinal kod kullanılacak.")
+                # Eğer katalogda varsa ismi oradan almayı dene
+                catalog = get_dinamik_katalog_local()
+                for cat_item in catalog:
+                    if cat_item.startswith(malzeme_kodu):
+                        parts = cat_item.split(" | ", 1)
+                        our_name = parts[1].strip() if len(parts) > 1 else our_name
+                        break
     else:
-        st.warning("⚠️ 'eslesme_matrisi.csv' bulunamadığından eşleşme matrisi kontrol edilemedi.")
+        st.warning("⚠️ 'BRN-FORM EŞLEŞME.xlsx' bulunamadığından eşleşme kontrolü yapılamadı.")
 
     # 4. Session State Değerlerini Güncelleyerek Formu Doldur
     st.session_state.def_s_kod = our_code
@@ -225,8 +244,8 @@ def goster(conn=None):
     # GitHub Dosya Yolları / URL Ayarları (Varsayılan Yereldir, Ayarlardan Değişebilir)
     if 'github_form_sunger_url' not in st.session_state:
         st.session_state.github_form_sunger_url = "FORM_SUNGER.xlsx"
-    if 'github_eslesme_url' not in st.session_state:
-        st.session_state.github_eslesme_url = "eslesme_matrisi.csv"
+    if 'github_brn_form_url' not in st.session_state:
+        st.session_state.github_brn_form_url = "BRN-FORM EŞLEŞME.xlsx"
 
     # -----------------------------
     # Gelişmiş GitHub Bağlantı Paneli (Sidebar)
@@ -238,9 +257,9 @@ def goster(conn=None):
             value=st.session_state.github_form_sunger_url,
             help="Yerel dosya adını ya da GitHub Raw URL'sini girebilirsiniz."
         )
-        st.session_state.github_eslesme_url = st.text_input(
-            "eslesme_matrisi.csv Yolu/URL:",
-            value=st.session_state.github_eslesme_url,
+        st.session_state.github_brn_form_url = st.text_input(
+            "BRN-FORM EŞLEŞME.xlsx Yolu/URL:",
+            value=st.session_state.github_brn_form_url,
             help="Yerel dosya adını ya da GitHub Raw URL'sini girebilirsiniz."
         )
         if st.button("Önbelleği Temizle"):
