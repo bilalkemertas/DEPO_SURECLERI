@@ -84,26 +84,35 @@ def run_uretim_bitis(conn):
             if secilen_siparis != "Seçiniz...":
                 # Seçilen siparişe ait mamülleri filtrele
                 df_sip_mamuller = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == secilen_siparis]
-                mamul_listesi = df_sip_mamuller[iad].unique().tolist()
                 
-                # 3. Hangi mamülden kaç adet üretileceği
-                secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
+                # Sütun koruma kalkanı ilavesi
+                if iad not in df_sip_mamuller.columns:
+                    df_sip_mamuller.columns = [c.strip() for c in df_sip_mamuller.columns]
+                    iad = 'Ürün Adı' if 'Ürün Adı' in df_sip_mamuller.columns else ('Plaka Adı' if 'Plaka Adı' in df_sip_mamuller.columns else 'İsim')
+
+                mamul_listesi = df_sip_mamuller[iad].unique().tolist() if iad in df_sip_mamuller.columns else []
                 
-                # Seçilen mamülün kodunu çek
-                mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
-                
-                plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
-                
-                # Listeye Ekle Butonu
-                if st.button("➕ Listeye Ekle", use_container_width=True):
-                    st.session_state["gecici_plan_listesi"].append({
-                        "Plan Tarihi": plan_tarihi_str,
-                        "İş Emri": secilen_siparis,
-                        "Ürün Kodu": mamul_kodu,
-                        "Ürün Adı": secilen_mamul,
-                        "Plan Miktarı": plan_miktari
-                    })
-                    st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
+                if mamul_listesi:
+                    # 3. Hangi mamülden kaç adet üretileceği
+                    secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
+                    
+                    # Seçilen mamülün kodunu çek
+                    mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
+                    
+                    plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
+                    
+                    # Listeye Ekle Butonu
+                    if st.button("➕ Listeye Ekle", use_container_width=True):
+                        st.session_state["gecici_plan_listesi"].append({
+                            "Plan Tarihi": plan_tarihi_str,
+                            "İş Emri": secilen_siparis,
+                            "Ürün Kodu": mamul_kodu,
+                            "Ürün Adı": secilen_mamul,
+                            "Plan Miktarı": plan_miktari
+                        })
+                        st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
+                else:
+                    st.error(f"🚨 Seçilen iş emrine ait geçerli bir mamül adı sütunu ({iad}) bulunamadı.")
 
         # 4. Kaydetmeden önce görebileceğimiz tablo
         st.subheader("📋 Plan Önizleme Tablosu")
@@ -330,10 +339,10 @@ def run_uretim_bitis(conn):
                         veritabani.update_data("Stok", df_stok)
                         veritabani.update_data("Is_Emirleri", df_is_emirleri)
                         
-                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellendi.")
+                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellenedi.")
                     st.balloons()
                     st.rerun()
                 except Exception as ex:
                     st.error(f"🚨 Veriler kaydedilirken hata oluştu: {ex}")
         else:
-            st.info("💡 Yukarıdaki列表中 üretimi tamamlanan bir mamül satırına tıklayarak üretim adedini girebilirsiniz.")
+            st.info("💡 Yukarıdaki listeden üretimi tamamlanan bir mamül satırına tıklayarak üretim adedini girebilirsiniz.")
