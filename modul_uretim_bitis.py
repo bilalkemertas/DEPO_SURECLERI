@@ -100,32 +100,11 @@ def run_uretim_bitis(conn):
 
 
 
-    # Dinamik Sütun Eşleme Zırhı - HATA FİKSİ: Geçerli sütunları kontrol et
+    # Dinamik Sütun Eşleme Zırhı - Soft fallback (orijinal mantık)
 
-    ikod = None
-    iad = None
+    ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
 
-    # Ürün Kodu bulma
-    if 'Ürün Kodu' in df_is_emirleri.columns:
-        ikod = 'Ürün Kodu'
-    elif 'Plaka Kodu' in df_is_emirleri.columns:
-        ikod = 'Plaka Kodu'
-    elif 'Kod' in df_is_emirleri.columns:
-        ikod = 'Kod'
-    else:
-        st.error("🚨 Ürün kodu sütunu bulunamadı. Lütfen 'Ürün Kodu', 'Plaka Kodu' veya 'Kod' sütunlarından birinin varlığını kontrol edin.")
-        return
-
-    # Ürün Adı bulma
-    if 'Ürün Adı' in df_is_emirleri.columns:
-        iad = 'Ürün Adı'
-    elif 'Plaka Adı' in df_is_emirleri.columns:
-        iad = 'Plaka Adı'
-    elif 'İsim' in df_is_emirleri.columns:
-        iad = 'İsim'
-    else:
-        st.error("🚨 Ürün adı sütunu bulunamadı. Lütfen 'Ürün Adı', 'Plaka Adı' veya 'İsim' sütunlarından birinin varlığını kontrol edin.")
-        return
+    iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
 
 
 
@@ -185,50 +164,45 @@ def run_uretim_bitis(conn):
 
                 df_sip_mamuller = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == secilen_siparis]
 
-                # HATA FİKSİ: Sütun kontrolü ekle
-                if iad not in df_sip_mamuller.columns:
-                    st.error(f"🚨 Hata: '{iad}' sütunu seçilen sipariş verilerinde bulunamadı.")
-                else:
-                    mamul_listesi = df_sip_mamuller[iad].dropna().unique().tolist()
+                mamul_listesi = df_sip_mamuller[iad].unique().tolist()
 
-                    if not mamul_listesi:
-                        st.warning("⚠️ Seçilen sipariş için mamül bulunamadı.")
-                    else:
-                        # 3. Hangi mamülden kaç adet üretileceği
+                
 
-                        secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
+                # 3. Hangi mamülden kaç adet üretileceği
 
-                        
+                secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
 
-                        # Seçilen mamülün kodunu çek
+                
 
-                        mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
+                # Seçilen mamülün kodunu çek
 
-                        
+                mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
 
-                        plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
+                
 
-                        
+                plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
 
-                        # Listeye Ekle Butonu
+                
 
-                        if st.button("➕ Listeye Ekle", use_container_width=True):
+                # Listeye Ekle Butonu
 
-                            st.session_state["gecici_plan_listesi"].append({
+                if st.button("➕ Listeye Ekle", use_container_width=True):
 
-                                "Plan Tarihi": plan_tarihi_str,
+                    st.session_state["gecici_plan_listesi"].append({
 
-                                "İş Emri": secilen_siparis,
+                        "Plan Tarihi": plan_tarihi_str,
 
-                                "Ürün Kodu": mamul_kodu,
+                        "İş Emri": secilen_siparis,
 
-                                "Ürün Adı": secilen_mamul,
+                        "Ürün Kodu": mamul_kodu,
 
-                                "Plan Miktarı": plan_miktari
+                        "Ürün Adı": secilen_mamul,
 
-                            })
+                        "Plan Miktarı": plan_miktari
 
-                            st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
+                    })
+
+                    st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
 
 
 
