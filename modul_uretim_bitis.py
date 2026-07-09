@@ -75,12 +75,12 @@ def run_uretim_bitis(conn):
             plan_tarihi_str = secilen_plan_tarihi.strftime("%Y-%m-%d")
             
             # 2. Seçilen tarihte hangi siparişten ürün yapılacağı
-            siparis_nolar = sorted(df_is_emirleri['Sipariş No'].dropna().unique().astype(str))
+            siparis_nolar = sorted(df_is_emirleri['İş Emri'].dropna().unique().astype(str))
             secilen_siparis = st.selectbox("2️⃣ Sipariş No Seçiniz:", ["Seçiniz..."] + siparis_nolar)
             
             if secilen_siparis != "Seçiniz...":
                 # Seçilen siparişe ait mamülleri filtrele
-                df_sip_mamuller = df_is_emirleri[df_is_emirleri['Sipariş No'].astype(str) == secilen_siparis]
+                df_sip_mamuller = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == secilen_siparis]
                 mamul_listesi = df_sip_mamuller[iad].unique().tolist()
                 
                 # 3. Hangi mamülden kaç adet üretileceği
@@ -95,7 +95,7 @@ def run_uretim_bitis(conn):
                 if st.button("➕ Listeye Ekle", use_container_width=True):
                     st.session_state["gecici_plan_listesi"].append({
                         "Plan Tarihi": plan_tarihi_str,
-                        "Sipariş No": secilen_siparis,
+                        "İş Emri": secilen_siparis,
                         "Ürün Kodu": mamul_kodu,
                         "Ürün Adı": secilen_mamul,
                         "Plan Miktarı": plan_miktari
@@ -119,7 +119,7 @@ def run_uretim_bitis(conn):
                 for plan in st.session_state["gecici_plan_listesi"]:
                     # Sipariş No ve Ürün Kodu eşleşen satırı bul
                     idx = df_is_emirleri[
-                        (df_is_emirleri['Sipariş No'].astype(str) == str(plan["Sipariş No"])) & 
+                        (df_is_emirleri['İş Emri'].astype(str) == str(plan["İş Emri"])) & 
                         (df_is_emirleri[ikod].astype(str) == str(plan["Ürün Kodu"]))
                     ].index
                     
@@ -197,7 +197,7 @@ def run_uretim_bitis(conn):
             return
 
         # Sadeleştirilmiş gösterim tablosu
-        df_onay_gosterim = df_aktif_planlar[['Sipariş No', ikod, iad, 'Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']].copy()
+        df_onay_gosterim = df_aktif_planlar[['İş Emri', ikod, iad, 'Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']].copy()
         
         # İnteraktif Satır Seçimi
         secim_kapsami = st.dataframe(
@@ -212,7 +212,7 @@ def run_uretim_bitis(conn):
             secili_idx = secim_kapsami["selection"]["rows"][0]
             satir_detay = df_onay_gosterim.iloc[secili_idx]
 
-            secilen_siparis = str(satir_detay['Sipariş No'])
+            secilen_siparis = str(satir_detay['İş Emri'])
             mamul_kodu = str(satir_detay[ikod])
             mamul_adi = str(satir_detay[iad])
             
@@ -297,7 +297,7 @@ def run_uretim_bitis(conn):
 
                 # 3. İŞ EMİRLERİ SEKLESİNDEKİ "Üretilen Miktar" ALANINI KÜMÜLATİF GÜNCELLEME
                 target_is_emri_idx = df_is_emirleri[
-                    (df_is_emirleri['Sipariş No'].astype(str) == secilen_siparis) & 
+                    (df_is_emirleri['İş Emri'].astype(str) == secilen_siparis) & 
                     (df_is_emirleri[ikod].astype(str) == mamul_kodu)
                 ].index
                 
