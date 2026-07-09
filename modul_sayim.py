@@ -95,13 +95,23 @@ def handle_supplier_barcode(barcode_scanned):
     parti_col = next((c for c in df_sunger.columns if "parti" in c.lower() or "lot" in c.lower() or ("no" in c.lower() and "parti" in c.lower())), None)
     malzeme_col = next((c for c in df_sunger.columns if "malzeme" in c.lower() or "kod" in c.lower()), None)
     
-    # Kodu Düzeltilen Kısım: Miktarı sadece 'Toplam M3' veya 'Hacim' sütunlarından çekmeye zorla
-    miktar_col = next((c for c in df_sunger.columns if "m3" in c.lower() or "hacim" in c.lower()), None)
+    # KESİN MİKTAR/HACİM TESPİTİ (Teslimat No'yu almasını engeller)
+    miktar_col = None
+    for c in df_sunger.columns:
+        if c.lower() == "toplam m3" or c.lower() == "toplam_m3":
+            miktar_col = c
+            break
+            
+    if not miktar_col:
+        for c in df_sunger.columns:
+            if ("m3" in c.lower() or "hacim" in c.lower()) and "teslimat" not in c.lower() and "no" not in c.lower():
+                miktar_col = c
+                break
 
     # Bulunamazsa varsayılan veya indeks bazlı atama yap
     if not parti_col: parti_col = "Parti No" if "Parti No" in df_sunger.columns else df_sunger.columns[0]
     if not malzeme_col: malzeme_col = "Malzeme Kodu" if "Malzeme Kodu" in df_sunger.columns else (df_sunger.columns[1] if len(df_sunger.columns) > 1 else df_sunger.columns[0])
-    if not miktar_col: miktar_col = "Toplam M3" if "Toplam M3" in df_sunger.columns else df_sunger.columns[-1]
+    if not miktar_col: miktar_col = "Toplam M3" # Sadece Toplam M3'ü kullan, son sütunu rastgele alma!
 
     # Parti No verilerini karşılaştırmaya hazırla
     df_sunger[parti_col] = df_sunger[parti_col].astype(str).str.strip()
