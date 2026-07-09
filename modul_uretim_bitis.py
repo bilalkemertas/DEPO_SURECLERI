@@ -100,11 +100,40 @@ def run_uretim_bitis(conn):
 
 
 
-    # Dinamik Sütun Eşleme Zırhı - Soft fallback (orijinal mantık)
-
-    ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
-
-    iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
+    # DEBUG: Mevcut sütunları göster
+    available_cols = list(df_is_emirleri.columns)
+    
+    # Dinamik Sütun Eşleme Zırhı - GERÇEK SÜTUN İSİMLERİNİ KONTROL ET
+    ikod = None
+    iad = None
+    
+    # Ürün Kodu bulma
+    for possible_name in ['Ürün Kodu', 'Plaka Kodu', 'Kod', 'Ürün Code', 'Product Code']:
+        if possible_name in df_is_emirleri.columns:
+            ikod = possible_name
+            break
+    
+    # Ürün Adı bulma
+    for possible_name in ['Ürün Adı', 'Plaka Adı', 'İsim', 'Ürün Adı/İsim', 'Product Name', 'Name']:
+        if possible_name in df_is_emirleri.columns:
+            iad = possible_name
+            break
+    
+    # Eğer hala bulamazsa, debugger ekranı göster
+    if ikod is None or iad is None:
+        st.error(f"🚨 Gerekli sütunlar bulunamadı!")
+        st.write("**Mevcut Sütunlar:**")
+        st.write(available_cols)
+        st.write("\n**Lütfen aşağıdaki sütun isimlerinden doğru olanları seçin:**")
+        
+        ikod = st.selectbox("Ürün Kodu Sütunu:", available_cols)
+        iad = st.selectbox("Ürün Adı Sütunu:", available_cols)
+        
+        if ikod and iad:
+            st.info(f"✅ Seçim kaydedildi. Sayfayı yenileyiniz.")
+            st.stop()
+        else:
+            return
 
 
 
@@ -164,7 +193,7 @@ def run_uretim_bitis(conn):
 
                 df_sip_mamuller = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == secilen_siparis]
 
-                mamul_listesi = df_sip_mamuller[iad].unique().tolist()
+                mamul_listesi = df_sip_mamuller[iad].dropna().unique().tolist()
 
                 
 
