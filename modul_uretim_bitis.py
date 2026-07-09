@@ -88,7 +88,7 @@ def run_uretim_bitis(conn):
                 # Sütun koruma kalkanı ilavesi
                 if iad not in df_sip_mamuller.columns:
                     df_sip_mamuller.columns = [c.strip() for c in df_sip_mamuller.columns]
-                    iad = 'Ürün Adı' if 'Ürün Adı' in df_sip_mamuller.columns else ('Plaka Adı' if 'Plaka Adı' in df_sip_mamuller.columns else 'İsim')
+                    iad = 'Mamül Adı' if 'Ürün Adı' in df_sip_mamuller.columns else ('Plaka Adı' if 'Plaka Adı' in df_sip_mamuller.columns else 'İsim')
 
                 mamul_listesi = df_sip_mamuller[iad].unique().tolist() if iad in df_sip_mamuller.columns else []
                 
@@ -107,7 +107,7 @@ def run_uretim_bitis(conn):
                             "Plan Tarihi": plan_tarihi_str,
                             "İş Emri": secilen_siparis,
                             "Ürün Kodu": mamul_kodu,
-                            "Ürün Adı": secilen_mamul,
+                            "Mamül Adı": secilen_mamul,
                             "Plan Miktarı": plan_miktari
                         })
                         st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
