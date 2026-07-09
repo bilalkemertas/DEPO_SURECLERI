@@ -164,10 +164,11 @@ def handle_supplier_barcode(barcode_scanned):
     else:
         st.warning("⚠️ 'eslesme_matrisi.csv' bulunamadığından eşleşme matrisi kontrol edilemedi.")
 
-    # 4. Session State Değerlerini Güncelleerek Formu Doldur
+    # 4. Session State Değerlerini Güncelleyerek Formu Doldur
     st.session_state.def_s_kod = our_code
     st.session_state.def_s_isim = our_name
     st.session_state.def_s_mik = teslimat_miktari
+    st.session_state.def_s_barcode = str(barcode_scanned).strip() # Okutulan barkodu da forma taşı
 
 
 def get_dinamik_katalog_local():
@@ -218,6 +219,8 @@ def goster(conn=None):
         st.session_state.def_s_isim = ""
     if 'def_s_mik' not in st.session_state:
         st.session_state.def_s_mik = 0.0
+    if 'def_s_barcode' not in st.session_state:
+        st.session_state.def_s_barcode = ""
 
     # GitHub Dosya Yolları / URL Ayarları (Varsayılan Yereldir, Ayarlardan Değişebilir)
     if 'github_form_sunger_url' not in st.session_state:
@@ -399,7 +402,8 @@ def goster(conn=None):
         df = pd.DataFrame(list_items).copy()
         needed = {
             "Oturum_Adi": "", "Tarih": "", "Adres": "", "Kod": "",
-            "İsim": "", "Miktar": 0.0, "Birim": "-", "Personel": "", "Durum": "Kullanılabilir"
+            "İsim": "", "Miktar": 0.0, "Birim": "-", "Personel": "", "Durum": "Kullanılabilir",
+            "Tedarikçi_Barkodu": ""
         }
         df = _ensure_columns(df, needed)
         df["Oturum_Adi"] = df["Oturum_Adi"].astype(str).str.strip()
@@ -411,6 +415,7 @@ def goster(conn=None):
         df["Birim"] = df["Birim"].astype(str).str.strip()
         df["Personel"] = df["Personel"].astype(str).str.strip()
         df["Durum"] = df["Durum"].astype(str).str.strip()
+        df["Tedarikçi_Barkodu"] = df["Tedarikçi_Barkodu"].astype(str).str.strip()
         df = df[df["Kod"] != ""]
         df = df[df["Oturum_Adi"] != ""]
         return df.reset_index(drop=True)
@@ -434,7 +439,8 @@ def goster(conn=None):
 
         df_bu_sayim = _ensure_columns(df_bu_sayim, {
             "Adres": "", "Kod": "", "İsim": "", "Miktar": 0.0,
-            "Durum": "Kullanılabilir", "Birim": "-", "Personel": "", "Tarih": ""
+            "Durum": "Kullanılabilir", "Birim": "-", "Personel": "", "Tarih": "",
+            "Tedarikçi_Barkodu": ""
         })
         df_bu_sayim["Adres"] = df_bu_sayim["Adres"].astype(str).str.strip().str.upper()
         df_bu_sayim["Kod"] = df_bu_sayim["Kod"].astype(str).str.strip().str.upper()
@@ -612,7 +618,7 @@ def goster(conn=None):
                 s_adr = st.text_input("📍 Adres:").upper()
 
                 # -----------------------------
-                # 1. Adım: Tedarikçi Barkod Okutma Alanı
+                # 1. Adım: Tedarikçi Barkod Okutma Alanı (Okuyucu Girişi)
                 # -----------------------------
                 st.markdown("---")
                 st.markdown("#### 🔌 Tedarikçi Barkodu Okutun")
@@ -634,6 +640,15 @@ def goster(conn=None):
 
                 st.markdown("---")
                 st.markdown("#### 📦 Malzeme Bilgileri")
+
+                # -----------------------------
+                # KRİTİK ALAN: Tedarikçi Barkod / Parti No Bilgi Gösterimi ve Manuel Müdahale Alanı
+                # -----------------------------
+                s_barcode_val = st.text_input(
+                    "🔌 Tedarikçi Barkodu / Parti No:", 
+                    value=st.session_state.def_s_barcode,
+                    placeholder="Okutulan barkod burada görünür, elle de yazabilirsiniz..."
+                )
 
                 katalog = get_dinamik_katalog()
 
@@ -658,13 +673,14 @@ def goster(conn=None):
 
                 # Barkoddan çekilen miktar otomatik doldurulur
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=0.01, value=st.session_state.def_s_mik)
-                s_durum = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
+                s_dur = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
 
                 # Temizle butonu ile formu boşaltma imkanı sağla
                 if st.button("🧹 Girişleri Temizle", use_container_width=True):
                     st.session_state.def_s_kod = ""
                     st.session_state.def_s_isim = ""
                     st.session_state.def_s_mik = 0.0
+                    st.session_state.def_s_barcode = ""
                     st.session_state.supplier_barcode_key = ""
                     st.rerun()
 
@@ -681,7 +697,8 @@ def goster(conn=None):
                             "Miktar": float(s_mik), 
                             "Birim": "-",
                             "Personel": _norm_text(aktif_kullanici), 
-                            "Durum": _norm_text(s_durum)
+                            "Durum": _norm_text(s_dur),
+                            "Tedarikçi_Barkodu": _norm_text(s_barcode_val)  # Barkodu da kayda iliştiriyoruz
                         }
                         mevcut = st.session_state['gecici_sayim_listesi']
                         mevcut.append(yeni_satir)
@@ -692,6 +709,7 @@ def goster(conn=None):
                         st.session_state.def_s_kod = ""
                         st.session_state.def_s_isim = ""
                         st.session_state.def_s_mik = 0.0
+                        st.session_state.def_s_barcode = ""
                         st.session_state.supplier_barcode_key = ""
                         st.rerun()
 
@@ -699,7 +717,9 @@ def goster(conn=None):
                 st.markdown("### 📋 Geçici Sayım Listesi")
                 for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
                     cols = st.columns([3, 1])
-                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.2f} | 🛠️ {item['Durum']}")
+                    # Ekranda okutulan Tedarikçi Barkodu bilgisini de gösterelim
+                    barkod_metni = f" | 🔌 Barkod: {item['Tedarikçi_Barkodu']}" if item.get('Tedarikçi_Barkodu') else ""
+                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.2f} | 🛠️ {item['Durum']}{barkod_metni}")
                     if cols[1].button("🗑️", key=f"d_{idx}"):
                         st.session_state['gecici_sayim_listesi'].pop(idx)
                         st.rerun()
