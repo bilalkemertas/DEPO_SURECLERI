@@ -99,7 +99,7 @@ def handle_supplier_barcode(barcode_scanned):
     # Bulunamazsa varsayılan veya indeks bazlı atama yap
     if not parti_col: parti_col = "Parti No" if "Parti No" in df_sunger.columns else df_sunger.columns[0]
     if not malzeme_col: malzeme_col = "Malzeme Kodu" if "Malzeme Kodu" in df_sunger.columns else (df_sunger.columns[1] if len(df_sunger.columns) > 1 else df_sunger.columns[0])
-    if not miktar_col: miktar_col = "Teslimat Miktarı" if "Teslimat Miktarı" in df_sunger.columns else df_sunger.columns[-1]
+    if not miktar_col: miktar_col = "Toplam M3" if "Toplam M3" in df_sunger.columns else df_sunger.columns[-1]
 
     # Parti No verilerini karşılaştırmaya hazırla
     df_sunger[parti_col] = df_sunger[parti_col].astype(str).str.strip()
