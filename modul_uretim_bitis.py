@@ -52,9 +52,9 @@ def run_uretim_bitis(conn):
     if df_stok is not None and not df_stok.empty:
         df_stok.columns = [c.strip() for c in df_stok.columns]
 
-    # Dinamik Sütun Eşleme Zırhı
-    ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
-    iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
+    # Dinamik Sütun Eşleme Zırhı - Is_Emirleri sekmesindeki net başlıklarınıza göre sabitlendi
+    ikod = 'Mamül Adı'
+    iad = 'Ürün Kodu'
 
     # Güncel tarih bilgileri
     bugun_str = datetime.now().strftime("%Y-%m-%d")
@@ -85,12 +85,11 @@ def run_uretim_bitis(conn):
                 # Seçilen siparişe ait mamülleri filtrele
                 df_sip_mamuller = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == secilen_siparis]
                 
-                # Sütun koruma kalkanı ilavesi
-                if iad not in df_sip_mamuller.columns:
-                    df_sip_mamuller.columns = [c.strip() for c in df_sip_mamuller.columns]
-                    iad = 'Mamül Adı' if 'Ürün Adı' in df_sip_mamuller.columns else ('Plaka Adı' if 'Plaka Adı' in df_sip_mamuller.columns else 'İsim')
-
-                mamul_listesi = df_sip_mamuller[iad].unique().tolist() if iad in df_sip_mamuller.columns else []
+                # Sütun kontrolü
+                if iad in df_sip_mamuller.columns:
+                    mamul_listesi = df_sip_mamuller[iad].unique().tolist()
+                else:
+                    mamul_listesi = []
                 
                 if mamul_listesi:
                     # 3. Hangi mamülden kaç adet üretileceği
@@ -156,6 +155,8 @@ def run_uretim_bitis(conn):
                     
                     st.success("🎉 Planlama verileri 'Is_Emirleri' sekmesine başarıyla kaydedildi! Tablodan hiçbir veri silinmedi.")
                     st.balloons()
+                    st.session_state["gecici_plan_listesi"] = []
+                    st.rerun()
                 except Exception as ex:
                     st.error(f"🚨 Drive'a kaydetme sırasında hata oluştu: {ex}")
         else:
@@ -214,7 +215,7 @@ def run_uretim_bitis(conn):
             st.info("✨ Bugün için planlanmış veya geçmişten devretmiş bekleyen bir üretim hedefi bulunmuyor.")
             return
 
-        # Sadeleştirilmiş gösterim tablosu
+        # Gösterim tablosu
         df_onay_gosterim = df_aktif_planlar[['İş Emri', ikod, iad, 'Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']].copy()
         
         # İnteraktif Satır Seçimi
@@ -339,7 +340,7 @@ def run_uretim_bitis(conn):
                         veritabani.update_data("Stok", df_stok)
                         veritabani.update_data("Is_Emirleri", df_is_emirleri)
                         
-                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellenedi.")
+                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellendi.")
                     st.balloons()
                     st.rerun()
                 except Exception as ex:
