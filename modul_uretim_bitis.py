@@ -51,7 +51,7 @@ def run_uretim_bitis(conn):
 
     # Dinamik Sütun Eşleme Zırhı
     ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
-    iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
+    iad = 'Mamül Adı' if 'Mamül Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
 
     # Güncel tarih bilgileri
     bugun_str = datetime.now().strftime("%Y-%m-%d")
@@ -97,7 +97,7 @@ def run_uretim_bitis(conn):
                         "Plan Tarihi": plan_tarihi_str,
                         "İş Emri": secilen_siparis,
                         "Ürün Kodu": mamul_kodu,
-                        "Ürün Adı": secilen_mamul,
+                        "Mamül Adı": secilen_mamul,
                         "Plan Miktarı": plan_miktari
                     })
                     st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
