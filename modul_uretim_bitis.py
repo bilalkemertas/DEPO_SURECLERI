@@ -100,40 +100,16 @@ def run_uretim_bitis(conn):
 
 
 
-    # DEBUG: Mevcut sütunları göster
-    available_cols = list(df_is_emirleri.columns)
-    
-    # Dinamik Sütun Eşleme Zırhı - GERÇEK SÜTUN İSİMLERİNİ KONTROL ET
-    ikod = None
-    iad = None
-    
-    # Ürün Kodu bulma
-    for possible_name in ['Ürün Kodu', 'Plaka Kodu', 'Kod', 'Ürün Code', 'Product Code']:
-        if possible_name in df_is_emirleri.columns:
-            ikod = possible_name
-            break
-    
-    # Ürün Adı bulma
-    for possible_name in ['Ürün Adı', 'Plaka Adı', 'İsim', 'Ürün Adı/İsim', 'Product Name', 'Name']:
-        if possible_name in df_is_emirleri.columns:
-            iad = possible_name
-            break
-    
-    # Eğer hala bulamazsa, debugger ekranı göster
-    if ikod is None or iad is None:
-        st.error(f"🚨 Gerekli sütunlar bulunamadı!")
+    # Dinamik Sütun Eşleme - Sabit ve Doğru Sütun İsimleri
+    ikod = 'Ürün Kodu'  # Is_Emirleri'deki ürün kodu sütunu
+    iad = 'Mamül Adı'    # Is_Emirleri'deki ürün adı sütunu
+
+    # Kontrolü yap - sütunlar mevcut mu?
+    if ikod not in df_is_emirleri.columns or iad not in df_is_emirleri.columns:
+        st.error(f"🚨 Gerekli sütunlar bulunamadı! Beklenen: '{ikod}', '{iad}'")
         st.write("**Mevcut Sütunlar:**")
-        st.write(available_cols)
-        st.write("\n**Lütfen aşağıdaki sütun isimlerinden doğru olanları seçin:**")
-        
-        ikod = st.selectbox("Ürün Kodu Sütunu:", available_cols)
-        iad = st.selectbox("Ürün Adı Sütunu:", available_cols)
-        
-        if ikod and iad:
-            st.info(f"✅ Seçim kaydedildi. Sayfayı yenileyiniz.")
-            st.stop()
-        else:
-            return
+        st.write(list(df_is_emirleri.columns))
+        return
 
 
 
@@ -197,41 +173,44 @@ def run_uretim_bitis(conn):
 
                 
 
-                # 3. Hangi mamülden kaç adet üretileceği
+                if not mamul_listesi:
+                    st.warning("⚠️ Seçilen sipariş için mamül bulunamadı.")
+                else:
+                    # 3. Hangi mamülden kaç adet üretileceği
 
-                secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
+                    secilen_mamul = st.selectbox("3️⃣ Üretilecek Mamülü Seçiniz:", mamul_listesi)
 
-                
+                    
 
-                # Seçilen mamülün kodunu çek
+                    # Seçilen mamülün kodunu çek
 
-                mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
+                    mamul_kodu = df_sip_mamuller[df_sip_mamuller[iad] == secilen_mamul].iloc[0][ikod]
 
-                
+                    
 
-                plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
+                    plan_miktari = st.number_input("4️⃣ Planlanan Üretim Miktarı (Adet):", min_value=1, value=1, step=1)
 
-                
+                    
 
-                # Listeye Ekle Butonu
+                    # Listeye Ekle Butonu
 
-                if st.button("➕ Listeye Ekle", use_container_width=True):
+                    if st.button("➕ Listeye Ekle", use_container_width=True):
 
-                    st.session_state["gecici_plan_listesi"].append({
+                        st.session_state["gecici_plan_listesi"].append({
 
-                        "Plan Tarihi": plan_tarihi_str,
+                            "Plan Tarihi": plan_tarihi_str,
 
-                        "İş Emri": secilen_siparis,
+                            "İş Emri": secilen_siparis,
 
-                        "Ürün Kodu": mamul_kodu,
+                            "Ürün Kodu": mamul_kodu,
 
-                        "Ürün Adı": secilen_mamul,
+                            "Ürün Adı": secilen_mamul,
 
-                        "Plan Miktarı": plan_miktari
+                            "Plan Miktarı": plan_miktari
 
-                    })
+                        })
 
-                    st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
+                        st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
 
 
 
@@ -302,8 +281,6 @@ def run_uretim_bitis(conn):
                     
 
                     st.success("🎉 Planlama verileri 'Is_Emirleri' sekmesine başarıyla kaydedildi! Tablodan hiçbir veri silinmedi.")
-
-                    # Önizleme listesini temizlemiyoruz (Kural: tablodan veri silmiyor olmamız gerekiyor)
 
                     st.balloons()
 
