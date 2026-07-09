@@ -34,9 +34,6 @@ def run_uretim_bitis(conn):
     # Sütun isimlerindeki boşlukları temizle ve zorunlu sütunları garanti et
     if df_is_emirleri is not None and not df_is_emirleri.empty:
         df_is_emirleri.columns = [c.strip() for c in df_is_emirleri.columns]
-        # KRİTİK DÜZELTME BAŞLANGICI: Google Sheets indekslerini Pandas'la senkronize et
-        df_is_emirleri = df_is_emirleri.reset_index(drop=True)
-        # KRİTİK DÜZELTME BİTİŞ
         for col in ['Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']:
             if col not in df_is_emirleri.columns:
                 df_is_emirleri[col] = ""
@@ -52,9 +49,9 @@ def run_uretim_bitis(conn):
     if df_stok is not None and not df_stok.empty:
         df_stok.columns = [c.strip() for c in df_stok.columns]
 
-    # Dinamik Sütun Eşleme Zırhı - Is_Emirleri sekmesindeki net başlıklarınıza göre sabitlendi
-    ikod = 'Mamül Adı'
-    iad = 'Ürün Kodu'
+    # Dinamik Sütun Eşleme Zırhı
+    ikod = 'Ürün Kodu' if 'Ürün Kodu' in df_is_emirleri.columns else ('Plaka Kodu' if 'Plaka Kodu' in df_is_emirleri.columns else 'Kod')
+    iad = 'Ürün Adı' if 'Ürün Adı' in df_is_emirleri.columns else ('Plaka Adı' if 'Plaka Adı' in df_is_emirleri.columns else 'İsim')
 
     # Güncel tarih bilgileri
     bugun_str = datetime.now().strftime("%Y-%m-%d")
@@ -85,11 +82,12 @@ def run_uretim_bitis(conn):
                 # Seçilen siparişe ait mamülleri filtrele
                 df_sip_mamuller = df_is_emirleri[df_is_emirleri['İş Emri'].astype(str) == secilen_siparis]
                 
-                # Sütun kontrolü
+                # Sütun Güvenlik Kontrolü İlavesi
                 if iad in df_sip_mamuller.columns:
                     mamul_listesi = df_sip_mamuller[iad].unique().tolist()
                 else:
                     mamul_listesi = []
+                    st.error(f"🚨 Sütun bulunamadı: {iad}")
                 
                 if mamul_listesi:
                     # 3. Hangi mamülden kaç adet üretileceği
@@ -106,12 +104,10 @@ def run_uretim_bitis(conn):
                             "Plan Tarihi": plan_tarihi_str,
                             "İş Emri": secilen_siparis,
                             "Ürün Kodu": mamul_kodu,
-                            "Mamül Adı": secilen_mamul,
+                            "Ürün Adı": secilen_mamul,
                             "Plan Miktarı": plan_miktari
                         })
                         st.toast("Kayıt önizleme tablosuna eklendi.", icon="📥")
-                else:
-                    st.error(f"🚨 Seçilen iş emrine ait geçerli bir mamül adı sütunu ({iad}) bulunamadı.")
 
         # 4. Kaydetmeden önce görebileceğimiz tablo
         st.subheader("📋 Plan Önizleme Tablosu")
@@ -128,23 +124,16 @@ def run_uretim_bitis(conn):
             if st.button("💾 ÜRETİM PLANINI ONAYLA VE DRIVE'A KAYDET", type="primary", use_container_width=True):
                 # Is_Emirleri dataframe'i üzerinde güncelleme yap
                 for plan in st.session_state["gecici_plan_listesi"]:
-                    # KRİTİK GÜNCELLEME: .astype(str) ve .str.strip() ile tam eşleşme zırhı sağla
+                    # Sipariş No ve Ürün Kodu eşleşen satırı bul
                     idx = df_is_emirleri[
-                        (df_is_emirleri['İş Emri'].astype(str).str.strip() == str(plan["İş Emri"]).strip()) & 
-                        (df_is_emirleri[ikod].astype(str).str.strip() == str(plan["Ürün Kodu"]).strip())
+                        (df_is_emirleri['İş Emri'].astype(str) == str(plan["İş Emri"])) & 
+                        (df_is_emirleri[ikod].astype(str) == str(plan["Ürün Kodu"]))
                     ].index
                     
                     if not idx.empty:
                         # Hücreleri doldur
                         df_is_emirleri.at[idx[0], 'Plan Tarihi'] = str(plan["Plan Tarihi"])
                         df_is_emirleri.at[idx[0], 'Plan Miktarı'] = str(plan["Plan Miktarı"])
-                    else:
-                        # Fallback Mekanizması: Eğer indeks kaydı yine de bulunamazsa alternatif güvenli eşleşme araması yap
-                        for index, row in df_is_emirleri.iterrows():
-                            if str(row['İş Emri']).strip() == str(plan["İş Emri"]).strip() and str(row[ikod]).strip() == str(plan["Ürün Kodu"]).strip():
-                                df_is_emirleri.at[index, 'Plan Tarihi'] = str(plan["Plan Tarihi"])
-                                df_is_emirleri.at[index, 'Plan Miktarı'] = str(plan["Plan Miktarı"])
-                                break
                 
                 # Google Sheets / Drive üzerine yazma kontrolü
                 try:
@@ -155,8 +144,6 @@ def run_uretim_bitis(conn):
                     
                     st.success("🎉 Planlama verileri 'Is_Emirleri' sekmesine başarıyla kaydedildi! Tablodan hiçbir veri silinmedi.")
                     st.balloons()
-                    st.session_state["gecici_plan_listesi"] = []
-                    st.rerun()
                 except Exception as ex:
                     st.error(f"🚨 Drive'a kaydetme sırasında hata oluştu: {ex}")
         else:
@@ -215,7 +202,7 @@ def run_uretim_bitis(conn):
             st.info("✨ Bugün için planlanmış veya geçmişten devretmiş bekleyen bir üretim hedefi bulunmuyor.")
             return
 
-        # Gösterim tablosu
+        # Sadeleştirilmiş gösterim tablosu
         df_onay_gosterim = df_aktif_planlar[['İş Emri', ikod, iad, 'Plan Tarihi', 'Plan Miktarı', 'Üretilen Miktar']].copy()
         
         # İnteraktif Satır Seçimi
@@ -316,18 +303,12 @@ def run_uretim_bitis(conn):
 
                 # 3. İŞ EMİRLERİ SEKLESİNDEKİ "Üretilen Miktar" ALANINI KÜMÜLATİF GÜNCELLEME
                 target_is_emri_idx = df_is_emirleri[
-                    (df_is_emirleri['İş Emri'].astype(str).str.strip() == secilen_siparis.strip()) & 
-                    (df_is_emirleri[ikod].astype(str).str.strip() == mamul_kodu.strip())
+                    (df_is_emirleri['İş Emri'].astype(str) == secilen_siparis) & 
+                    (df_is_emirleri[ikod].astype(str) == mamul_kodu)
                 ].index
                 
                 if not target_is_emri_idx.empty:
                     df_is_emirleri.at[target_is_emri_idx[0], 'Üretilen Miktar'] = str(mevcut_uretilmis + girilen_uretim_miktari)
-                else:
-                    # Fallback Mekanizması (Üretim girişi için de güvenli arama kalkanı)
-                    for index, row in df_is_emirleri.iterrows():
-                        if str(row['İş Emri']).strip() == secilen_siparis.strip() and str(row[ikod]).strip() == mamul_kodu.strip():
-                            df_is_emirleri.at[index, 'Üretilen Miktar'] = str(mevcut_uretilmis + girilen_uretim_miktari)
-                            break
 
                 # Drive / Sheets Güncellemesi
                 try:
@@ -340,7 +321,7 @@ def run_uretim_bitis(conn):
                         veritabani.update_data("Stok", df_stok)
                         veritabani.update_data("Is_Emirleri", df_is_emirleri)
                         
-                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellendi.")
+                    st.success(f"🎉 Üretim başarıyla kaydedildi! İş Emirleri sekmesindeki 'Üretilen Miktar' {mevcut_uretilmis + girilen_uretim_miktari} olarak güncellenedi.")
                     st.balloons()
                     st.rerun()
                 except Exception as ex:
