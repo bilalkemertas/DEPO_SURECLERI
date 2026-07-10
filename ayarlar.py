@@ -1,39 +1,53 @@
 import streamlit as st
 
 def page_ayarlar():
-    """Tüm sayfalarda geçerli olacak kurumsal, geniş ve ferah arayüz (UI) ayarları"""
+    """Tüm sayfalarda geçerli olacak kurumsal, kompakt ve endüstriyel WMS arayüz ayarları"""
     
     st.markdown("""
     <style>
-    /* 1. EKRANI TAM GENİŞLİĞE YAY (Sıkışıklığı İptal Et) */
+    /* 1. KATI 12 PUNTO KURALI VE ENDÜSTRİYEL FONT */
+    html, body, [class*="css"], p, span, div, label, input, select, button {
+        font-size: 11pt !important;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+    }
+
+    /* BAŞLIKLAR MAKSİMUM 12 PUNTO (Şık ve net) */
+    h1, h2, h3, .erp-title { 
+        font-size: 12pt !important; 
+        font-weight: bold !important;
+        margin-top: 4px !important; 
+        margin-bottom: 6px !important; 
+        padding: 0 !important;
+        color: #0b3c5d !important;
+    }
+
+    /* 2. EKRAN BOŞLUKLARINI SIFIRA YAKIN TUT (Scroll eziyetini bitirir) */
     .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        max-width: 100% !important; /* Ekranı zorla %100 genişletir */
+        padding-top: 0.5rem !important;
+        padding-bottom: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        max-width: 100% !important;
     }
 
-    /* 2. GEREKSİZ BOŞLUKLARI VE ÇİZGİLERİ TEMİZLE */
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* ÜST VE ALT STANDART MENÜLERİ GİZLE */
+    header {visibility: hidden; height: 0 !important;}
+    footer {visibility: hidden; height: 0 !important;}
+    [data-testid="stHeader"] {display: none !important;}
 
-    /* 🟢 3. GAP VE MARJİNLERİ KORU (Öğelerin Birbirine Girmesini Engeller) */
-    [data-testid="stVerticalBlock"] { gap: 1rem !important; }
-    h1, h2, h3 { 
-        margin-top: 15px !important; 
-        margin-bottom: 15px !important; 
-    }
+    /* SATIR ARASI GEREKSİZ SARKMALARI ÖNLE */
+    [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
 
-    /* 4. BUTONLARI KURUMSAL VE NİZAMİ YAP (Ne devasa ne de cüce) */
+    /* 3. KOMPAKT STANDART BUTONLAR */
     .stButton>button {
         width: 100% !important;
-        border-radius: 8px !important;
+        border-radius: 4px !important;
         border: 1px solid #11caa0 !important;
-        font-size: 16px !important;
+        font-size: 11pt !important;
         font-weight: bold !important;
-        height: 60px !important;
-        transition: all 0.3s ease;
+        height: 35px !important; /* Standart basılabilir terminal yüksekliği */
+        padding: 0px 5px !important;
+        transition: all 0.2s ease;
         background-color: #ffffff !important;
         color: #0b3c5d !important;
     }
@@ -41,31 +55,34 @@ def page_ayarlar():
     .stButton>button:hover {
         background-color: #11caa0 !important;
         color: white !important;
-        border-color: #11caa0 !important;
     }
     
-    /* 5. KURUMSAL HEADER DÜZENİ */
+    /* 4. MİNİMALİST SIK_ŞIK HEADER DÜZENİ */
     .erp-header {
         background-color: #0b3c5d;
         color: white;
-        padding: 15px 25px;
-        border-radius: 8px;
-        margin-bottom: 20px;
+        padding: 6px 12px;
+        border-radius: 4px;
+        margin-bottom: 10px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    .erp-title { margin: 0; font-size: 22px; font-weight: 700; }
-    .erp-user { margin: 0; font-size: 14px; opacity: 0.9; }
+    .erp-user { margin: 0; font-size: 10pt !important; opacity: 0.95; }
 
-    /* 6. METRİK KUTULARI (Geniş ekran uyumlu) */
+    /* 5. VERİ SIKIŞTIRILMIŞ METRİK KUTULARI */
     .stMetric {
         background-color: #f8f9fa;
-        padding: 10px;
-        border-radius: 8px;
-        border-left: 5px solid #11caa0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        padding: 6px !important;
+        border-radius: 4px;
+        border-left: 4px solid #11caa0;
+    }
+    .stMetric [data-testid="stMetricValue"] {
+        font-size: 12pt !important;
+        font-weight: bold !important;
+    }
+    .stMetric [data-testid="stMetricLabel"] {
+        font-size: 9pt !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -82,7 +99,7 @@ def session_kontrol():
 def imza_yazdir():
     """Tüm sayfalarda standart imza alanını en alt kısıma ince şerit olarak basar."""
     st.markdown("""
-    <div style='text-align: center; color: #a0aec0; font-size: 12px; margin-top: 50px; padding-top: 10px; border-top: 1px solid #e2e8f0;'>
+    <div style='text-align: center; color: #a0aec0; font-size: 9pt; margin-top: 20px; padding-top: 5px; border-top: 1px solid #e2e8f0;'>
         🚀 Bilal Kemertaş | BRN 2026
     </div>
     """, unsafe_allow_html=True)
