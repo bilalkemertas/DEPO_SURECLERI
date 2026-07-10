@@ -1,27 +1,29 @@
 import streamlit as st
 
 def page_ayarlar():
-    st.set_page_config(page_title="Bilal BRN Depo Pro", layout="centered", page_icon="📦")
+    # Ekranı tekrar o eski ferah ve düzgün "wide" (geniş) haline getiriyoruz
+    st.set_page_config(page_title="Bilal BRN Depo Pro", layout="wide", page_icon="📦")
     st.markdown("""
         <style>
+        /* Streamlit varsayılan üst menü ve footer'ını gizle */
         #MainMenu, footer, header, .stDeployButton {display: none !important;}
         
-        /* Ana konteyner boşlukları çok daraltıldı */
-        .block-container { padding: 0.5rem 0.5rem !important; max-width: 100%; }
+        /* Ana konteyner boşlukları tekrar ferahlatıldı. Maksimum genişlik ile ekran ortalandı */
+        .block-container { 
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
         
-        /* Input fontları ve Yükseklikleri optimize edildi */
-        input { font-size: 14px !important; }
-        .stButton>button { height: 2.8em; font-size: 14px !important; }
+        /* Expander (Açılır kapanır menü) için şık çerçeve bırakıldı */
         [data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 8px; }
         
-        /* Dikey elemanlar arası boşlukları (gap) sıfıra yakın yapıyoruz ki Ekle butonu ekrana sığsın */
-        [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
-        
-        /* Bölüm başlıkları küçültüldü ve gereksiz marginleri silindi */
-        h1, h2, h3, h4, h5 { font-size: 1.1rem !important; margin: 0 !important; padding: 0 !important;}
-        
+        /* Mobil cihazlarda (telefonlar) ufak metrik düzeltmeleri */
         @media (max-width: 640px) {
-            .stMetric { padding: 3px !important; border: 1px solid #eee; margin-bottom: 3px; }
+            .stMetric { padding: 5px !important; border: 1px solid #eee; margin-bottom: 5px; }
             .row-font { font-size: 12px !important; }
         }
         </style>
@@ -35,7 +37,8 @@ def session_kontrol():
 
 def guvenlik_duvari():
     if not st.session_state.logged_in:
-        st.markdown("<h3 style='text-align:center; color: #0b3c5d; font-size: 1.2rem !important;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
+        # Başlık tekrar ferah bir boyuta alındı
+        st.markdown("<h2 style='text-align:center; color: #0b3c5d;'>🛡️ Bilal BRN Depo Giriş</h2>", unsafe_allow_html=True)
         with st.form("Giriş"):
             u_raw = st.text_input("Kullanıcı:")
             p_raw = st.text_input("Parola:", type="password")
@@ -51,12 +54,11 @@ def guvenlik_duvari():
         st.stop()
 
 def imza_yazdir():
-    """Tüm sayfalarda standart imza ve reklam alanını en dar şekilde basar."""
-    # Ekranı gereksiz uzatan st.columns ve divider iptal edildi. İnce tek satır bir şerit eklendi.
+    """Tüm sayfalarda standart imza ve reklam alanını şık ve dengeli şekilde basar."""
     st.markdown(
         """
-        <div style='text-align: right; border-top: 1px solid #eee; margin-top: 10px; padding-top: 5px;'>
-            <p style='margin:0; font-size: 11px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş <span style='color: gray; font-size: 10px;'>| BRN 2026</span></p>
+        <div style='text-align: right; border-top: 1px solid #ddd; margin-top: 30px; padding-top: 10px;'>
+            <p style='margin:0; font-size: 13px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş <span style='color: gray; font-size: 12px;'>| BRN 2026</span></p>
         </div>
         """, 
         unsafe_allow_html=True
