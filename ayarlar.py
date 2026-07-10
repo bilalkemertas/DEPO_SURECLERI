@@ -18,7 +18,14 @@ def page_ayarlar():
     header {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* 3. BUTONLARI KURUMSAL VE NİZAMİ YAP (Ne devasa ne de cüce) */
+    /* 🟢 3. GAP VE MARJİNLERİ KORU (Öğelerin Birbirine Girmesini Engeller) */
+    [data-testid="stVerticalBlock"] { gap: 1rem !important; }
+    h1, h2, h3 { 
+        margin-top: 15px !important; 
+        margin-bottom: 15px !important; 
+    }
+
+    /* 4. BUTONLARI KURUMSAL VE NİZAMİ YAP (Ne devasa ne de cüce) */
     .stButton>button {
         width: 100% !important;
         border-radius: 8px !important;
@@ -37,7 +44,7 @@ def page_ayarlar():
         border-color: #11caa0 !important;
     }
     
-    /* 4. KURUMSAL HEADER DÜZENİ */
+    /* 5. KURUMSAL HEADER DÜZENİ */
     .erp-header {
         background-color: #0b3c5d;
         color: white;
@@ -52,7 +59,7 @@ def page_ayarlar():
     .erp-title { margin: 0; font-size: 22px; font-weight: 700; }
     .erp-user { margin: 0; font-size: 14px; opacity: 0.9; }
 
-    /* 5. METRİK KUTULARI (Geniş ekran uyumlu) */
+    /* 6. METRİK KUTULARI (Geniş ekran uyumlu) */
     .stMetric {
         background-color: #f8f9fa;
         padding: 10px;
