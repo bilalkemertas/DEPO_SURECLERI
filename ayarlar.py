@@ -5,12 +5,23 @@ def page_ayarlar():
     st.markdown("""
         <style>
         #MainMenu, footer, header, .stDeployButton {display: none !important;}
-        .block-container { padding: 0.5rem 0.5rem !important; }
-        input { font-size: 16px !important; }
-        .stButton>button { height: 3em; font-size: 16px !important; }
-        [data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 10px; }
+        
+        /* Ana konteyner boşlukları çok daraltıldı */
+        .block-container { padding: 0.5rem 0.5rem !important; max-width: 100%; }
+        
+        /* Input fontları ve Yükseklikleri optimize edildi */
+        input { font-size: 14px !important; }
+        .stButton>button { height: 2.8em; font-size: 14px !important; }
+        [data-testid="stExpander"] { border: 1px solid #ddd; border-radius: 8px; }
+        
+        /* Dikey elemanlar arası boşlukları (gap) sıfıra yakın yapıyoruz ki Ekle butonu ekrana sığsın */
+        [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
+        
+        /* Bölüm başlıkları küçültüldü ve gereksiz marginleri silindi */
+        h1, h2, h3, h4, h5 { font-size: 1.1rem !important; margin: 0 !important; padding: 0 !important;}
+        
         @media (max-width: 640px) {
-            .stMetric { padding: 5px !important; border: 1px solid #eee; margin-bottom: 5px; }
+            .stMetric { padding: 3px !important; border: 1px solid #eee; margin-bottom: 3px; }
             .row-font { font-size: 12px !important; }
         }
         </style>
@@ -24,7 +35,7 @@ def session_kontrol():
 
 def guvenlik_duvari():
     if not st.session_state.logged_in:
-        st.markdown("<h3 style='text-align:center;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center; color: #0b3c5d; font-size: 1.2rem !important;'>🛡️ Bilal BRN Depo Giriş</h3>", unsafe_allow_html=True)
         with st.form("Giriş"):
             u_raw = st.text_input("Kullanıcı:")
             p_raw = st.text_input("Parola:", type="password")
@@ -38,19 +49,15 @@ def guvenlik_duvari():
                         st.rerun()
                     else: st.error("Hatalı Giriş Bilgisi!")
         st.stop()
-import streamlit as st
 
 def imza_yazdir():
-    """Tüm sayfalarda standart imza ve reklam alanını basar."""
-    st.markdown("---")
-    col_left, col_right = st.columns([3, 1])
-    with col_right:
-        st.markdown(
-            """
-            <div style='text-align: right;'>
-                <p style='margin:0; font-size: 14px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş</p>
-                <p style='margin:0; font-size: 12px; color: gray;'>BRN 2026</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+    """Tüm sayfalarda standart imza ve reklam alanını en dar şekilde basar."""
+    # Ekranı gereksiz uzatan st.columns ve divider iptal edildi. İnce tek satır bir şerit eklendi.
+    st.markdown(
+        """
+        <div style='text-align: right; border-top: 1px solid #eee; margin-top: 10px; padding-top: 5px;'>
+            <p style='margin:0; font-size: 11px; font-weight: bold; color: #1f77b4;'>🚀 Bilal Kemertaş <span style='color: gray; font-size: 10px;'>| BRN 2026</span></p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
