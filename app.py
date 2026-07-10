@@ -13,10 +13,10 @@ import modul_rapor
 import modul_uretim_bitis  # 🆕 Yeni Eklenen Mamül Bazlı Üretim Bitiş Modülü
 
 # --- SAYFA AYARLARI VE KURUMSAL TEMA ---
-st.set_page_config(page_title="BRN WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
+# Mobil için "centered" yapılarak tam oturması sağlandı
+st.set_page_config(page_title="BRN WMS Enterprise", page_icon="🏢", layout="centered", initial_sidebar_state="collapsed")
 
 # 🖥️ STREAMLIT OTURUMU CANLI TUTMA SİHİRBAZI (KEEP-ALIVE)
-# Bu görünmez HTML/JS bileşeni tarayıcı arka plana atılsa veya terminal kilitlense bile her 30 saniyede bir ping atarak oturumu açık tutar.
 components.html("""
     <script>
     const interval = setInterval(function() {
@@ -25,26 +25,33 @@ components.html("""
     </script>
 """, height=0)
 
-# Garantili, Simetrik ve Ayrıştırılmış CSS Tasarımı
+# Garantili, Simetrik ve Mobil Uyumlu Dar CSS Tasarımı
 st.markdown("""
     <style>
-        .block-container { padding: 2rem !important; max-width: 1000px; margin: 0 auto; }
-        header { visibility: hidden; }
-        footer { visibility: hidden; }
+        /* Ekran boşluklarını daraltma */
+        .block-container { padding: 1rem 0.5rem !important; max-width: 100%; }
+        header { visibility: hidden; height: 0 !important; }
+        footer { visibility: hidden; height: 0 !important; }
+        
+        /* Satır arası gereksiz boşlukları (gap) kaldırma - Ekle butonunu ekranda tutar */
+        [data-testid="stVerticalBlock"] { gap: 0.4rem !important; }
+        
+        /* Bölüm başlıklarını (h1, h2, h3) küçültme ve marjinleri sıfırlama */
+        h1, h2, h3 { font-size: 1.1rem !important; margin: 0 !important; padding: 0 !important; }
         
         /* 1. SADECE ANA MENÜ KUTULARI İÇİN (Primary Butonlar) */
         button[kind="primary"] {
-            height: 130px !important;
+            height: 90px !important; /* Mobilde yer kaplamaması için 130'dan 90'a düşürüldü */
             width: 100% !important;
-            border-radius: 12px !important;
-            font-size: 18px !important;
+            border-radius: 10px !important;
+            font-size: 14px !important;
             font-weight: bold !important;
             background-color: #ffffff !important;
             color: #0b3c5d !important;
             border: 2px solid #dcdcdc !important;
             transition: all 0.3s ease !important;
             white-space: pre-wrap !important;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
@@ -54,14 +61,14 @@ st.markdown("""
             background-color: #0b3c5d !important;
             color: #ffffff !important;
             border-color: #11caa0 !important;
-            transform: translateY(-3px);
-            box-shadow: 0 6px 12px rgba(0,0,0,0.15) !important;
+            transform: translateY(-2px);
         }
         
         /* 2. STANDART BUTONLAR İÇİN (Çıkış, Geri Dön, Giriş) */
         button[kind="secondary"] {
-            height: 50px !important;
+            height: 45px !important;
             border-radius: 8px !important;
+            font-size: 14px !important;
             font-weight: bold !important;
             border: 1px solid #dcdcdc !important;
             color: #0b3c5d !important;
@@ -73,20 +80,20 @@ st.markdown("""
             background-color: #f8f9fa !important;
         }
         
-        /* Kurumsal Header */
+        /* Kurumsal Header - Daraltıldı */
         .erp-header {
             background-color: #0b3c5d;
             color: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .erp-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 1px; }
-        .erp-user { margin: 0; font-size: 14px; opacity: 0.9; }
+        .erp-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+        .erp-user { margin: 0; font-size: 12px; opacity: 0.9; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -115,7 +122,6 @@ if not st.session_state['logged_in']:
     with col2:
         with st.container(border=True):
             st.markdown("<h2 style='text-align: center; color: #0b3c5d; margin-bottom: 10px;'>🏢 BRN WMS Giriş</h2>", unsafe_allow_html=True)
-            st.divider()
             kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adınızı girin")
             sifre = st.text_input("Şifre", type="password", placeholder="Şifrenizi girin")
             if st.button("Sisteme Giriş Yap", use_container_width=True):
@@ -137,34 +143,34 @@ else:
     st.markdown(f"""
         <div class="erp-header">
             <p class="erp-title">BRN WMS Enterprise</p>
-            <p class="erp-user">Aktif Kullanıcı: {st.session_state['kullanici_adi']}</p>
+            <p class="erp-user">👤 {st.session_state['kullanici_adi']}</p>
         </div>
     """, unsafe_allow_html=True)
 
     # --- ANA MENÜ ---
     if st.session_state['page'] in ['main', 'home']:
-        st.subheader("Uygulama Menüsü")
+        st.markdown("<h3 style='margin-bottom: 5px; color:#0b3c5d;'>Uygulama Menüsü</h3>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("📦\nMal Kabul", type="primary", use_container_width=True):
                 st.session_state['page'] = 'mal_kabul'
                 st.rerun()
         with col2:
-            if st.button("✂️\nBlok & Rulo Kesim", type="primary", use_container_width=True):
+            if st.button("✂️\nBlok Kesim", type="primary", use_container_width=True):
                 st.session_state['page'] = 'blok_kesim'
                 st.rerun()
         with col3:
-            if st.button("🏗️\nÜretim Hazirlik", type="primary", use_container_width=True):
+            if st.button("🏗️\nÜretim Haz.", type="primary", use_container_width=True):
                 st.session_state['page'] = 'uretim'
                 st.rerun()
 
         col4, col5, col6 = st.columns(3)
         with col4:
-            if st.button("🏭\nÜretim Bitiş Kaydı", type="primary", use_container_width=True): # 🆕 Yeni Menü Butonu
+            if st.button("🏭\nÜretim Bitiş", type="primary", use_container_width=True):
                 st.session_state['page'] = 'uretim_bitis'
                 st.rerun()
         with col5:
-            if st.button("📍\nStok & Adresleme", type="primary", use_container_width=True):
+            if st.button("📍\nStok Yönetimi", type="primary", use_container_width=True):
                 st.session_state['page'] = 'stok'
                 st.rerun()
         with col6:
@@ -172,27 +178,23 @@ else:
                 st.session_state['page'] = 'sayim'
                 st.rerun()
                 
-        # Alt sıraya tek kalan Raporlar butonunu hizalayalım
         col7, col8, col9 = st.columns(3)
         with col7:
             if st.button("📈\nRaporlar", type="primary", use_container_width=True):
                 st.session_state['page'] = 'rapor'
                 st.rerun()
                 
-        st.divider()
         if st.button("🚪 Güvenli Çıkış Yap"):
             st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
             st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
     else:
-        # Alt sayfalardan ana menüye dönüşte sayım iç navigasyonunu sıfırlamak için fonksiyonel hale getirdik
         if st.button("⬅️ Ana Menüye Dön"):
             st.session_state['page'] = 'main'
             if 'sayim_page' in st.session_state:
                 st.session_state.sayim_page = 'menu'
             st.rerun()
-        st.write("---")
 
         if st.session_state['page'] == 'mal_kabul':
             teslim_alma.run(conn)
@@ -201,7 +203,7 @@ else:
             blok_kesim.run_blok_kesim(conn)
         elif st.session_state['page'] == 'uretim':
             modul_uretim.goster() 
-        elif st.session_state['page'] == 'uretim_bitis': # 🆕 Yeni Yönlendirme Koşulu
+        elif st.session_state['page'] == 'uretim_bitis':
             modul_uretim_bitis.run_uretim_bitis(conn)
         elif st.session_state['page'] == 'stok':
             modul_stok.goster() 
