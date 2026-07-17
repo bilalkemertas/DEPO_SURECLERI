@@ -53,30 +53,63 @@ def handle_barcode():
         st.session_state.scan_counter = 0
 
     input_key = f"barkod_input_{st.session_state.scan_counter}"
-    code = st.session_state.get(input_key, "").strip().split(".")[0]
+    raw_code = st.session_state.get(input_key, "").strip()
 
-    if not code:
+    if not raw_code:
         return
 
+    # 1. Okutulan barkoddan Parti Numarasını (Son 10 Hane) ayıkla
+    parti_no = raw_code[-10:] if len(raw_code) >= 10 else raw_code
+    st.toast(f"🔍 Barkod Çözümlendi! Parti No: {parti_no} aranıyor...", icon="⏳")
+
     df_stok_check = veritabani.get_internal_data("Stok")
-    if code in df_stok_check.get('Tedarikçi Barkod', pd.Series()).astype(str).values:
-        st.toast(f"🚨 HATA: {code} zaten stokta!", icon="🛑")
+    # Stokta bu tam barkod zaten var mı kontrolü
+    if raw_code in df_stok_check.get('Tedarikçi Barkod', pd.Series()).astype(str).values:
+        st.toast(f"🚨 HATA: {raw_code} zaten stokta mevcut!", icon="🛑")
         return
 
     map_df = load_safe_mapping()
-    sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
+    
+    # 2. SATIN ALMA VERİTABANINDAN (Tüm SAS'lar içinde) ÜRÜNÜ BUL
+    df_sas_all = veritabani.get_internal_data("Satin_Alma")
+    
+    if df_sas_all is None or df_sas_all.empty:
+        st.error("Satın Alma veritabanı boş!")
+        return
 
-    found = sas_df[sas_df['Tedarikçi Barkodu'].astype(str) == code]
-
+    df_sas_all['Temiz_Barkod'] = df_sas_all['Tedarikçi Barkodu'].astype(str).str.strip()
+    
+    # Önce Parti No ile tam eşleşme ara
+    found = df_sas_all[df_sas_all['Temiz_Barkod'] == parti_no]
+    
+    # Bulunamazsa barkodun tamamıyla ara
     if found.empty:
-        pending = sas_df[sas_df['Tedarikçi Barkodu'].isin(['BEKLIYOR', '', 'None', None])]
-        if pending.empty:
-            st.toast(f"❌ Bu SAS'ta boş kalem kalmadı veya barkod hatalı!", icon="🚫")
-            return
-        row = pending.iloc[0]
-    else:
-        row = found.iloc[0]
+        found = df_sas_all[df_sas_all['Temiz_Barkod'] == raw_code]
 
+    # Hiçbir türlü bulunamazsa eski mantıkla aktif SAS içerisindeki boş/BEKLIYOR bir satıra ata
+    if found.empty:
+        sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
+        if not sas_df.empty:
+            pending = sas_df[sas_df['Tedarikçi Barkodu'].isin(['BEKLIYOR', '', 'None', None, 'nan'])]
+            if pending.empty:
+                st.toast(f"❌ '{parti_no}' bulunamadı ve aktif SAS'ta atanacak boş kalem kalmadı!", icon="🚫")
+                return
+            row = pending.iloc[0]
+            st.toast(f"⚠️ Parti No ({parti_no}) eşleşmedi, listedeki bekleyen boş kaleme atandı.", icon="⚠️")
+        else:
+            st.toast(f"❌ '{parti_no}' Parti No Satın Alma (SAS) listesinde bulunamadı!", icon="🚫")
+            return
+    else:
+        # Ürün global SAS veritabanında bulundu!
+        row = found.iloc[0]
+        st.toast(f"✅ Ürün Bulundu: {row.get('Stok Adı', '')}", icon="✔️")
+        
+        # Bulunan ürün aktif görünümde (full_sas_data) yoksa listeye dinamik olarak ekle ki ekranda görünsün
+        sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
+        if row.name not in sas_df.index:
+            st.session_state.full_sas_data = pd.concat([sas_df, pd.DataFrame([row])])
+
+    # 3. Form eşleşme haritasından kendi (BRN) stok kodumuzu / adımızı bul
     m_kod = clean_code(row['Stok Kodu'])
     final_kod, final_ad = row['Stok Kodu'], row['Stok Adı']
 
@@ -90,14 +123,15 @@ def handle_barcode():
                 brn_a_col = next((c for c in map_df.columns if "BRN" in c and "AD" in c or "ÜRÜN" in c), "BRN ÜRÜN ADI")
                 final_kod, final_ad = match.iloc[0][brn_k_col], match.iloc[0][brn_a_col]
 
-    st.session_state.mk_gecici_liste[code] = {
+    # 4. Teslim Alma (Geçici) Listesine Ekle
+    st.session_state.mk_gecici_liste[raw_code] = {
         "Kod": final_kod,
         "Ad": final_ad,
         "Miktar": float(row['Sipariş Miktarı']),
         "Adres": st.session_state.def_adres,
         "Durum": st.session_state.def_durum,
-        "SAS_Kalem_ID": row.name,
-        "Siparis_No": row.get('Sipariş No', '') # HANGİ SAS'A AİT OLDUĞUNU HAFIZAYA ALDIK
+        "SAS_Kalem_ID": row.name, # Global df_sas_all içindeki orijinal indeks numarasını korur
+        "Siparis_No": row.get('Sipariş No', '')
     }
     st.session_state.scan_counter += 1
 
