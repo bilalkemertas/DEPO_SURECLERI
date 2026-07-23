@@ -2,8 +2,8 @@
 Streamlit Stil Optimizasyonları
 kullanıcı dostu, kompakt ve veri yoğun görünüm için
 """
-
 import streamlit as st
+
 
 def apply_custom_styles():
     """Özel CSS stillerini uygula"""
@@ -14,16 +14,16 @@ def apply_custom_styles():
         margin: 0;
         padding: 0;
     }
-    
+
     /* ============ SIDEBAR ============ */
     .css-1d391kg {
         padding-top: 1rem;
     }
-    
+
     [data-testid="stSidebar"] {
         background-color: #f8f9fa;
     }
-    
+
     /* ============ METRIC KARTLARI ============ */
     [data-testid="metric-container"] {
         background-color: #ffffff;
@@ -32,17 +32,17 @@ def apply_custom_styles():
         border-left: 4px solid #1f77b4;
         margin-bottom: 0.5rem;
     }
-    
+
     /* ============ TABLO ============ */
     [data-testid="stDataFrame"] {
         margin: 0.5rem 0;
     }
-    
+
     .dataframe {
         font-size: 0.9rem;
         line-height: 1.4;
     }
-    
+
     /* ============ BUTON ============ */
     button[kind="primary"] {
         width: 100%;
@@ -50,7 +50,7 @@ def apply_custom_styles():
         font-weight: 600;
         font-size: 1rem;
     }
-    
+
     /* ============ UYARI/HATA/BAŞARI KUTUSU ============ */
     [data-testid="stAlert"] {
         padding: 1rem;
@@ -58,73 +58,73 @@ def apply_custom_styles():
         border-radius: 6px;
         font-weight: 500;
     }
-    
+
     /* ============ TAB SAYFALAR ============ */
     [data-testid="stTabs"] [data-testid="stTabList"] button {
         font-weight: 600;
     }
-    
+
     /* ============ BOŞ ALAN YÖNETİMİ ============ */
     .block-container {
         padding-top: 1.5rem;
         padding-bottom: 1rem;
         max-width: 100%;
     }
-    
+
     .css-18e3th9 {
         padding-top: 0.5rem;
         padding-bottom: 0.5rem;
     }
-    
+
     /* ============ BAŞLIK ============ */
     h3 {
         margin-top: 0.5rem;
         margin-bottom: 0.5rem;
         font-weight: 700;
     }
-    
+
     h4 {
         margin-top: 0.3rem;
         margin-bottom: 0.3rem;
         font-weight: 600;
     }
-    
+
     /* ============ DİVİDER ============ */
     hr {
         margin: 0.5rem 0;
         border: none;
         border-top: 1px solid #e0e0e0;
     }
-    
+
     /* ============ KOLONlar ============ */
     .css-1n0dh5y {
         gap: 0.5rem;
     }
-    
+
     /* ============ MODAL/DİYALOG ============ */
     [data-testid="Modal"] {
         max-height: 80vh;
     }
-    
+
     /* ============ SCROLLBAR (Custom) ============ */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
     }
-    
+
     ::-webkit-scrollbar-track {
         background: #f1f1f1;
     }
-    
+
     ::-webkit-scrollbar-thumb {
         background: #888;
         border-radius: 4px;
     }
-    
+
     ::-webkit-scrollbar-thumb:hover {
         background: #555;
     }
-    
+
     /* ============ RENK ŞEMASI ============ */
     :root {
         --primary: #1f77b4;
@@ -134,6 +134,6 @@ def apply_custom_styles():
         --light-bg: #f8f9fa;
         --border: #e0e0e0;
     }
-    
+
     </style>
     """, unsafe_allow_html=True)
