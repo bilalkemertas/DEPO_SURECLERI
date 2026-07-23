@@ -314,20 +314,10 @@ def goster(conn=None):
             load_github_csv.clear()
             st.toast("Önbellek temizlendi!", icon="🧹")
 
-    # ──────────────────────────────────────────────────────────
-    # YENİ: Tedarikçi Portalı (TDP API) - Sevkiyat Çekme Paneli (Sidebar)
-    # ──────────────────────────────────────────────────────────
-    with st.sidebar.expander("🌐 Tedarikçi Portalı - Sevkiyat Çek", expanded=False):
-        tdp_gun = st.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_sayim")
-        tdp_sevk_no = st.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_sayim")
-        if st.button("🔄 ÇEK", key="tdp_cek_sayim"):
-            basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun)
-            if basarili:
-                st.success(mesaj)
-            else:
-                st.error(mesaj)
-        if st.session_state.get('api_sevk_haritasi'):
-            st.caption(f"📦 Hafızada {len(st.session_state.api_sevk_haritasi)} barkod kaydı var.")
+    # NOT: Tedarikçi Portalı (TDP) sevkiyat çekme paneli artık burada değil,
+    # "Sayım Girişi" ekranının başında (ana içerik alanında) gösteriliyor -
+    # bu uygulamada sidebar varsayılan kapalı ve açma oku CSS ile gizli
+    # olduğu için sidebar'daki alanlara erişilemiyordu.
 
     # -----------------------------
     # HELPERS (GSheets Uyumlu)
@@ -684,6 +674,23 @@ def goster(conn=None):
         if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
             go_sayim_menu()
             st.rerun()
+
+        # ──────────────────────────────────────────────────────────
+        # Tedarikçi Portalı (TDP API) - Sevkiyat Çekme Paneli
+        # ──────────────────────────────────────────────────────────
+        with st.expander("🌐 Tedarikçi Portalından Sevkiyat Çek", expanded=False):
+            tedarikci_api.baglanti_durumu_goster()
+            st.markdown("---")
+            tdp_gun = st.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_sayim")
+            tdp_sevk_no = st.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_sayim")
+            if st.button("🔄 ÇEK", key="tdp_cek_sayim"):
+                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun)
+                if basarili:
+                    st.success(mesaj)
+                else:
+                    st.error(mesaj)
+            if st.session_state.get('api_sevk_haritasi'):
+                st.caption(f"📦 Hafızada {len(st.session_state.api_sevk_haritasi)} barkod kaydı var.")
 
         df_sayim_ana = _get_df("sayim")
         df_tamamlanan = _get_df("sayim_tamamlanan")
