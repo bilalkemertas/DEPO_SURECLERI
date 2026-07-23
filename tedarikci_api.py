@@ -111,7 +111,9 @@ def get_token(kullanici: str, sifre: str):
     except requests.exceptions.HTTPError as e:
         status = resp.status_code if 'resp' in locals() else "?"
         detay = resp.text if 'resp' in locals() else ""
-        st.error(f"❌ Token alma hatası ({status}): {e}\nYanıt: {detay}")
+        st.error(f"❌ Token alma hatası ({status}): {e}")
+        if detay:
+            st.code(detay, language="json")
         return None
     except requests.exceptions.RequestException as e:
         st.error(f"❌ Token alma - bağlantı hatası: {e}")
@@ -155,7 +157,9 @@ def get_shipping_report(shipping_document_no: str, start_date: str, end_date: st
     except requests.exceptions.HTTPError as e:
         status = resp.status_code if 'resp' in locals() else "?"
         detay = resp.text if 'resp' in locals() else ""
-        st.error(f"❌ API HTTP Hatası ({status}): {e}\nYanıt: {detay}")
+        st.error(f"❌ API HTTP Hatası ({status}): {e}")
+        if detay:
+            st.code(detay, language="json")
         return None
     except requests.exceptions.RequestException as e:
         st.error(f"❌ API bağlantı hatası: {e}")
