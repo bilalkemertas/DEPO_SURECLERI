@@ -3,6 +3,7 @@ import pandas as pd
 import veritabani
 import re
 import os
+import tedarikci_api
 from datetime import datetime
 
 LOCAL_MAPPING_FILE = "hafiza.csv"
