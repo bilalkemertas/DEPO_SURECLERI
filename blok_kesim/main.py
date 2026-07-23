@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 
 import tedarikci_api  # YENİ: Tedarikçi Portalı (TDP) API entegrasyonu
+import yetkilendirme  # YENİ: Rol tabanlı (admin/operator) yetkilendirme
 
 # --- GÜVENLİ İTHALAT (Circular Import ve Yol Hatalarını Önleme) ---
 try:
@@ -224,9 +225,16 @@ def run_blok_kesim(conn=None):
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.button("📂 1. İŞ EMRİ YÜKLE", use_container_width=True, type="primary",
-                      on_click=lambda: setattr(st.session_state, 'bk_page', 'is_emri'))
-            st.info("Üretimden gelen excel kesim listelerini sisteme tanıtın ve kalıcı kaydedin.")
+            # ────────────────────────────────────────────────────────────
+            # YENİ: İş Emri Yükleme sadece Admin kullanıcılar içindir
+            # ────────────────────────────────────────────────────────────
+            if yetkilendirme.is_admin():
+                st.button("📂 1. İŞ EMRİ YÜKLE", use_container_width=True, type="primary",
+                          on_click=lambda: setattr(st.session_state, 'bk_page', 'is_emri'))
+                st.info("Üretimden gelen excel kesim listelerini sisteme tanıtın ve kalıcı kaydedin.")
+            else:
+                st.button("📂 1. İŞ EMRİ YÜKLE", use_container_width=True, disabled=True)
+                st.caption("🔒 Bu ekran sadece Admin kullanıcılar içindir.")
 
         with c2:
             st.button("🎯 2. KESİM LİSTESİ & BARKOD", use_container_width=True, type="primary",
@@ -245,6 +253,13 @@ def run_blok_kesim(conn=None):
         if st.button("⬅️ ANA MENÜYE DÖN"):
             go_menu()
             st.rerun()
+
+        # ────────────────────────────────────────────────────────────
+        # YENİ: Çift koruma - session_state doğrudan değiştirilse bile
+        # (örn. başka bir sekmeden) admin olmayan biri bu sayfayı göremez.
+        # ────────────────────────────────────────────────────────────
+        if not yetkilendirme.admin_only("🔒 İş Emri Yükleme ekranı sadece Admin kullanıcılar içindir."):
+            st.stop()
 
         st.header("📂 Excel İş Emri / Kesim Listesi Yükleme")
         st.markdown("---")
