@@ -370,6 +370,8 @@ def run(conn):
         # YENİ: Tedarikçi Portalından (TDP API) Sevkiyat Çekme Paneli
         # ──────────────────────────────────────────────────────────
         with st.expander("🌐 Tedarikçi Portalından Sevkiyat Çek", expanded=True):
+            tedarikci_api.baglanti_durumu_goster()
+            st.markdown("---")
             c_g1, c_g2 = st.columns([1, 2])
             gun_sayisi = c_g1.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_kabul")
             sevk_no = c_g2.text_input("Sevkiyat Belge No (ShippingDocumentNo):", key="tdp_sevk_no_kabul")
