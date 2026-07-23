@@ -178,8 +178,9 @@ def run_blok_kesim(conn=None):
     # --- 1. HAFIZA VE DURUM BAŞLATMA (STATE INIT) ---
     init_blok_kesim_state()
 
-    # YENİ: Tedarikçi Portalı (TDP) login formu - sidebar'da, idempotent
-    tedarikci_api.render_login_sidebar()
+    # NOT: TDP giriş alanları artık "Sevkiyat Çek" expander'ının içinde
+    # (ana içerik alanında) - bu uygulamada sidebar varsayılan kapalı ve
+    # açma oku CSS ile gizli olduğu için sidebar'a erişilemiyordu.
 
     # Kritik anahtarların sıfırlanmasını engelleyen zırhlı koruma
     if 'stok_data' not in st.session_state:
@@ -317,6 +318,8 @@ def run_blok_kesim(conn=None):
         # YENİ: Tedarikçi Portalından (TDP API) Sevkiyat Çekme Paneli
         # ────────────────────────────────────────────────────────────
         with st.expander("🌐 Tedarikçi Portalından Sevkiyat Çek", expanded=False):
+            tedarikci_api.baglanti_durumu_goster()
+            st.markdown("---")
             c_g1, c_g2 = st.columns([1, 2])
             tdp_gun = c_g1.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_bk")
             tdp_sevk_no = c_g2.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_bk")
