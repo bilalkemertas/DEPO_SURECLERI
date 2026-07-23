@@ -11,143 +11,144 @@ import modul_uretim
 import modul_sayim
 import modul_rapor
 import modul_uretim_bitis  # Yeni Eklenen Mamül Bazlı Üretim Bitiş Modülü
+import yetkilendirme  # YENİ: Rol tabanlı (admin/operator) yetkilendirme
 
 # --- SAYFA AYARLARI VE ENDÜSTRİYEL TEMA ---
 st.set_page_config(page_title="BRN WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
 
 # 🖥️ STREAMLIT OTURUMU CANLI TUTMA SİHİRBAZI (KEEP-ALIVE)
 components.html("""
-    <script>
-    const interval = setInterval(function() {
-        window.parent.postMessage({type: 'streamlit:render'}, '*');
-    }, 30000); // 30 Saniyede bir tetikler
-    </script>
+<script>
+const interval = setInterval(function() {
+    window.parent.postMessage({type: 'streamlit:render'}, '*');
+}, 30000); // 30 Saniyede bir tetikler
+</script>
 """, height=0)
 
 # Tam Ekran, 12 Punto Endüstriyel WMS CSS Tasarımı
 st.markdown("""
-    <style>
-        /* GENEL 12 PUNTO SABİTLEMESİ */
-        html, body, [class*="css"], p, span, div, label, input, select, button {
-            font-size: 11pt !important;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-        }
+<style>
+/* GENEL 12 PUNTO SABİTLEMESİ */
+html, body, [class*="css"], p, span, div, label, input, select, button {
+    font-size: 11pt !important;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+h1, h2, h3, .erp-title {
+    font-size: 12pt !important;
+    font-weight: bold !important;
+    margin-top: 4px !important;
+    margin-bottom: 6px !important;
+    padding: 0 !important;
+    color: #0b3c5d !important;
+}
+.block-container { padding: 0.5rem !important; max-width: 100%; }
+header { visibility: hidden; height: 0 !important; }
+footer { visibility: hidden; height: 0 !important; }
+[data-testid="stHeader"] {display: none !important;}
 
-        h1, h2, h3, .erp-title { 
-            font-size: 12pt !important; 
-            font-weight: bold !important;
-            margin-top: 4px !important; 
-            margin-bottom: 6px !important; 
-            padding: 0 !important;
-            color: #0b3c5d !important;
-        }
+/* ALANLAR ARASINDAKİ 2-3 SATIRLIK BOŞLUKLARI SIFIRLAMA */
+[data-testid="stVerticalBlock"] { gap: 0.3rem !important; }
+.element-container { margin-bottom: 2px !important; }
 
-        .block-container { padding: 0.5rem !important; max-width: 100%; }
-        header { visibility: hidden; height: 0 !important; }
-        footer { visibility: hidden; height: 0 !important; }
-        [data-testid="stHeader"] {display: none !important;}
-        
-        /* ALANLAR ARASINDAKİ 2-3 SATIRLIK BOŞLUKLARI SIFIRLAMA */
-        [data-testid="stVerticalBlock"] { gap: 0.3rem !important; }
-        .element-container { margin-bottom: 2px !important; }
+/* YENİ: ALAN İSMİ (LABEL) VE KUTUYU YAN YANA GETİRME (YATAY DÜZEN) */
+div[data-testid="stTextInput"],
+div[data-testid="stNumberInput"],
+div[data-testid="stSelectbox"] {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+}
 
-        /* YENİ: ALAN İSMİ (LABEL) VE KUTUYU YAN YANA GETİRME (YATAY DÜZEN) */
-        div[data-testid="stTextInput"], 
-        div[data-testid="stNumberInput"], 
-        div[data-testid="stSelectbox"] {
-            display: flex !important;
-            flex-direction: row !important;
-            align-items: center !important;
-            justify-content: flex-start !important;
-        }
+/* YENİ: KISA ALAN İSİMLERİ İÇİN GENİŞLİĞİ SABİTLE (SATIR İSRAFINI ÖNLE) */
+div[data-testid="stTextInput"] label,
+div[data-testid="stNumberInput"] label,
+div[data-testid="stSelectbox"] label {
+    min-width: 100px !important;
+    max-width: 130px !important;
+    margin-bottom: 0px !important;
+    padding-right: 10px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+}
 
-        /* YENİ: KISA ALAN İSİMLERİ İÇİN GENİŞLİĞİ SABİTLE (SATIR İSRAFINI ÖNLE) */
-        div[data-testid="stTextInput"] label, 
-        div[data-testid="stNumberInput"] label, 
-        div[data-testid="stSelectbox"] label {
-            min-width: 100px !important; 
-            max-width: 130px !important;
-            margin-bottom: 0px !important;
-            padding-right: 10px !important;
-            white-space: nowrap !important;
-            flex-shrink: 0 !important;
-        }
+/* YENİ: İÇ KUTULARI (INPUT/SELECT) KALAN BOŞLUĞA TAM YAY */
+div[data-testid="stTextInput"] div[data-baseweb="input"],
+div[data-testid="stNumberInput"] div[data-baseweb="input"],
+div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+    flex-grow: 1 !important;
+    width: 100% !important;
+}
 
-        /* YENİ: İÇ KUTULARI (INPUT/SELECT) KALAN BOŞLUĞA TAM YAY */
-        div[data-testid="stTextInput"] div[data-baseweb="input"],
-        div[data-testid="stNumberInput"] div[data-baseweb="input"],
-        div[data-testid="stSelectbox"] div[data-baseweb="select"] {
-            flex-grow: 1 !important;
-            width: 100% !important;
-        }
-        
-        /* ANA MENÜ TERMİNAL BUTON KUTULARI (Primary) */
-        button[kind="primary"] {
-            height: 48px !important; /* Sıkıştırılmış, el terminaline tam oturan yükseklik */
-            width: 100% !important;
-            border-radius: 4px !important;
-            font-size: 11pt !important;
-            font-weight: bold !important;
-            background-color: #ffffff !important;
-            color: #0b3c5d !important;
-            border: 1px solid #dcdcdc !important;
-            transition: all 0.2s ease !important;
-            white-space: pre-wrap !important;
-            display: flex !important;
-            flex-direction: row !important; /* Yan yana ikon ve metin yerleşimi space harcamaz */
-            align-items: center !important;
-            justify-content: center !important;
-            gap: 8px !important;
-        }
-        button[kind="primary"]:hover {
-            background-color: #0b3c5d !important;
-            color: #ffffff !important;
-            border-color: #11caa0 !important;
-        }
-        
-        /* STANDART İKİNCİL BUTONLAR (Geri Dön, Çıkış vs.) */
-        button[kind="secondary"] {
-            height: 35px !important;
-            border-radius: 4px !important;
-            font-size: 11pt !important;
-            font-weight: bold !important;
-            border: 1px solid #dcdcdc !important;
-            color: #0b3c5d !important;
-            transition: all 0.2s ease !important;
-        }
-        button[kind="secondary"]:hover {
-            border-color: #11caa0 !important;
-            color: #11caa0 !important;
-            background-color: #f8f9fa !important;
-        }
-        
-        /* Üst Bilgi Barı */
-        .erp-header {
-            background-color: #0b3c5d;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .erp-title { margin: 0; font-size: 12pt !important; color: white !important; letter-spacing: 0.5px; }
-        .erp-user { margin: 0; font-size: 10pt !important; opacity: 0.95; }
-    </style>
+/* ANA MENÜ TERMİNAL BUTON KUTULARI (Primary) */
+button[kind="primary"] {
+    height: 48px !important; /* Sıkıştırılmış, el terminaline tam oturan yükseklik */
+    width: 100% !important;
+    border-radius: 4px !important;
+    font-size: 11pt !important;
+    font-weight: bold !important;
+    background-color: #ffffff !important;
+    color: #0b3c5d !important;
+    border: 1px solid #dcdcdc !important;
+    transition: all 0.2s ease !important;
+    white-space: pre-wrap !important;
+    display: flex !important;
+    flex-direction: row !important; /* Yan yana ikon ve metin yerleşimi space harcamaz */
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+}
+button[kind="primary"]:hover {
+    background-color: #0b3c5d !important;
+    color: #ffffff !important;
+    border-color: #11caa0 !important;
+}
+
+/* STANDART İKİNCİL BUTONLAR (Geri Dön, Çıkış vs.) */
+button[kind="secondary"] {
+    height: 35px !important;
+    border-radius: 4px !important;
+    font-size: 11pt !important;
+    font-weight: bold !important;
+    border: 1px solid #dcdcdc !important;
+    color: #0b3c5d !important;
+    transition: all 0.2s ease !important;
+}
+button[kind="secondary"]:hover {
+    border-color: #11caa0 !important;
+    color: #11caa0 !important;
+    background-color: #f8f9fa !important;
+}
+
+/* Üst Bilgi Barı */
+.erp-header {
+    background-color: #0b3c5d;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.erp-title { margin: 0; font-size: 12pt !important; color: white !important; letter-spacing: 0.5px; }
+.erp-user { margin: 0; font-size: 10pt !important; opacity: 0.95; }
+</style>
 """, unsafe_allow_html=True)
 
 # Google Sheets Bağlantısı
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
 except:
-    conn = None 
+    conn = None
 
 # --- OTURUM (SESSION) YÖNETİMİ VE GÜVENLİK AĞI ---
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'kullanici_adi' not in st.session_state:
     st.session_state['kullanici_adi'] = ""
+if 'role' not in st.session_state:
+    st.session_state['role'] = yetkilendirme.OPERATOR  # YENİ: varsayılan rol
 if 'page' not in st.session_state:
     st.session_state['page'] = 'main'
 
@@ -164,13 +165,23 @@ if not st.session_state['logged_in']:
             st.markdown("<h3>🏢 BRN WMS Giriş</h3>", unsafe_allow_html=True)
             kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adı")
             sifre = st.text_input("Şifre", type="password", placeholder="Şifre")
+
             if st.button("Sisteme Giriş Yap", use_container_width=True):
                 if "users" in st.secrets:
                     kullanici_listesi = st.secrets["users"]
-                    if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre: 
+                    if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre:
                         st.session_state['logged_in'] = True
-                        st.session_state['kullanici_adi'] = kadi.capitalize() 
+                        st.session_state['kullanici_adi'] = kadi.capitalize()
                         st.session_state['user'] = kadi.capitalize()
+
+                        # ────────────────────────────────────────────────
+                        # YENİ: Rol atama - secrets.toml içindeki [roles]
+                        # tablosundan kullanıcının rolünü oku. Tanımlı
+                        # değilse varsayılan olarak 'operator' ata.
+                        # ────────────────────────────────────────────────
+                        roller = st.secrets.get("roles", {})
+                        st.session_state['role'] = roller.get(kadi, yetkilendirme.OPERATOR)
+
                         st.rerun()
                     else:
                         st.error("Hatalı kullanıcı adı veya şifre!")
@@ -179,12 +190,15 @@ if not st.session_state['logged_in']:
 
 # --- 2. ANA UYGULAMA (GİRİŞ YAPILDIYSA) ---
 else:
+    rol_etiketi = "👑 Admin" if yetkilendirme.is_admin() else "🧑‍🔧 Operatör"
     st.markdown(f"""
-        <div class="erp-header">
-            <p class="erp-title">BRN WMS Enterprise</p>
-            <p class="erp-user">👤 {st.session_state['kullanici_adi']}</p>
-        </div>
+    <div class="erp-header">
+        <p class="erp-title">BRN WMS Enterprise</p>
+        <p class="erp-user">👤 {st.session_state['kullanici_adi']} &nbsp;|&nbsp; {rol_etiketi}</p>
+    </div>
     """, unsafe_allow_html=True)
+
+    yetkilendirme.role_badge()  # YENİ: sidebar'da "Rol: 👑 Admin / 🧑‍🔧 Operatör" rozeti
 
     # --- ANA MENÜ PANELİ (Endüstriyel Grid Düzen) ---
     if st.session_state['page'] in ['main', 'home']:
@@ -210,7 +224,7 @@ else:
             if st.button("📊 Depo Sayım", type="primary", use_container_width=True):
                 st.session_state['page'] = 'sayim'
                 st.rerun()
-                
+
         col_rep, col_out = st.columns([2, 1])
         with col_rep:
             if st.button("📈 Raporlar", type="primary", use_container_width=True):
@@ -218,7 +232,7 @@ else:
                 st.rerun()
         with col_out:
             if st.button("🚪 Güvenli Çıkış", use_container_width=True):
-                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
+                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': "", 'role': yetkilendirme.OPERATOR})
                 st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
@@ -234,11 +248,11 @@ else:
         elif st.session_state['page'] == 'blok_kesim':
             blok_kesim.run_blok_kesim(conn)
         elif st.session_state['page'] == 'uretim':
-            modul_uretim.goster() 
+            modul_uretim.goster()
         elif st.session_state['page'] == 'uretim_bitis':
             modul_uretim_bitis.run_uretim_bitis(conn)
         elif st.session_state['page'] == 'stok':
-            modul_stok.goster() 
+            modul_stok.goster()
         elif st.session_state['page'] == 'sayim':
             modul_sayim.goster(conn)
         elif st.session_state['page'] == 'rapor':
@@ -247,7 +261,6 @@ else:
 
 def page_ayarlar():
     """Tüm sayfalarda geçerli olacak kurumsal, kompakt ve endüstriyel WMS arayüz ayarları"""
-    
     st.markdown("""
     <style>
     /* 1. KATI 12 PUNTO KURALI VE ENDÜSTRİYEL FONT */
@@ -255,17 +268,15 @@ def page_ayarlar():
         font-size: 11pt !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
     }
-
     /* BAŞLIKLAR MAKSİMUM 12 PUNTO (Şık ve net) */
-    h1, h2, h3, .erp-title { 
-        font-size: 12pt !important; 
+    h1, h2, h3, .erp-title {
+        font-size: 12pt !important;
         font-weight: bold !important;
-        margin-top: 4px !important; 
-        margin-bottom: 6px !important; 
+        margin-top: 4px !important;
+        margin-bottom: 6px !important;
         padding: 0 !important;
         color: #0b3c5d !important;
     }
-
     /* 2. EKRAN BOŞLUKLARINI SIFIRA YAKIN TUT (Scroll eziyetini bitirir) */
     .block-container {
         padding-top: 0.5rem !important;
@@ -274,7 +285,6 @@ def page_ayarlar():
         padding-right: 0.5rem !important;
         max-width: 100% !important;
     }
-
     /* ÜST VE ALT STANDART MENÜLERİ GİZLE */
     header {visibility: hidden; height: 0 !important;}
     footer {visibility: hidden; height: 0 !important;}
@@ -285,17 +295,16 @@ def page_ayarlar():
     .element-container { margin-bottom: 2px !important; }
 
     /* ETİKET (LABEL) VE KUTUYU YAN YANA ALMA */
-    div[data-testid="stTextInput"], 
-    div[data-testid="stNumberInput"], 
+    div[data-testid="stTextInput"],
+    div[data-testid="stNumberInput"],
     div[data-testid="stSelectbox"] {
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
         justify-content: flex-start !important;
     }
-
-    div[data-testid="stTextInput"] label, 
-    div[data-testid="stNumberInput"] label, 
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stNumberInput"] label,
     div[data-testid="stSelectbox"] label {
         min-width: 100px !important;
         max-width: 130px !important;
@@ -304,7 +313,6 @@ def page_ayarlar():
         white-space: nowrap !important;
         flex-shrink: 0 !important;
     }
-
     div[data-testid="stTextInput"] div[data-baseweb="input"],
     div[data-testid="stNumberInput"] div[data-baseweb="input"],
     div[data-testid="stSelectbox"] div[data-baseweb="select"] {
@@ -325,12 +333,11 @@ def page_ayarlar():
         background-color: #ffffff !important;
         color: #0b3c5d !important;
     }
-    
     .stButton>button:hover {
         background-color: #11caa0 !important;
         color: white !important;
     }
-    
+
     /* 4. MİNİMALİST SIK_ŞIK HEADER DÜZENİ */
     .erp-header {
         background-color: #0b3c5d;
@@ -361,14 +368,18 @@ def page_ayarlar():
     </style>
     """, unsafe_allow_html=True)
 
+
 def session_kontrol():
     """Kritik state'lerin başlatılması"""
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
+    if 'role' not in st.session_state:
+        st.session_state.role = yetkilendirme.OPERATOR
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
     if 'delete_confirm' not in st.session_state:
         st.session_state.delete_confirm = None
+
 
 def imza_yazdir():
     """Tüm sayfalarda standart imza alanını en alt kısıma ince şerit olarak basar."""
