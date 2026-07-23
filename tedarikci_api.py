@@ -67,11 +67,62 @@ def baglanti_durumu_goster():
 
 
 # ──────────────────────────────────────────────────────────────
+# BEARER TOKEN ALMA (Authentication/GetToken)
+# ──────────────────────────────────────────────────────────────
+def get_token(kullanici: str, sifre: str):
+    """
+    Authentication/GetToken endpoint'ine kullanıcı adı/şifre gönderip Bearer
+    token alır. Token, sonraki isteklerde Authorization: Bearer <token>
+    header'ında kullanılır.
+
+    Request/response şeması Swagger üzerinden gerçek bir çağrı ile doğrulandı:
+
+        İstek:  {"user_name": "...", "password": "..."}
+        Yanıt:  {
+                    "success": true,
+                    "message": null,
+                    "data": {
+                        "access_token": "...",
+                        "access_token_expiry_date": "23.07.2026 18:45:12"
+                    }
+                }
+    """
+    body = {
+        "user_name": kullanici,
+        "password": sifre,
+    }
+    try:
+        resp = requests.post(
+            f"{BASE_URL}/Authentication/GetToken",
+            json=body,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data.get("success"):
+            st.error(f"❌ Token alma başarısız: {data.get('message') or data}")
+            return None
+
+        token = (data.get("data") or {}).get("access_token")
+        if not token:
+            st.error(f"❌ Yanıtta access_token bulunamadı. Ham yanıt: {data}")
+        return token
+    except requests.exceptions.HTTPError as e:
+        status = resp.status_code if 'resp' in locals() else "?"
+        detay = resp.text if 'resp' in locals() else ""
+        st.error(f"❌ Token alma hatası ({status}): {e}\nYanıt: {detay}")
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"❌ Token alma - bağlantı hatası: {e}")
+        return None
+
+
+# ──────────────────────────────────────────────────────────────
 # API ÇAĞRISI
 # ──────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner="🌐 Tedarikçi portalından sevkiyat verisi çekiliyor...")
 def get_shipping_report(shipping_document_no: str, start_date: str, end_date: str,
-
                          kullanici: str, sifre: str):
     """
     ShippingReport/GetShippingReportForIntegration çağrısını yapar.
@@ -82,23 +133,29 @@ def get_shipping_report(shipping_document_no: str, start_date: str, end_date: st
         st.error("❌ ShippingDocumentNo boş olamaz (API dokümantasyonunda zorunlu belirtilmiş).")
         return None
 
+    token = get_token(kullanici, sifre)
+    if not token:
+        return None
+
     params = {
         "ShippingDocumentNo": shipping_document_no,
         "StartDate": start_date,
         "EndDate": end_date,
     }
+    headers = {"Authorization": f"Bearer {token}"}
     try:
         resp = requests.get(
             f"{BASE_URL}{ENDPOINT}",
             params=params,
-            auth=(kullanici, sifre),  # TODO: Basic Auth değilse burayı güncelleyin
+            headers=headers,
             timeout=20,
         )
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.HTTPError as e:
         status = resp.status_code if 'resp' in locals() else "?"
-        st.error(f"❌ API HTTP Hatası ({status}): {e}")
+        detay = resp.text if 'resp' in locals() else ""
+        st.error(f"❌ API HTTP Hatası ({status}): {e}\nYanıt: {detay}")
         return None
     except requests.exceptions.RequestException as e:
         st.error(f"❌ API bağlantı hatası: {e}")
@@ -137,9 +194,14 @@ def sevkiyat_to_barkod_haritasi(api_response, shipping_document_no: str = ""):
     """
     API'den dönen sevkiyat kayıtlarını {barkod: {...}} sözlüğüne çevirir.
 
-    ⚠️ Aşağıdaki .get(...) anahtar isimleri TAHMİNİDİR. İlk gerçek yanıtı
-    debug_ham_yaniti_goster() ile inceleyip gerçek alan adlarına göre
-    güncelleyin (örn. "Barkod" yerine API "LotNo" dönebilir).
+    GetToken endpoint'inde görülen sarmalayıcı desen ({"success":..., "message":...,
+    "data": {...}}) bu endpoint'te de olabilir - aşağıdaki kod hem düz liste,
+    hem "data" altında liste, hem "data" altında iç içe bir liste (items/records/
+    shipments gibi) durumlarını dener.
+
+    ⚠️ Kayıt içindeki alan adları (Barkod, MalzemeKodu vb.) hâlâ TAHMİNİDİR.
+    İlk gerçek yanıtı debug_ham_yaniti_goster() ile inceleyip gerçek alan
+    adlarına göre güncelleyin.
     """
     harita = {}
     if not api_response:
@@ -148,7 +210,25 @@ def sevkiyat_to_barkod_haritasi(api_response, shipping_document_no: str = ""):
     if isinstance(api_response, list):
         kayitlar = api_response
     elif isinstance(api_response, dict):
-        kayitlar = api_response.get("Data") or api_response.get("data") or api_response.get("Result") or []
+        if "success" in api_response and not api_response.get("success"):
+            st.error(f"❌ API başarısız yanıt döndü: {api_response.get('message') or api_response}")
+            return harita
+
+        govde = api_response.get("data")
+        if govde is None:
+            govde = api_response.get("Data") or api_response.get("Result")
+
+        if isinstance(govde, list):
+            kayitlar = govde
+        elif isinstance(govde, dict):
+            kayitlar = (
+                govde.get("items") or govde.get("Items")
+                or govde.get("records") or govde.get("Records")
+                or govde.get("shipments") or govde.get("Shipments")
+                or []
+            )
+        else:
+            kayitlar = []
     else:
         kayitlar = []
 
