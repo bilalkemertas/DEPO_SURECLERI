@@ -5,3 +5,4 @@ gspread
 oauth2client
 st-gsheets-connection
 xlsxwriter
+requests
