@@ -4,6 +4,7 @@ import io
 import time
 import random
 import os
+import tedarikci_api
 from datetime import datetime
 
 # Navigation Helpers
@@ -11,14 +12,18 @@ def go_home():
     st.session_state.page = 'main'
     st.session_state.sayim_page = 'menu'
 
+
 def go_sayim_menu():
     st.session_state.sayim_page = 'menu'
+
 
 def go_oturum():
     st.session_state.sayim_page = 'oturum'
 
+
 def go_giris():
     st.session_state.sayim_page = 'giris'
+
 
 def go_rapor():
     st.session_state.sayim_page = 'rapor'
@@ -45,6 +50,7 @@ def load_github_xlsx(url_or_path):
         st.sidebar.error(f"⚠️ Excel yükleme hatası ({url_or_path}): {str(e)}")
         return None
 
+
 @st.cache_data(ttl=60)
 def load_github_csv(url_or_path):
     """
@@ -61,7 +67,7 @@ def load_github_csv(url_or_path):
                         return pd.read_csv(url_or_path, dtype=str, encoding=enc)
                     except:
                         continue
-            return None
+                return None
     except Exception as e:
         st.sidebar.error(f"⚠️ CSV yükleme hatası ({url_or_path}): {str(e)}")
         return None
@@ -72,15 +78,35 @@ def load_github_csv(url_or_path):
 # ==============================================================================
 def handle_supplier_barcode(barcode_scanned):
     """
-    Tedarikçi barkodunu okuyup son 10 karakteri ayıklar, form sünger ve
-    BRN-FORM EŞLEŞME.xlsx dosyalarından malzeme bilgisi ile teslimat miktarını çeker.
+    Tedarikçi barkodunu okuyup son 10 karakteri ayıklar.
+    Önce API'den (Tedarikçi Portalı) çekilmiş canlı barkod haritasına bakar;
+    bulunamazsa FORM_SUNGER.xlsx ve BRN-FORM EŞLEŞME.xlsx dosyalarından
+    malzeme bilgisi ile teslimat miktarını çeker (mevcut yedek mantık).
     """
     if not barcode_scanned:
         return
 
     # 1. Son 10 karakteri Parti No olarak al
     parti_no = str(barcode_scanned).strip()[-10:]
+
     st.toast(f"🔍 Barkod Çözümlendi! Parti No: {parti_no} aranıyor...", icon="⏳")
+
+    # ──────────────────────────────────────────────────────────
+    # YENİ: Önce API'den çekilmiş tedarikçi barkod haritasına bak.
+    # (Mal Kabul veya bu ekrandaki "Sevkiyat Çek" ile doldurulur.)
+    # ──────────────────────────────────────────────────────────
+    api_harita = st.session_state.get('api_sevk_haritasi', {})
+    api_kayit = api_harita.get(str(barcode_scanned).strip()) or api_harita.get(parti_no)
+    if api_kayit:
+        st.session_state.def_s_kod = api_kayit["MalzemeKodu"]
+        st.session_state.def_s_isim = api_kayit["MalzemeAdi"]
+        st.session_state.def_s_mik = float(api_kayit["Miktar"] or 0)
+        st.session_state.def_s_barcode = str(barcode_scanned).strip()
+        st.toast(f"🌐 Tedarikçi Portalından Bulundu: {api_kayit['MalzemeAdi']}", icon="✔️")
+        return
+    # ──────────────────────────────────────────────────────────
+    # Buradan sonrası MEVCUT yedek mantık (FORM_SUNGER.xlsx / BRN eşleşme)
+    # ──────────────────────────────────────────────────────────
 
     # 2. FORM_SUNGER.xlsx Dosyasını Yükle
     df_sunger = load_github_xlsx(st.session_state.github_form_sunger_url)
@@ -94,14 +120,13 @@ def handle_supplier_barcode(barcode_scanned):
     # Dinamik sütun eşleştirme
     parti_col = next((c for c in df_sunger.columns if "parti" in c.lower() or "lot" in c.lower() or ("no" in c.lower() and "parti" in c.lower())), None)
     malzeme_col = next((c for c in df_sunger.columns if "malzeme" in c.lower() or "kod" in c.lower()), None)
-    
+
     # KESİN MİKTAR/HACİM TESPİTİ (Teslimat No'yu almasını engeller)
     miktar_col = None
     for c in df_sunger.columns:
         if c.lower() == "toplam m3" or c.lower() == "toplam_m3":
             miktar_col = c
             break
-            
     if not miktar_col:
         for c in df_sunger.columns:
             if ("m3" in c.lower() or "hacim" in c.lower()) and "teslimat" not in c.lower() and "no" not in c.lower():
@@ -109,9 +134,12 @@ def handle_supplier_barcode(barcode_scanned):
                 break
 
     # Bulunamazsa varsayılan veya indeks bazlı atama yap
-    if not parti_col: parti_col = "Parti No" if "Parti No" in df_sunger.columns else df_sunger.columns[0]
-    if not malzeme_col: malzeme_col = "Malzeme Kodu" if "Malzeme Kodu" in df_sunger.columns else (df_sunger.columns[1] if len(df_sunger.columns) > 1 else df_sunger.columns[0])
-    if not miktar_col: miktar_col = "Toplam M3" # Sadece Toplam M3'ü kullan, son sütunu rastgele alma!
+    if not parti_col:
+        parti_col = "Parti No" if "Parti No" in df_sunger.columns else df_sunger.columns[0]
+    if not malzeme_col:
+        malzeme_col = "Malzeme Kodu" if "Malzeme Kodu" in df_sunger.columns else (df_sunger.columns[1] if len(df_sunger.columns) > 1 else df_sunger.columns[0])
+    if not miktar_col:
+        miktar_col = "Toplam M3"  # Sadece Toplam M3'ü kullan, son sütunu rastgele alma!
 
     # Parti No verilerini karşılaştırmaya hazırla
     df_sunger[parti_col] = df_sunger[parti_col].astype(str).str.strip()
@@ -127,7 +155,7 @@ def handle_supplier_barcode(barcode_scanned):
 
     row_sunger = match_sunger.iloc[0]
     malzeme_kodu = str(row_sunger.get(malzeme_col, '')).strip()
-    
+
     # Teslimat miktarını güvenli bir şekilde sayıya dönüştür
     try:
         raw_qty = str(row_sunger.get(miktar_col, '0')).replace(',', '.')
@@ -139,13 +167,12 @@ def handle_supplier_barcode(barcode_scanned):
 
     # 3. BRN-FORM EŞLEŞME.xlsx Excel Dosyasını Yükle ve Kendi Kodumuzu/Stok Adımızı Bul
     df_eslesme = load_github_xlsx(st.session_state.github_brn_form_url)
-    
     our_code = malzeme_kodu
     our_name = f"Tedarikçi Kodu: {malzeme_kodu}"
 
     if df_eslesme is not None and not df_eslesme.empty:
         df_eslesme.columns = [str(c).strip() for c in df_eslesme.columns]
-        
+
         # Sütunları dinamik ve zırhlı tespit et (FORM KODU ve BRN KODU / BRN ÜRÜN ADI için)
         form_col = next((c for c in df_eslesme.columns if "form" in c.lower() and "kod" in c.lower()), None)
         brn_cod_col = next((c for c in df_eslesme.columns if "brn" in c.lower() and "kod" in c.lower()), None)
@@ -161,9 +188,11 @@ def handle_supplier_barcode(barcode_scanned):
 
         # Karşılaştırma için kodları temizleme fonksiyonu (.0 uzantılarını, boşlukları siler, büyük harf yapar)
         def clean_code(val):
-            if pd.isna(val): return ""
+            if pd.isna(val):
+                return ""
             s = str(val).strip().upper()
-            if s.endswith(".0"): s = s[:-2]
+            if s.endswith(".0"):
+                s = s[:-2]
             return s
 
         df_eslesme[form_col] = df_eslesme[form_col].apply(clean_code)
@@ -199,7 +228,7 @@ def handle_supplier_barcode(barcode_scanned):
     st.session_state.def_s_kod = our_code
     st.session_state.def_s_isim = our_name
     st.session_state.def_s_mik = teslimat_miktari
-    st.session_state.def_s_barcode = str(barcode_scanned).strip() # Okutulan barkodu da forma taşı
+    st.session_state.def_s_barcode = str(barcode_scanned).strip()  # Okutulan barkodu da forma taşı
 
 
 def get_dinamik_katalog_local():
@@ -219,8 +248,8 @@ def goster(conn=None):
     # AKTİF KULLANICI BELİRLEME
     # -----------------------------
     aktif_kullanici = st.session_state.get('user') or \
-                      st.session_state.get('kullanici_adi') or \
-                      "Tanımsız"
+        st.session_state.get('kullanici_adi') or \
+        "Tanımsız"
 
     if 'user' not in st.session_state:
         st.session_state['user'] = aktif_kullanici
@@ -230,16 +259,12 @@ def goster(conn=None):
     # -----------------------------
     if 'gecici_sayim_listesi' not in st.session_state:
         st.session_state['gecici_sayim_listesi'] = []
-
     if 'aktif_sayim_adi' not in st.session_state:
         st.session_state.aktif_sayim_adi = None
-
     if 'sayim_page' not in st.session_state:
         st.session_state.sayim_page = 'menu'
-
     if 'delete_confirm' not in st.session_state:
         st.session_state.delete_confirm = None
-
     if 'katalog_hafiza' not in st.session_state:
         st.session_state['katalog_hafiza'] = []
 
@@ -288,6 +313,21 @@ def goster(conn=None):
             load_github_xlsx.clear()
             load_github_csv.clear()
             st.toast("Önbellek temizlendi!", icon="🧹")
+
+    # ──────────────────────────────────────────────────────────
+    # YENİ: Tedarikçi Portalı (TDP API) - Sevkiyat Çekme Paneli (Sidebar)
+    # ──────────────────────────────────────────────────────────
+    with st.sidebar.expander("🌐 Tedarikçi Portalı - Sevkiyat Çek", expanded=False):
+        tdp_gun = st.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_sayim")
+        tdp_sevk_no = st.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_sayim")
+        if st.button("🔄 ÇEK", key="tdp_cek_sayim"):
+            basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun)
+            if basarili:
+                st.success(mesaj)
+            else:
+                st.error(mesaj)
+        if st.session_state.get('api_sevk_haritasi'):
+            st.caption(f"📦 Hafızada {len(st.session_state.api_sevk_haritasi)} barkod kaydı var.")
 
     # -----------------------------
     # HELPERS (GSheets Uyumlu)
@@ -440,6 +480,7 @@ def goster(conn=None):
     def _normalize_count_buffer(list_items):
         if not list_items:
             return pd.DataFrame()
+
         df = pd.DataFrame(list_items).copy()
         needed = {
             "Oturum_Adi": "", "Tarih": "", "Adres": "", "Kod": "",
@@ -447,6 +488,7 @@ def goster(conn=None):
             "Tedarikçi_Barkodu": ""
         }
         df = _ensure_columns(df, needed)
+
         df["Oturum_Adi"] = df["Oturum_Adi"].astype(str).str.strip()
         df["Tarih"] = df["Tarih"].astype(str).str.strip()
         df["Adres"] = df["Adres"].astype(str).str.strip().str.upper()
@@ -457,8 +499,10 @@ def goster(conn=None):
         df["Personel"] = df["Personel"].astype(str).str.strip()
         df["Durum"] = df["Durum"].astype(str).str.strip()
         df["Tedarikçi_Barkodu"] = df["Tedarikçi_Barkodu"].astype(str).str.strip()
+
         df = df[df["Kod"] != ""]
         df = df[df["Oturum_Adi"] != ""]
+
         return df.reset_index(drop=True)
 
     def _post_session_to_stock(aktif_oturum):
@@ -483,6 +527,7 @@ def goster(conn=None):
             "Durum": "Kullanılabilir", "Birim": "-", "Personel": "", "Tarih": "",
             "Tedarikçi_Barkodu": ""
         })
+
         df_bu_sayim["Adres"] = df_bu_sayim["Adres"].astype(str).str.strip().str.upper()
         df_bu_sayim["Kod"] = df_bu_sayim["Kod"].astype(str).str.strip().str.upper()
         df_bu_sayim["Miktar"] = _to_num(df_bu_sayim["Miktar"])
@@ -497,7 +542,10 @@ def goster(conn=None):
 
         if not df_urun.empty and urun_kod_col and urun_isim_col:
             tmp = df_urun[[urun_kod_col, urun_isim_col]].drop_duplicates(subset=[urun_kod_col])
-            isim_sozlugu.update({str(k).strip().upper(): str(v).strip() for k, v in zip(tmp[urun_kod_col], tmp[urun_isim_col]) if str(k).strip() != ""})
+            isim_sozlugu.update({
+                str(k).strip().upper(): str(v).strip()
+                for k, v in zip(tmp[urun_kod_col], tmp[urun_isim_col]) if str(k).strip() != ""
+            })
 
         if df_stok.empty:
             df_stok = pd.DataFrame(columns=["Adres", "Kod", "İsim", "Miktar", "Durum", "Birim"])
@@ -544,16 +592,18 @@ def goster(conn=None):
     def _refresh_and_rerun():
         st.rerun()
 
-
     # ==============================================================================
     # UI RENDER SÜREÇLERİ
     # ==============================================================================
     if st.session_state.sayim_page == 'menu':
         st.subheader("⚖️ Sayım Kontrol Merkezi")
         c1, c2, c3 = st.columns(3)
-        with c1: st.button("📁 OTURUM YÖNETİMİ", use_container_width=True, on_click=go_oturum)
-        with c2: st.button("📝 SAYIM GİRİŞİ", use_container_width=True, on_click=go_giris)
-        with c3: st.button("📊 FARK RAPORU", use_container_width=True, on_click=go_rapor)
+        with c1:
+            st.button("📁 OTURUM YÖNETİMİ", use_container_width=True, on_click=go_oturum)
+        with c2:
+            st.button("📝 SAYIM GİRİŞİ", use_container_width=True, on_click=go_giris)
+        with c3:
+            st.button("📊 FARK RAPORU", use_container_width=True, on_click=go_rapor)
 
         if st.session_state.aktif_sayim_adi:
             st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
@@ -565,7 +615,7 @@ def goster(conn=None):
         if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
             go_sayim_menu()
             st.rerun()
-            
+
         df_sayim_ana = _get_df("sayim")
         df_tamamlanan = _get_df("sayim_tamamlanan")
         df_snapshot_ana = _get_df("sayim_snapshot")
@@ -573,15 +623,18 @@ def goster(conn=None):
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty:
             oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
-            if oc: tamamlanmis_oturumlar = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
+            if oc:
+                tamamlanmis_oturumlar = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
 
         tum_oturumlar = []
         if not df_sayim_ana.empty:
             oc = _find_col(df_sayim_ana, ["Oturum_Adi"])
-            if oc: tum_oturumlar.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
+            if oc:
+                tum_oturumlar.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
         if not df_snapshot_ana.empty:
             oc = _find_col(df_snapshot_ana, ["Oturum_Adi"])
-            if oc: tum_oturumlar.extend(df_snapshot_ana[oc].dropna().astype(str).unique().tolist())
+            if oc:
+                tum_oturumlar.extend(df_snapshot_ana[oc].dropna().astype(str).unique().tolist())
 
         bekleyenler = [o for o in sorted(list(set(tum_oturumlar))) if o not in tamamlanmis_oturumlar]
 
@@ -591,12 +644,14 @@ def goster(conn=None):
                 if sayim_etiketi:
                     sayim_etiketi = _upper_text(sayim_etiketi).replace(" ", "_")
                     yeni_oturum_id = f"{sayim_etiketi}_{datetime.now().strftime('%d%m_%H%M')}"
+
                     if not _snapshot_exists_for_session(yeni_oturum_id):
                         snapshot_df = _prepare_snapshot_for_session(yeni_oturum_id)
                         if not snapshot_df.empty:
                             mevcut_snapshots = _get_df("sayim_snapshot")
                             yeni_snapshots = snapshot_df if mevcut_snapshots.empty else pd.concat([mevcut_snapshots, snapshot_df], ignore_index=True)
                             _save_df("sayim_snapshot", _dedupe_exact(yeni_snapshots))
+
                     st.session_state.aktif_sayim_adi = yeni_oturum_id
                     st.session_state['gecici_sayim_listesi'] = []
                     _refresh_and_rerun()
@@ -613,7 +668,7 @@ def goster(conn=None):
             if st.button("🛑 OTURUMU SADECE KAPAT", use_container_width=True):
                 st.session_state.aktif_sayim_adi = None
                 st.rerun()
-                
+
             onay = st.checkbox("Sayım verilerinin doğruluğunu onaylıyorum.")
             if st.button("🚀 STOKLARI GÜNCELLE VE ARŞİVLE", use_container_width=True, disabled=not onay):
                 basarili, mesaj = _post_session_to_stock(st.session_state.aktif_sayim_adi)
@@ -621,7 +676,7 @@ def goster(conn=None):
                     st.session_state.aktif_sayim_adi = None
                     st.success(mesaj)
                     _refresh_and_rerun()
-                else: 
+                else:
                     st.error(mesaj)
 
     elif st.session_state.sayim_page == 'giris':
@@ -632,18 +687,21 @@ def goster(conn=None):
 
         df_sayim_ana = _get_df("sayim")
         df_tamamlanan = _get_df("sayim_tamamlanan")
-        
+
         tamamlanmis = []
         if not df_tamamlanan.empty:
             oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
-            if oc: tamamlanmis = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
-            
+            if oc:
+                tamamlanmis = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
+
         tum_o = []
         if not df_sayim_ana.empty:
             oc = _find_col(df_sayim_ana, ["Oturum_Adi"])
-            if oc: tum_o.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
+            if oc:
+                tum_o.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
 
         bekleyenler = [o for o in sorted(list(set(tum_o))) if o not in tamamlanmis]
+
         if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in bekleyenler:
             bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
 
@@ -652,7 +710,7 @@ def goster(conn=None):
         else:
             if st.session_state.aktif_sayim_adi not in bekleyenler:
                 st.session_state.aktif_sayim_adi = bekleyenler[0]
-            
+
             st.selectbox("📡 Çalışılacak Oturum:", bekleyenler, index=bekleyenler.index(st.session_state.aktif_sayim_adi))
 
             with st.container(border=True):
@@ -666,9 +724,9 @@ def goster(conn=None):
                 col_bar1, col_bar2 = st.columns([3, 1])
                 with col_bar1:
                     sup_barcode_input = st.text_input(
-                        "Tedarikçi Barkodu:", 
+                        "Tedarikçi Barkodu:",
                         key="supplier_barcode_key",
-                        placeholder="Barkodu okutun ve Enter'a basın...", 
+                        placeholder="Barkodu okutun ve Enter'a basın...",
                         label_visibility="collapsed"
                     )
                 with col_bar2:
@@ -686,7 +744,7 @@ def goster(conn=None):
                 # KRİTİK ALAN: Tedarikçi Barkod / Parti No Bilgi Gösterimi ve Manuel Müdahale Alanı
                 # -----------------------------
                 s_barcode_val = st.text_input(
-                    "🔌 Tedarikçi Barkodu / Parti No:", 
+                    "🔌 Tedarikçi Barkodu / Parti No:",
                     value=st.session_state.def_s_barcode,
                     placeholder="Okutulan barkod burada görünür, elle de yazabilirsiniz..."
                 )
@@ -728,12 +786,12 @@ def goster(conn=None):
                         yeni_satir = {
                             "Oturum_Adi": st.session_state.aktif_sayim_adi,
                             "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-                            "Adres": _upper_text(s_adr), 
-                            "Kod": _upper_text(s_kod), 
+                            "Adres": _upper_text(s_adr),
+                            "Kod": _upper_text(s_kod),
                             "İsim": _norm_text(s_isim),
-                            "Miktar": float(s_mik), 
+                            "Miktar": float(s_mik),
                             "Birim": "-",
-                            "Personel": _norm_text(aktif_kullanici), 
+                            "Personel": _norm_text(aktif_kullanici),
                             "Durum": _norm_text(s_dur),
                             "Tedarikçi_Barkodu": _norm_text(s_barcode_val)  # Barkodu da kayda iliştiriyoruz
                         }
@@ -741,31 +799,31 @@ def goster(conn=None):
                         mevcut.append(yeni_satir)
                         st.session_state['gecici_sayim_listesi'] = mevcut
                         st.toast("Listeye Eklendi", icon="📥")
-                        
+
                         # Ekleme yapıldıktan sonra geçici barkod hafızasını sıfırla
                         st.session_state.clear_sayim_form = True
                         st.rerun()
 
-            if st.session_state['gecici_sayim_listesi']:
-                st.markdown("### 📋 Geçici Sayım Listesi")
-                for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
-                    cols = st.columns([3, 1])
-                    # Ekranda okutulan Tedarikçi Barkodu bilgisini de gösterelim
-                    barkod_metni = f" | 🔌 Barkod: {item['Tedarikçi_Barkodu']}" if item.get('Tedarikçi_Barkodu') else ""
-                    cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.3f} | 🛠️ {item['Durum']}{barkod_metni}")
-                    if cols[1].button("🗑️", key=f"d_{idx}"):
-                        st.session_state['gecici_sayim_listesi'].pop(idx)
-                        st.rerun()
+                if st.session_state['gecici_sayim_listesi']:
+                    st.markdown("### 📋 Geçici Sayım Listesi")
+                    for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
+                        cols = st.columns([3, 1])
+                        # Ekranda okutulan Tedarikçi Barkodu bilgisini de gösterelim
+                        barkod_metni = f" | 🔌 Barkod: {item['Tedarikçi_Barkodu']}" if item.get('Tedarikçi_Barkodu') else ""
+                        cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.3f} | 🛠️ {item['Durum']}{barkod_metni}")
+                        if cols[1].button("🗑️", key=f"d_{idx}"):
+                            st.session_state['gecici_sayim_listesi'].pop(idx)
+                            st.rerun()
 
-                if st.button("📤 BULUTA KAYDET", use_container_width=True):
-                    yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
-                    if not yeni_veri_df.empty:
-                        eski_df = _get_df("sayim")
-                        guncel_df = yeni_veri_df if eski_df.empty else pd.concat([eski_df, yeni_veri_df], ignore_index=True)
-                        _save_df("sayim", _dedupe_exact(guncel_df))
-                        st.session_state['gecici_sayim_listesi'] = []
-                        st.success("Tüm veriler başarıyla kaydedildi!")
-                        _refresh_and_rerun()
+                    if st.button("📤 BULUTA KAYDET", use_container_width=True):
+                        yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
+                        if not yeni_veri_df.empty:
+                            eski_df = _get_df("sayim")
+                            guncel_df = yeni_veri_df if eski_df.empty else pd.concat([eski_df, yeni_veri_df], ignore_index=True)
+                            _save_df("sayim", _dedupe_exact(guncel_df))
+                            st.session_state['gecici_sayim_listesi'] = []
+                            st.success("Tüm veriler başarıyla kaydedildi!")
+                            _refresh_and_rerun()
 
     elif st.session_state.sayim_page == 'rapor':
         st.subheader("📊 Fark Raporu")
@@ -780,13 +838,15 @@ def goster(conn=None):
         if not df_sayim_ana.empty:
             mevcut_oturumlar = df_sayim_ana["Oturum_Adi"].dropna().astype(str).unique().tolist()
             secilen_oturum = st.selectbox("Raporu Gösterilecek Oturum:", mevcut_oturumlar)
-            
+
             df_sayim = df_sayim_ana[df_sayim_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
+
             if not df_sayim.empty:
                 df_sayim["Miktar"] = _to_num(df_sayim["Miktar"])
                 s_ozet = df_sayim.groupby(["Adres", "Kod", "Durum"], sort=False)["Miktar"].sum().reset_index().rename(columns={"Miktar": "Miktar_Sayilan"})
 
                 df_snapshot_oturum = df_snapshot_ana[df_snapshot_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy() if not df_snapshot_ana.empty else pd.DataFrame()
+
                 if not df_snapshot_oturum.empty:
                     df_snapshot_oturum["Miktar"] = _to_num(df_snapshot_oturum["Miktar"])
                     st_ozet = df_snapshot_oturum.groupby(["Adres", "Kod"], sort=False)["Miktar"].sum().reset_index().rename(columns={"Miktar": "Miktar_Sistem"})
