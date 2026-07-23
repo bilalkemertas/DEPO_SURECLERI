@@ -4,13 +4,20 @@ tedarikci_api.py
 Formsünger Tedarikçi Portalı (TDP) entegrasyon katmanı.
 
 Kullanım akışı:
-  1) Kullanıcı kendi TDP kullanıcı adı / şifresini bir kere girer (bkz. render_login_sidebar).
+  1) TDP kullanıcı adı / şifresi operatörlere GÖSTERİLMEZ. secrets.toml
+     içindeki [tdp] bloğundan (kullanici, sifre) okunur - bkz. _get_credentials().
   2) mal kabul / sayım / sünger kesim ekranlarından "Sevkiyat Verisini Çek" butonuna basılır.
   3) API'den dönen kayıtlar {barkod: {...}} sözlüğüne çevrilip
      st.session_state.api_sevk_haritasi içine yazılır.
   4) Tüm barkod okuma fonksiyonları (teslim_alma.handle_barcode,
      modul_sayim.handle_supplier_barcode, blok_kesim.py'deki tarama bloğu)
      önce bu haritaya bakar, bulamazsa kendi mevcut (Excel/GSheets) mantığına düşer.
+
+secrets.toml'a eklenmesi gereken blok (Streamlit Cloud: Manage app → Settings → Secrets):
+
+    [tdp]
+    kullanici = "tdp_kullanici_adi"
+    sifre = "tdp_sifresi"
 
 ⚠️ ÖNEMLİ - TEYİT EDİLMESİ GEREKEN NOKTALAR (Talha Bakhtır ile netleştirin):
   - Kimlik doğrulama yöntemi: Basic Auth mi, yoksa ayrı bir /login veya /token
@@ -32,33 +39,31 @@ ENDPOINT = "/ShippingReport/GetShippingReportForIntegration"
 
 
 # ──────────────────────────────────────────────────────────────
-# KİMLİK BİLGİLERİ (Streamlit session_state üzerinde tutulur)
+# KİMLİK BİLGİLERİ (secrets.toml'dan okunur - operatörlere GÖSTERİLMEZ)
 # ──────────────────────────────────────────────────────────────
-def render_login_sidebar():
-    """
-    Ayarlar sayfasına veya herhangi bir modülün sidebar'ına eklenebilecek
-    basit login formu. Kullanıcı bir kere girer, session boyunca hatırlanır.
-    """
-    with st.sidebar.expander("🌐 Tedarikçi Portalı (TDP) Girişi", expanded=False):
-        st.session_state.tdp_kullanici = st.text_input(
-            "TDP Kullanıcı Adı:",
-            value=st.session_state.get("tdp_kullanici", ""),
-            key="tdp_kullanici_input"
-        )
-        st.session_state.tdp_sifre = st.text_input(
-            "TDP Şifre:",
-            value=st.session_state.get("tdp_sifre", ""),
-            type="password",
-            key="tdp_sifre_input"
-        )
-        if st.session_state.tdp_kullanici and st.session_state.tdp_sifre:
-            st.success("✅ TDP kimlik bilgileri kaydedildi (bu oturum için).")
-
-
 def _get_credentials():
-    kullanici = st.session_state.get("tdp_kullanici", "")
-    sifre = st.session_state.get("tdp_sifre", "")
-    return kullanici, sifre
+    """
+    TDP kullanıcı adı/şifresini secrets.toml içindeki [tdp] bloğundan okur.
+    Hiçbir ekranda kullanıcıya gösterilmez, sadece API çağrısında arka planda
+    kullanılır. secrets.toml'da tanımlı değilse ikisi de boş string döner.
+    """
+    tdp_secrets = st.secrets.get("tdp", {})
+    return tdp_secrets.get("kullanici", ""), tdp_secrets.get("sifre", "")
+
+
+def baglanti_durumu_goster():
+    """
+    Operatörlere şifreyi göstermeden, sadece bağlantının tanımlı olup
+    olmadığını gösteren bilgi satırı. "Sevkiyat Çek" panelinin başına koy.
+    """
+    kullanici, sifre = _get_credentials()
+    if kullanici and sifre:
+        st.caption(f"🔒 Tedarikçi portalı bağlantısı sistem tarafından yönetiliyor (kullanıcı: {kullanici[:2]}{'*' * max(len(kullanici) - 2, 3)}).")
+    else:
+        st.error(
+            "❌ Tedarikçi portalı kimlik bilgileri tanımlı değil. "
+            "Bir yöneticinin secrets.toml içine [tdp] kullanici/sifre eklemesi gerekiyor."
+        )
 
 
 # ──────────────────────────────────────────────────────────────
@@ -66,6 +71,7 @@ def _get_credentials():
 # ──────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300, show_spinner="🌐 Tedarikçi portalından sevkiyat verisi çekiliyor...")
 def get_shipping_report(shipping_document_no: str, start_date: str, end_date: str,
+
                          kullanici: str, sifre: str):
     """
     ShippingReport/GetShippingReportForIntegration çağrısını yapar.
@@ -171,7 +177,8 @@ def sevkiyat_verisini_cek_ve_kaydet(shipping_document_no: str, gun: int = 5, deb
     """
     kullanici, sifre = _get_credentials()
     if not kullanici or not sifre:
-        return False, "Önce TDP kullanıcı adı / şifrenizi girin.", 0
+        return False, ("Tedarikçi portalı bağlantısı tanımlı değil. "
+                        "Bir yöneticinin secrets.toml içine [tdp] kullanici/sifre eklemesi gerekiyor."), 0
 
     sonuc = son_n_gun_sevkiyat(shipping_document_no, gun, kullanici, sifre)
     if debug:
