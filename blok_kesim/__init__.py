@@ -1,10 +1,8 @@
 """
 Blok ve Rulo Sünger Kesim Otomasyonu
 =====================================
-
 Ana paket.
 """
-
 from blok_kesim.state import BlokKesimState, Messages
 from blok_kesim.main import run_blok_kesim
 
