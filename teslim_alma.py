@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import veritabani
 import tedarikci_api
+import yetkilendirme  # YENİ: Rol tabanlı (admin/operator) yetkilendirme
 import re
 import os
 from datetime import datetime
@@ -183,11 +184,27 @@ def run(conn):
         if c1.button("📦 MAL KABUL", use_container_width=True, type="primary"):
             st.session_state.teslim_page = 'secim'
             st.rerun()
-        if c2.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary"):
-            st.session_state.teslim_page = 'olustur'
-            st.rerun()
+
+        # ────────────────────────────────────────────────────────────
+        # YENİ: SAS (Satın Alma Siparişi / iş emri) Oluşturma sadece
+        # Admin kullanıcılar içindir.
+        # ────────────────────────────────────────────────────────────
+        if yetkilendirme.is_admin():
+            if c2.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary"):
+                st.session_state.teslim_page = 'olustur'
+                st.rerun()
+        else:
+            c2.button("📝 SAS OLUŞTUR", use_container_width=True, disabled=True)
+            c2.caption("🔒 Sadece Admin kullanıcılar içindir.")
 
     elif st.session_state.teslim_page == 'olustur':
+        # ────────────────────────────────────────────────────────────
+        # YENİ: Çift koruma - session_state doğrudan değiştirilse bile
+        # admin olmayan biri bu sayfayı göremez.
+        # ────────────────────────────────────────────────────────────
+        if not yetkilendirme.admin_only("🔒 SAS Oluşturma ekranı sadece Admin kullanıcılar içindir."):
+            st.stop()
+
         st.subheader("📝 Yeni SAS Oluştur")
         tab1, tab2 = st.tabs(["📄 Manuel Kalem Ekle", "📂 Excel'den Yükle"])
 
