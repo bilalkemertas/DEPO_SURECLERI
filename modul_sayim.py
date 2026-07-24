@@ -684,7 +684,7 @@ def goster(conn=None):
             tdp_gun = st.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_sayim")
             tdp_sevk_no = st.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_sayim")
             if st.button("🔄 ÇEK", key="tdp_cek_sayim"):
-                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun)
+                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun, debug=True)
                 if basarili:
                     st.success(mesaj)
                 else:
