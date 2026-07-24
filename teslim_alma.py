@@ -377,7 +377,7 @@ def run(conn):
             sevk_no = c_g2.text_input("Sevkiyat Belge No (ShippingDocumentNo):", key="tdp_sevk_no_kabul")
 
             if st.button("🔄 SEVKİYAT VERİSİNİ ÇEK", use_container_width=True, key="cek_sevk_kabul"):
-                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(sevk_no, gun_sayisi)
+                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(sevk_no, gun_sayisi, debug=True)
                 if basarili:
                     st.success(f"✅ {mesaj}")
                 else:
