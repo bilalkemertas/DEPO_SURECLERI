@@ -324,7 +324,7 @@ def run_blok_kesim(conn=None):
             tdp_gun = c_g1.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_bk")
             tdp_sevk_no = c_g2.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_bk")
             if st.button("🔄 ÇEK", key="tdp_cek_bk"):
-                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun)
+                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun, debug=True)
                 if basarili:
                     st.success(f"✅ {mesaj}")
                 else:
