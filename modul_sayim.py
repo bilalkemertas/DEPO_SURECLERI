@@ -517,6 +517,43 @@ def goster(conn=None):
 
         return sayilan, toplam
 
+    # ──────────────────────────────────────────────────────────
+    # DÜZELTME (N+1 sorgu hatası): Yukarıdaki _oturum_ilerleme ve
+    # _oturum_meta_satiri, her çağrıldığında Google Sheets'e YENİDEN
+    # bağlanıyor. "Bekleyen Oturumlar" listesinde HER oturum için bu
+    # fonksiyonlar ayrı ayrı çağrılınca (5 oturum = 15 ekstra okuma),
+    # Google Sheets'in dakikalık kota limiti hızla aşılıyor ve sayfa
+    # "Running GSheetsServiceAccountClient.read..." mesajında asılı
+    # kalıyor. Bu iki fonksiyon, sekmeleri TEK SEFER okuyup listeyi
+    # bellekte (ağa gitmeden) hesaplamak için kullanılır.
+    # ──────────────────────────────────────────────────────────
+    def _oturum_meta_satiri_bellekten(meta_df, oturum_adi):
+        if meta_df is None or meta_df.empty or "Oturum_Adi" not in meta_df.columns:
+            return None
+        eslesme = meta_df[meta_df["Oturum_Adi"].astype(str) == str(oturum_adi)]
+        if eslesme.empty:
+            return None
+        return eslesme.iloc[-1]
+
+    def _oturum_ilerleme_bellekten(df_sayim, df_snap, oturum_adi):
+        sayilan = 0
+        if df_sayim is not None and not df_sayim.empty and "Oturum_Adi" in df_sayim.columns:
+            alt = df_sayim[df_sayim["Oturum_Adi"].astype(str) == str(oturum_adi)]
+            if not alt.empty and "Adres" in alt.columns and "Kod" in alt.columns:
+                sayilan = alt.drop_duplicates(subset=["Adres", "Kod"]).shape[0]
+            else:
+                sayilan = len(alt)
+
+        toplam = 0
+        if df_snap is not None and not df_snap.empty and "Oturum_Adi" in df_snap.columns:
+            alt2 = df_snap[df_snap["Oturum_Adi"].astype(str) == str(oturum_adi)]
+            if not alt2.empty and "Adres" in alt2.columns and "Kod" in alt2.columns:
+                toplam = alt2.drop_duplicates(subset=["Adres", "Kod"]).shape[0]
+            else:
+                toplam = len(alt2)
+
+        return sayilan, toplam
+
     def _snapshot_exists_for_session(oturum_adi):
         df_snapshot = _get_df("sayim_snapshot")
         if df_snapshot.empty:
@@ -749,13 +786,16 @@ def goster(conn=None):
 
         if bekleyenler:
             with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=True):
-                # YENİ: Her oturum için açan kişi, atanan personel ve ilerleme özeti
+                # DÜZELTME: Sekmeler burada TEK SEFER okunuyor (ağa gitmiyor,
+                # döngü içinde bellekten filtreleniyor) - bkz. yukarıdaki not.
+                df_oturum_meta_all = _get_df("sayim_oturumlari")
+
                 satirlar = []
                 for o in bekleyenler:
-                    meta_satiri = _oturum_meta_satiri(o)
+                    meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, o)
                     acan = meta_satiri["Acan_Kisi"] if meta_satiri is not None else "-"
                     atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
-                    sayilan, toplam = _oturum_ilerleme(o)
+                    sayilan, toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, o)
                     satirlar.append({
                         "Oturum": o,
                         "Açan": acan,
