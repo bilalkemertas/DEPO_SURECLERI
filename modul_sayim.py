@@ -471,6 +471,52 @@ def goster(conn=None):
         tamamlanan = set(_session_completed_sessions())
         return [o for o in _session_all_sessions() if o not in tamamlanan]
 
+    # ──────────────────────────────────────────────────────────
+    # YENİ: Oturum meta bilgisi (açan kişi / atanan personel / durum)
+    # "sayim_oturumlari" adında YENİ bir Google Sheets sekmesi kullanır.
+    # Bu sekmeyi Google Sheet dosyanda önceden oluşturman gerekiyor,
+    # sütun başlıkları önemli değil - kod otomatik oluşturuyor.
+    # ──────────────────────────────────────────────────────────
+    def _get_oturum_meta():
+        df = _get_df("sayim_oturumlari")
+        if df.empty:
+            return pd.DataFrame(columns=["Oturum_Adi", "Acan_Kisi", "Acilis_Tarihi", "Atanan_Personel", "Durum"])
+        df = _ensure_columns(df, {"Oturum_Adi": "", "Acan_Kisi": "", "Acilis_Tarihi": "", "Atanan_Personel": "", "Durum": "Açık"})
+        df["Oturum_Adi"] = df["Oturum_Adi"].astype(str).str.strip()
+        return df
+
+    def _oturum_meta_satiri(oturum_adi):
+        df = _get_oturum_meta()
+        if df.empty:
+            return None
+        eslesme = df[df["Oturum_Adi"] == str(oturum_adi)]
+        if eslesme.empty:
+            return None
+        return eslesme.iloc[-1]
+
+    def _oturum_ilerleme(oturum_adi):
+        """(sayılan_kalem, toplam_kalem) döner - 'sayim' ve 'sayim_snapshot' sekmelerinden hesaplar"""
+        df_sayim = _get_df("sayim")
+        df_snap = _get_df("sayim_snapshot")
+
+        sayilan = 0
+        if not df_sayim.empty and "Oturum_Adi" in df_sayim.columns:
+            alt = df_sayim[df_sayim["Oturum_Adi"].astype(str) == str(oturum_adi)]
+            if not alt.empty and "Adres" in alt.columns and "Kod" in alt.columns:
+                sayilan = alt.drop_duplicates(subset=["Adres", "Kod"]).shape[0]
+            else:
+                sayilan = len(alt)
+
+        toplam = 0
+        if not df_snap.empty and "Oturum_Adi" in df_snap.columns:
+            alt2 = df_snap[df_snap["Oturum_Adi"].astype(str) == str(oturum_adi)]
+            if not alt2.empty and "Adres" in alt2.columns and "Kod" in alt2.columns:
+                toplam = alt2.drop_duplicates(subset=["Adres", "Kod"]).shape[0]
+            else:
+                toplam = len(alt2)
+
+        return sayilan, toplam
+
     def _snapshot_exists_for_session(oturum_adi):
         df_snapshot = _get_df("sayim_snapshot")
         if df_snapshot.empty:
@@ -606,6 +652,12 @@ def goster(conn=None):
             tamamlanan_guncel = log_yeni if df_tamamlanan.empty else pd.concat([df_tamamlanan, log_yeni], ignore_index=True)
             _save_df("sayim_tamamlanan", _dedupe_exact(tamamlanan_guncel))
 
+        # YENİ: sayim_oturumlari sekmesinde de durumu güncelle (varsa)
+        meta_df = _get_df("sayim_oturumlari")
+        if not meta_df.empty and "Oturum_Adi" in meta_df.columns:
+            meta_df.loc[meta_df["Oturum_Adi"].astype(str) == str(aktif_oturum), "Durum"] = "Tamamlandı"
+            _save_df("sayim_oturumlari", meta_df)
+
         return True, "Stoklar başarıyla güncellendi ve oturum arşivlendi!"
 
     def _refresh_and_rerun():
@@ -663,6 +715,10 @@ def goster(conn=None):
 
         with st.expander("🆕 Yeni Sayım Oturumu Başlat", expanded=(st.session_state.aktif_sayim_adi is None)):
             sayim_etiketi = st.text_input("Oturum İsmi:", placeholder="Örn: A_Blok")
+            atanan_personel = st.text_input(
+                "👥 Atanan Personel (opsiyonel):",
+                placeholder="Örn: Ahmet, Mehmet — boş bırakırsan herkes çalışabilir"
+            )
             if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True):
                 if sayim_etiketi:
                     sayim_etiketi = _upper_text(sayim_etiketi).replace(" ", "_")
@@ -675,12 +731,40 @@ def goster(conn=None):
                             yeni_snapshots = snapshot_df if mevcut_snapshots.empty else pd.concat([mevcut_snapshots, snapshot_df], ignore_index=True)
                             _save_df("sayim_snapshot", _dedupe_exact(yeni_snapshots))
 
+                    # YENİ: Oturum meta bilgisini (açan kişi, atanan personel) kaydet
+                    meta_satiri = pd.DataFrame([{
+                        "Oturum_Adi": yeni_oturum_id,
+                        "Acan_Kisi": _norm_text(aktif_kullanici),
+                        "Acilis_Tarihi": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                        "Atanan_Personel": _norm_text(atanan_personel),
+                        "Durum": "Açık"
+                    }])
+                    mevcut_meta = _get_df("sayim_oturumlari")
+                    yeni_meta = meta_satiri if mevcut_meta.empty else pd.concat([mevcut_meta, meta_satiri], ignore_index=True)
+                    _save_df("sayim_oturumlari", _dedupe_exact(yeni_meta))
+
                     st.session_state.aktif_sayim_adi = yeni_oturum_id
                     st.session_state['gecici_sayim_listesi'] = []
                     _refresh_and_rerun()
 
         if bekleyenler:
-            with st.expander("⏳ Bekleyen (Açık) Oturumlar"):
+            with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=True):
+                # YENİ: Her oturum için açan kişi, atanan personel ve ilerleme özeti
+                satirlar = []
+                for o in bekleyenler:
+                    meta_satiri = _oturum_meta_satiri(o)
+                    acan = meta_satiri["Acan_Kisi"] if meta_satiri is not None else "-"
+                    atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
+                    sayilan, toplam = _oturum_ilerleme(o)
+                    satirlar.append({
+                        "Oturum": o,
+                        "Açan": acan,
+                        "Atanan Personel": atanan if atanan else "Herkes",
+                        "İlerleme": f"{sayilan} / {toplam}" if toplam else f"{sayilan} kalem sayıldı"
+                    })
+                if satirlar:
+                    st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
+
                 secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
                 if st.button("🔄 OTURUMU GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
                     st.session_state.aktif_sayim_adi = secilen_bekleyen
@@ -708,22 +792,15 @@ def goster(conn=None):
             go_sayim_menu()
             st.rerun()
 
-        df_sayim_ana = _get_df("sayim")
-        df_tamamlanan = _get_df("sayim_tamamlanan")
-
-        tamamlanmis = []
-        if not df_tamamlanan.empty:
-            oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
-            if oc:
-                tamamlanmis = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
-
-        tum_o = []
-        if not df_sayim_ana.empty:
-            oc = _find_col(df_sayim_ana, ["Oturum_Adi"])
-            if oc:
-                tum_o.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
-
-        bekleyenler = [o for o in sorted(list(set(tum_o))) if o not in tamamlanmis]
+        # DÜZELTME: Eskiden burada sadece "sayim" sekmesine bakılıyordu,
+        # bu yüzden yeni açılan bir oturum (henüz kimse barkod okutmadan)
+        # bu listede hiç görünmüyordu - kısır döngü oluşuyordu. Artık
+        # _open_sessions() kullanılıyor; bu fonksiyon hem "sayim" hem
+        # "sayim_snapshot" sekmelerine bakıyor ve "sayim_tamamlanan"da
+        # (yönetici tarafından POST edilmiş) olanları hariç tutuyor.
+        # Böylece bir oturum, YÖNETİCİ POST EDENE KADAR - hiç kimse tek
+        # satır saymamış olsa bile - tüm ekip için görünür ve seçilebilir.
+        bekleyenler = _open_sessions()
 
         if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in bekleyenler:
             bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
@@ -735,6 +812,18 @@ def goster(conn=None):
                 st.session_state.aktif_sayim_adi = bekleyenler[0]
 
             st.selectbox("📡 Çalışılacak Oturum:", bekleyenler, index=bekleyenler.index(st.session_state.aktif_sayim_adi))
+
+            # YENİ: Seçili oturumun açan kişi / atanan personel / ilerleme bilgisi
+            _meta_satiri = _oturum_meta_satiri(st.session_state.aktif_sayim_adi)
+            _acan_metni = _meta_satiri["Acan_Kisi"] if _meta_satiri is not None else "-"
+            _atanan_metni = _norm_text(_meta_satiri["Atanan_Personel"]) if _meta_satiri is not None else ""
+            _sayilan, _toplam = _oturum_ilerleme(st.session_state.aktif_sayim_adi)
+            st.caption(
+                f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
+                f"📊 İlerleme: {_sayilan} / {_toplam}" if _toplam else
+                f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
+                f"📊 İlerleme: {_sayilan} kalem sayıldı"
+            )
 
             with st.container(border=True):
                 s_adr = st.text_input("📍 Adres:").upper()
