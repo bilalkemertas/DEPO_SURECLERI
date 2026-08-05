@@ -29,6 +29,10 @@ def go_rapor():
     st.session_state.sayim_page = 'rapor'
 
 
+def go_el_terminal():
+    st.session_state.sayim_page = 'el_terminali'
+
+
 # ==============================================================================
 # Gelişmiş GitHub / Yerel Veri Yükleme Motoru
 # ==============================================================================
@@ -263,6 +267,35 @@ def goster(conn=None):
         st.session_state.aktif_sayim_adi = None
     if 'sayim_page' not in st.session_state:
         st.session_state.sayim_page = 'menu'
+
+    # -----------------------------
+    # 🆕 OTOMATİK CİHAZ ALGILAMA (Buton YOK - Sistem kendisi karar verir)
+    # Tarayıcının User-Agent bilgisine bakarak el terminali / mobil / Android
+    # tabanlı bir cihaz olup olmadığını anlar ve sadece oturumun İLK yüklenişinde
+    # otomatik olarak "El Terminali Modu"na geçirir. Kullanıcı sonrasında
+    # menüden istediği ekrana serbestçe geçebilir (otomatik geçiş tekrar etmez).
+    # -----------------------------
+    if 'oto_mod_kontrol_edildi' not in st.session_state:
+        st.session_state.oto_mod_kontrol_edildi = True
+        ua_lower = ""
+        try:
+            headers = st.context.headers
+            ua_lower = (headers.get("User-Agent", "") or headers.get("user-agent", "")).lower()
+        except Exception:
+            ua_lower = ""
+
+        el_terminali_anahtar_kelimeler = [
+            "android", "iphone", "ipad", "mobile", "windows ce", "windows phone",
+            "zebra", "honeywell", "datalogic", "cipherlab", "urovo",
+            "point mobile", "newland", "m3 mobile", "chainway"
+        ]
+
+        if ua_lower and any(k in ua_lower for k in el_terminali_anahtar_kelimeler):
+            st.session_state.sayim_page = 'el_terminali'
+            st.session_state.oto_algilanan_cihaz = "📱 El Terminali / Mobil Cihaz"
+        else:
+            st.session_state.oto_algilanan_cihaz = "🖥️ Masaüstü / PC"
+
     if 'delete_confirm' not in st.session_state:
         st.session_state.delete_confirm = None
     if 'katalog_hafiza' not in st.session_state:
@@ -587,13 +620,17 @@ def goster(conn=None):
     # ==============================================================================
     if st.session_state.sayim_page == 'menu':
         st.subheader("⚖️ Sayım Kontrol Merkezi")
-        c1, c2, c3 = st.columns(3)
+        if st.session_state.get('oto_algilanan_cihaz'):
+            st.caption(f"Algılanan cihaz: {st.session_state.oto_algilanan_cihaz}")
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.button("📁 OTURUM YÖNETİMİ", use_container_width=True, on_click=go_oturum)
         with c2:
             st.button("📝 SAYIM GİRİŞİ", use_container_width=True, on_click=go_giris)
         with c3:
             st.button("📊 FARK RAPORU", use_container_width=True, on_click=go_rapor)
+        with c4:
+            st.button("📱 EL TERMİNALİ MODU", use_container_width=True, on_click=go_el_terminal)
 
         if st.session_state.aktif_sayim_adi:
             st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
@@ -725,7 +762,16 @@ def goster(conn=None):
 
                 # -----------------------------
                 # 1. Adım: Tedarikçi Barkod Okutma Alanı (Okuyucu Girişi)
+                # OTOMATİK ENTER: on_change ile barkod okutulunca otomatik işlenir,
+                # işlendikten sonra alan otomatik temizlenir (yeni okutmaya hazır).
                 # -----------------------------
+                def _sup_barcode_auto_submit():
+                    barkod = st.session_state.get("supplier_barcode_key", "").strip()
+                    if barkod:
+                        handle_supplier_barcode(barkod)
+                        st.session_state.last_handled_barcode = barkod
+                        st.session_state.supplier_barcode_key = ""
+
                 st.markdown("---")
                 st.markdown("#### 🔌 Tedarikçi Barkodu Okutun")
                 col_bar1, col_bar2 = st.columns([3, 1])
@@ -733,14 +779,15 @@ def goster(conn=None):
                     sup_barcode_input = st.text_input(
                         "Tedarikçi Barkodu:",
                         key="supplier_barcode_key",
-                        placeholder="Barkodu okutun ve Enter'a basın...",
-                        label_visibility="collapsed"
+                        placeholder="Barkodu okutun, otomatik işlenir...",
+                        label_visibility="collapsed",
+                        on_change=_sup_barcode_auto_submit
                     )
                 with col_bar2:
                     islem_yap = st.button("🔍 Getir / Çöz", use_container_width=True)
 
-                # Barkod değiştiğinde veya butona tıklandığında tetikleme yap
-                if sup_barcode_input and (islem_yap or st.session_state.get('last_handled_barcode') != sup_barcode_input):
+                # Manuel buton ile de tetikleme (yedek / fallback)
+                if islem_yap and sup_barcode_input:
                     st.session_state.last_handled_barcode = sup_barcode_input
                     handle_supplier_barcode(sup_barcode_input)
 
@@ -866,3 +913,123 @@ def goster(conn=None):
                 rapor["FARK"] = rapor["Miktar_Sayilan"] - rapor["Miktar_Sistem"]
 
                 st.dataframe(rapor, use_container_width=True, hide_index=True)
+
+    # ==============================================================================
+    # YENİ: EL TERMİNALİ MODU (El terminali / dokunmatik cihazlar için sade ekran)
+    # ==============================================================================
+    elif st.session_state.sayim_page == 'el_terminali':
+        # Büyük yazı tipi ve büyük dokunma alanları için CSS
+        st.markdown("""
+            <style>
+            div[data-testid="stTextInput"] input,
+            div[data-testid="stNumberInput"] input {
+                font-size: 26px !important;
+                height: 58px !important;
+                padding: 8px 12px !important;
+            }
+            div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+                font-size: 22px !important;
+                min-height: 55px !important;
+            }
+            div.stButton > button {
+                font-size: 22px !important;
+                height: 62px !important;
+                font-weight: 700 !important;
+            }
+            div[data-testid="stMarkdownContainer"] h4 {
+                font-size: 20px !important;
+                margin-top: 6px !important;
+                margin-bottom: 2px !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+        st.subheader("📱 El Terminali Modu")
+        if st.button("⬅️ GERİ", use_container_width=True):
+            go_sayim_menu()
+            st.rerun()
+
+        if not st.session_state.aktif_sayim_adi:
+            st.warning("⚠️ Aktif oturum yok. Önce 'Oturum Yönetimi' ekranından bir oturum başlatın veya aktifleştirin.")
+        else:
+            st.success(f"📡 Oturum: **{st.session_state.aktif_sayim_adi}**")
+
+            def _el_barkod_auto_submit():
+                barkod = st.session_state.get("el_barkod_key", "").strip()
+                if barkod:
+                    handle_supplier_barcode(barkod)
+                    st.session_state.el_barkod_key = ""
+
+            with st.container(border=True):
+                st.markdown("#### 1️⃣ Adres")
+                el_adr = st.text_input(
+                    "Adres:",
+                    key="el_adres_key",
+                    label_visibility="collapsed",
+                    placeholder="ADRES"
+                ).upper()
+
+                st.markdown("#### 2️⃣ Barkod (Okutunca Otomatik İşlenir)")
+                st.text_input(
+                    "Barkod:",
+                    key="el_barkod_key",
+                    label_visibility="collapsed",
+                    placeholder="Barkodu okutun...",
+                    on_change=_el_barkod_auto_submit
+                )
+
+                st.markdown("#### 📦 Malzeme")
+                st.text_input("Kod:", value=st.session_state.def_s_kod, disabled=True, key="el_kod_goster")
+                st.text_input("İsim:", value=st.session_state.def_s_isim, disabled=True, key="el_isim_goster")
+
+                st.markdown("#### 3️⃣ Miktar")
+                el_mik = st.number_input(
+                    "Miktar:",
+                    min_value=0.0,
+                    step=0.01,
+                    value=st.session_state.def_s_mik,
+                    key="el_mik_key",
+                    label_visibility="collapsed"
+                )
+
+                el_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="el_durum_key")
+
+                if st.button("✅ LİSTEYE EKLE", use_container_width=True):
+                    if not _norm_text(st.session_state.def_s_kod):
+                        st.error("Önce barkod okutun veya Kod alanını doldurun.")
+                    else:
+                        yeni_satir = {
+                            "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                            "Adres": _upper_text(el_adr),
+                            "Kod": _upper_text(st.session_state.def_s_kod),
+                            "İsim": _norm_text(st.session_state.def_s_isim),
+                            "Miktar": float(el_mik),
+                            "Birim": "-",
+                            "Personel": _norm_text(aktif_kullanici),
+                            "Durum": _norm_text(el_dur),
+                            "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)
+                        }
+                        st.session_state['gecici_sayim_listesi'].append(yeni_satir)
+                        st.session_state.def_s_kod = ""
+                        st.session_state.def_s_isim = ""
+                        st.session_state.def_s_mik = 0.0
+                        st.session_state.def_s_barcode = ""
+                        st.toast("✅ Eklendi!", icon="📥")
+                        st.rerun()
+
+                st.markdown(f"**📋 Bu Oturumda Bekleyen Kayıt: {len(st.session_state['gecici_sayim_listesi'])}**")
+
+                if st.session_state['gecici_sayim_listesi']:
+                    son_kayit = st.session_state['gecici_sayim_listesi'][-1]
+                    st.info(f"Son: 📍{son_kayit['Adres']} | 📦{son_kayit['Kod']} | 🔢{son_kayit['Miktar']}")
+
+                    if st.button("📤 BULUTA KAYDET", use_container_width=True, key="el_kaydet"):
+                        yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
+                        if not yeni_veri_df.empty:
+                            eski_df = _get_df("sayim")
+                            guncel_df = yeni_veri_df if eski_df.empty else pd.concat([eski_df, yeni_veri_df], ignore_index=True)
+                            _save_df("sayim", _dedupe_exact(guncel_df))
+                            st.session_state['gecici_sayim_listesi'] = []
+                            st.success("Kaydedildi!")
+                            st.rerun()
