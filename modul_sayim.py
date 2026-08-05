@@ -4,7 +4,6 @@ import io
 import time
 import random
 import os
-import tedarikci_api
 from datetime import datetime
 
 # Navigation Helpers
@@ -96,20 +95,9 @@ def handle_supplier_barcode(barcode_scanned):
     st.toast(f"🔍 Barkod Çözümlendi! Parti No: {parti_no} aranıyor...", icon="⏳")
 
     # ──────────────────────────────────────────────────────────
-    # YENİ: Önce API'den çekilmiş tedarikçi barkod haritasına bak.
-    # (Mal Kabul veya bu ekrandaki "Sevkiyat Çek" ile doldurulur.)
-    # ──────────────────────────────────────────────────────────
-    api_harita = st.session_state.get('api_sevk_haritasi', {})
-    api_kayit = api_harita.get(str(barcode_scanned).strip()) or api_harita.get(parti_no)
-    if api_kayit:
-        st.session_state.def_s_kod = api_kayit["MalzemeKodu"]
-        st.session_state.def_s_isim = api_kayit["MalzemeAdi"]
-        st.session_state.def_s_mik = float(api_kayit["Miktar"] or 0)
-        st.session_state.def_s_barcode = str(barcode_scanned).strip()
-        st.toast(f"🌐 Tedarikçi Portalından Bulundu: {api_kayit['MalzemeAdi']}", icon="✔️")
-        return
-    # ──────────────────────────────────────────────────────────
-    # Buradan sonrası MEVCUT yedek mantık (FORM_SUNGER.xlsx / BRN eşleşme)
+    # NOT: Tedarikçi Portalı (API) entegrasyonu iptal edildi.
+    # Barkod eşleştirmesi artık sadece FORM_SUNGER.xlsx / BRN-FORM
+    # EŞLEŞME.xlsx dosyalarıyla (yerel/GitHub Excel) yapılır.
     # ──────────────────────────────────────────────────────────
 
     # 2. FORM_SUNGER.xlsx Dosyasını Yükle
@@ -711,23 +699,6 @@ def goster(conn=None):
         if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
             go_sayim_menu()
             st.rerun()
-
-        # ──────────────────────────────────────────────────────────
-        # Tedarikçi Portalı (TDP API) - Sevkiyat Çekme Paneli
-        # ──────────────────────────────────────────────────────────
-        with st.expander("🌐 Tedarikçi Portalından Sevkiyat Çek", expanded=False):
-            tedarikci_api.baglanti_durumu_goster()
-            st.markdown("---")
-            tdp_gun = st.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_sayim")
-            tdp_sevk_no = st.text_input("Sevkiyat Belge No:", key="tdp_sevk_no_sayim")
-            if st.button("🔄 ÇEK", key="tdp_cek_sayim"):
-                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(tdp_sevk_no, tdp_gun, debug=True)
-                if basarili:
-                    st.success(mesaj)
-                else:
-                    st.error(mesaj)
-            if st.session_state.get('api_sevk_haritasi'):
-                st.caption(f"📦 Hafızada {len(st.session_state.api_sevk_haritasi)} barkod kaydı var.")
 
         df_sayim_ana = _get_df("sayim")
         df_tamamlanan = _get_df("sayim_tamamlanan")
