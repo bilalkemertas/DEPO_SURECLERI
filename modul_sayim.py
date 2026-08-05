@@ -357,6 +357,10 @@ def goster(conn=None):
         return pd.to_numeric(series, errors='coerce').fillna(0.0).astype(float)
 
     def _get_df(table_name):
+        # NOT: Burada artık süre bazlı (TTL) önbellek YOK. Ne zaman taze
+        # veri okunacağı, aşağıdaki _sayim_ortak_verileri_yukle() tarafından
+        # olay bazlı (sayfaya ilk giriş / kayıt sonrası / elle "Yenile")
+        # kontrol ediliyor. Bu fonksiyon sadece ham okuma + 3 deneme yapar.
         son_hata = None
         for i in range(3):
             try:
@@ -586,6 +590,29 @@ def goster(conn=None):
             return df
         return df.drop_duplicates().reset_index(drop=True)
 
+    # ──────────────────────────────────────────────────────────
+    # YENİ: Süre sınırı OLMAYAN, olay bazlı ortak veri önbelleği.
+    # "sayim", "sayim_tamamlanan", "sayim_snapshot", "sayim_oturumlari"
+    # sekmeleri session_state'te tutulur. Adres/miktar gibi alanlara
+    # yazmak sayfayı yeniden çalıştırsa bile bu veriler TEKRAR OKUNMAZ -
+    # sadece şu durumlarda yenilenir:
+    #   1) Bu tarayıcı oturumunda ilk kez "Oturum Yönetimi" veya
+    #      "Sayım Girişi" ekranına girildiğinde,
+    #   2) Kendi kaydımızı yaptıktan hemen sonra (zorla=True),
+    #   3) Kullanıcı elle "🔄 Listeyi Yenile" butonuna bastığında.
+    # Böylece arama/miktar girme ne kadar sürerse sürsün Google Sheets'e
+    # gereksiz bağlanma olmaz.
+    # ──────────────────────────────────────────────────────────
+    def _sayim_ortak_verileri_yukle(zorla=False):
+        if zorla or '_sayim_ortak_veri' not in st.session_state:
+            st.session_state['_sayim_ortak_veri'] = {
+                "sayim": _get_df("sayim"),
+                "sayim_tamamlanan": _get_df("sayim_tamamlanan"),
+                "sayim_snapshot": _get_df("sayim_snapshot"),
+                "sayim_oturumlari": _get_df("sayim_oturumlari"),
+            }
+        return st.session_state['_sayim_ortak_veri']
+
     def _normalize_count_buffer(list_items):
         if not list_items:
             return pd.DataFrame()
@@ -731,13 +758,20 @@ def goster(conn=None):
 
     elif st.session_state.sayim_page == 'oturum':
         st.subheader("📁 Oturum Yönetimi")
-        if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
-            go_sayim_menu()
-            st.rerun()
+        c_geri, c_yenile = st.columns([3, 1])
+        with c_geri:
+            if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
+                go_sayim_menu()
+                st.rerun()
+        with c_yenile:
+            if st.button("🔄 Yenile", use_container_width=True):
+                _sayim_ortak_verileri_yukle(zorla=True)
+                st.rerun()
 
-        df_sayim_ana = _get_df("sayim")
-        df_tamamlanan = _get_df("sayim_tamamlanan")
-        df_snapshot_ana = _get_df("sayim_snapshot")
+        _veri = _sayim_ortak_verileri_yukle()
+        df_sayim_ana = _veri["sayim"]
+        df_tamamlanan = _veri["sayim_tamamlanan"]
+        df_snapshot_ana = _veri["sayim_snapshot"]
 
         tamamlanmis_oturumlar = []
         if not df_tamamlanan.empty:
@@ -768,10 +802,9 @@ def goster(conn=None):
                     sayim_etiketi = _upper_text(sayim_etiketi).replace(" ", "_")
                     yeni_oturum_id = f"{sayim_etiketi}_{datetime.now().strftime('%d%m_%H%M')}"
 
-                    # DÜZELTME: sayim_snapshot artık tek sefer okunuyor
-                    # (öncesinde varlık kontrolü için bir kez, kayıt için
-                    # tekrar okunuyordu - aynı sekmeye çift bağlantı).
-                    mevcut_snapshots = _get_df("sayim_snapshot")
+                    # DÜZELTME: sayim_snapshot artık ortak önbellekten okunuyor
+                    # (ayrı bir ağ çağrısı yapılmıyor).
+                    mevcut_snapshots = _veri["sayim_snapshot"]
                     oc_snap = _find_col(mevcut_snapshots, ["Oturum_Adi"])
                     snapshot_zaten_var = (
                         oc_snap is not None and not mevcut_snapshots.empty and
@@ -791,9 +824,13 @@ def goster(conn=None):
                         "Atanan_Personel": _norm_text(atanan_personel),
                         "Durum": "Açık"
                     }])
-                    mevcut_meta = _get_df("sayim_oturumlari")
+                    mevcut_meta = _veri["sayim_oturumlari"]
                     yeni_meta = meta_satiri if mevcut_meta.empty else pd.concat([mevcut_meta, meta_satiri], ignore_index=True)
                     _save_df("sayim_oturumlari", _dedupe_exact(yeni_meta))
+
+                    # DÜZELTME: Yeni oturum hemen listede görünsün diye
+                    # ortak önbelleği zorla yeniliyoruz.
+                    _sayim_ortak_verileri_yukle(zorla=True)
 
                     st.session_state.aktif_sayim_adi = yeni_oturum_id
                     st.session_state['gecici_sayim_listesi'] = []
@@ -801,9 +838,7 @@ def goster(conn=None):
 
         if bekleyenler:
             with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=True):
-                # DÜZELTME: Sekmeler burada TEK SEFER okunuyor (ağa gitmiyor,
-                # döngü içinde bellekten filtreleniyor) - bkz. yukarıdaki not.
-                df_oturum_meta_all = _get_df("sayim_oturumlari")
+                df_oturum_meta_all = _veri["sayim_oturumlari"]
 
                 satirlar = []
                 for o in bekleyenler:
@@ -835,6 +870,7 @@ def goster(conn=None):
             if st.button("🚀 STOKLARI GÜNCELLE VE ARŞİVLE", use_container_width=True, disabled=not onay):
                 basarili, mesaj = _post_session_to_stock(st.session_state.aktif_sayim_adi)
                 if basarili:
+                    _sayim_ortak_verileri_yukle(zorla=True)
                     st.session_state.aktif_sayim_adi = None
                     st.success(mesaj)
                     _refresh_and_rerun()
@@ -843,9 +879,15 @@ def goster(conn=None):
 
     elif st.session_state.sayim_page == 'giris':
         st.subheader("📝 Sayım Girişi")
-        if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
-            go_sayim_menu()
-            st.rerun()
+        c_geri, c_yenile = st.columns([3, 1])
+        with c_geri:
+            if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
+                go_sayim_menu()
+                st.rerun()
+        with c_yenile:
+            if st.button("🔄 Yenile", use_container_width=True):
+                _sayim_ortak_verileri_yukle(zorla=True)
+                st.rerun()
 
         # DÜZELTME: Eskiden burada df_sayim_ana/df_tamamlanan okunuyor,
         # SONRA _open_sessions() aynı sekmeleri (+ sayim_snapshot) YENİDEN
@@ -855,10 +897,11 @@ def goster(conn=None):
         # bağlanılıyor ve Google Sheets kota limitine takılıp sayfa
         # "Running GSheetsServiceAccountClient.read..." durumunda asılı
         # kalıyordu. Artık her sekme sayfa başına SADECE 1 KEZ okunuyor.
-        df_sayim_ana = _get_df("sayim")
-        df_tamamlanan = _get_df("sayim_tamamlanan")
-        df_snapshot_ana = _get_df("sayim_snapshot")
-        df_oturum_meta_all = _get_df("sayim_oturumlari")
+        _veri = _sayim_ortak_verileri_yukle()
+        df_sayim_ana = _veri["sayim"]
+        df_tamamlanan = _veri["sayim_tamamlanan"]
+        df_snapshot_ana = _veri["sayim_snapshot"]
+        df_oturum_meta_all = _veri["sayim_oturumlari"]
 
         tamamlanmis = []
         if not df_tamamlanan.empty:
@@ -1021,6 +1064,7 @@ def goster(conn=None):
                             eski_df = _get_df("sayim")
                             guncel_df = yeni_veri_df if eski_df.empty else pd.concat([eski_df, yeni_veri_df], ignore_index=True)
                             _save_df("sayim", _dedupe_exact(guncel_df))
+                            _sayim_ortak_verileri_yukle(zorla=True)
                             st.session_state['gecici_sayim_listesi'] = []
                             st.success("Tüm veriler başarıyla kaydedildi!")
                             _refresh_and_rerun()
