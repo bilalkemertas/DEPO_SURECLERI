@@ -371,14 +371,22 @@ def goster(conn=None):
     def _save_df(table_name, df):
         if df is None:
             df = pd.DataFrame()
+        son_hata = None
         for i in range(15):
             try:
                 conn.update(worksheet=table_name, data=df)
-                break
-            except Exception:
+                return True
+            except Exception as e:
+                son_hata = e
                 if i == 14:
-                    pass
+                    st.error(f"❌ '{table_name}' sekmesine yazılamadı! Hata: {son_hata}")
+                    st.warning(
+                        f"Kontrol et: Google Sheets dosyanda '{table_name}' adında bir sekme (worksheet) "
+                        "gerçekten var mı? Sekme adı büyük/küçük harf dahil BİREBİR aynı olmalı."
+                    )
+                    return False
                 time.sleep(random.uniform(0.2, 0.7))
+        return False
 
     def _find_col(df, candidates):
         if df is None or df.empty:
