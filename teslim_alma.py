@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import veritabani
 import tedarikci_api
-import yetkilendirme  # YENİ: Rol tabanlı (admin/operator) yetkilendirme
+import yetkilendirme
 import re
 import os
 from datetime import datetime
@@ -65,30 +65,6 @@ def handle_barcode():
     parti_no = raw_code[-10:] if len(raw_code) >= 10 else raw_code
 
     st.toast(f"🔍 Barkod Çözümlendi! Parti No: {parti_no} aranıyor...", icon="⏳")
-
-    # ──────────────────────────────────────────────────────────
-    # YENİ: Önce Tedarikçi Portalı (API) haritasına bak.
-    # Bulunursa Satın_Alma tablosuna hiç bakmadan direkt geçici
-    # listeye ekler (gerçek tedarikçi verisi olduğu için önceliklidir).
-    # ──────────────────────────────────────────────────────────
-    api_harita = st.session_state.get('api_sevk_haritasi', {})
-    api_kayit = api_harita.get(raw_code) or api_harita.get(parti_no)
-    if api_kayit:
-        st.session_state.mk_gecici_liste[raw_code] = {
-            "Kod": api_kayit["MalzemeKodu"],
-            "Ad": api_kayit["MalzemeAdi"],
-            "Miktar": float(api_kayit["Miktar"] or 0),
-            "Adres": st.session_state.def_adres,
-            "Durum": st.session_state.def_durum,
-            "SAS_Kalem_ID": None,  # API'den geldiği için SAS satırı yok
-            "Siparis_No": api_kayit.get("SevkiyatBelgeNo", "")
-        }
-        st.toast(f"✅ Tedarikçi Portalından Bulundu: {api_kayit['MalzemeAdi']}", icon="🌐")
-        st.session_state.scan_counter += 1
-        return
-    # ──────────────────────────────────────────────────────────
-    # Buradan sonrası MEVCUT mantık (Satın_Alma / SAS eşleşmesi) — aynen korunuyor
-    # ──────────────────────────────────────────────────────────
 
     df_stok_check = veritabani.get_internal_data("Stok")
 
@@ -158,7 +134,7 @@ def handle_barcode():
         "Miktar": float(row['Sipariş Miktarı']),
         "Adres": st.session_state.def_adres,
         "Durum": st.session_state.def_durum,
-        "SAS_Kalem_ID": row.name,  # Global df_sas_all içindeki orijinal indeks numarasını korur
+        "SAS_Kalem_ID": row.name,
         "Siparis_No": row.get('Sipariş No', '')
     }
     st.session_state.scan_counter += 1
@@ -185,10 +161,6 @@ def run(conn):
             st.session_state.teslim_page = 'secim'
             st.rerun()
 
-        # ────────────────────────────────────────────────────────────
-        # YENİ: SAS (Satın Alma Siparişi / iş emri) Oluşturma sadece
-        # Admin kullanıcılar içindir.
-        # ────────────────────────────────────────────────────────────
         if yetkilendirme.is_admin():
             if c2.button("📝 SAS OLUŞTUR", use_container_width=True, type="primary"):
                 st.session_state.teslim_page = 'olustur'
@@ -198,10 +170,6 @@ def run(conn):
             c2.caption("🔒 Sadece Admin kullanıcılar içindir.")
 
     elif st.session_state.teslim_page == 'olustur':
-        # ────────────────────────────────────────────────────────────
-        # YENİ: Çift koruma - session_state doğrudan değiştirilse bile
-        # admin olmayan biri bu sayfayı göremez.
-        # ────────────────────────────────────────────────────────────
         if not yetkilendirme.admin_only("🔒 SAS Oluşturma ekranı sadece Admin kullanıcılar içindir."):
             st.stop()
 
@@ -213,7 +181,6 @@ def run(conn):
                 ted_m = st.text_input("🏢 Tedarikçi Firma:").upper()
                 df_ref = veritabani.get_internal_data("Stok")
 
-                # --- TYPE ERROR DÜZELTMESİ (GÜVENLİ SIRALAMA) ---
                 if not df_ref.empty and 'Kod' in df_ref.columns:
                     kod_list = sorted(list(set(str(x).strip() for x in df_ref['Kod'].dropna() if str(x).strip() != "")))
                 else:
@@ -341,15 +308,12 @@ def run(conn):
                     filtered_sas = df_incomplete[df_incomplete['Tedarikçi'].astype(str).str.strip() == sec_ted] if sec_ted != "Tümü" else df_incomplete
                     sip_options = sorted(list(set(str(x).strip() for x in filtered_sas['Sipariş No'].dropna() if str(x).strip() != "")))
 
-                    # --- ÇOKLU SAS SEÇİMİ (MULTISELECT) ---
                     sec_sip_list = st.multiselect("📄 SAS No(ları) Seçin:", sip_options)
                     irs = st.text_input("🧾 İrsaliye No:").upper().strip()
 
-                    # Eğer en az 1 SAS seçildiyse DEVAM butonu aktif
                     if st.button("🚀 DEVAM", use_container_width=True, type="primary") and len(sec_sip_list) > 0 and irs:
-                        st.session_state.sel_siparis = ", ".join(sec_sip_list)  # UI'da göstermek için birleştirdik
+                        st.session_state.sel_siparis = ", ".join(sec_sip_list)
 
-                        # Seçilen SAS listesinin içindeki tüm kalemleri filtrele
                         siparis_filtre = df_s[df_s['Sipariş No'].astype(str).str.strip().isin(sec_sip_list)]
                         st.session_state.sel_tedarikci = str(siparis_filtre['Tedarikçi'].iloc[0]) if not siparis_filtre.empty else ""
                         st.session_state.full_sas_data = siparis_filtre
@@ -366,43 +330,44 @@ def run(conn):
             st.session_state.def_adres = c_adr.text_input("📍 Adres:", value=st.session_state.def_adres).upper()
             st.session_state.def_durum = c_dur.selectbox("🛡️ Durum:", ["Kullanılabilir", "Kalite Kontrol", "Bloke"])
 
-        # ──────────────────────────────────────────────────────────
-        # YENİ: Tedarikçi Portalından (TDP API) Sevkiyat Çekme Paneli
-        # ──────────────────────────────────────────────────────────
-        with st.expander("🌐 Tedarikçi Portalından Sevkiyat Çek", expanded=True):
-            tedarikci_api.baglanti_durumu_goster()
-            st.markdown("---")
-            c_g1, c_g2 = st.columns([1, 2])
-            gun_sayisi = c_g1.number_input("Kaç günlük sevkiyat?", min_value=1, max_value=15, value=5, key="tdp_gun_kabul")
-            sevk_no = c_g2.text_input("Sevkiyat Belge No (ShippingDocumentNo):", key="tdp_sevk_no_kabul")
-
-            if st.button("🔄 SEVKİYAT VERİSİNİ ÇEK", use_container_width=True, key="cek_sevk_kabul"):
-                basarili, mesaj, adet = tedarikci_api.sevkiyat_verisini_cek_ve_kaydet(sevk_no, gun_sayisi, debug=True)
-                if basarili:
-                    st.success(f"✅ {mesaj}")
-                else:
-                    st.error(f"❌ {mesaj}")
-
-            if st.session_state.get('api_sevk_haritasi'):
-                st.caption(f"📦 Hafızada şu an {len(st.session_state.api_sevk_haritasi)} barkod kaydı mevcut.")
-
         with st.container(border=True):
             st.text_input("🔍 Barkod Okutun:", key=f"barkod_input_{st.session_state.scan_counter}", on_change=handle_barcode)
 
             sas_filter = st.session_state.full_sas_data.copy()
             sas_filter['Gelen (Yeni)'] = 0.0
-
             scanned_codes = list(st.session_state.mk_gecici_liste.keys())
             for b_code, b_data in st.session_state.mk_gecici_liste.items():
                 mask = (sas_filter.index == b_data['SAS_Kalem_ID'])
                 if mask.any():
                     sas_filter.loc[mask, 'Gelen (Yeni)'] = b_data['Miktar']
 
-            # Ekrana SAS Numarasını da getirdik ki birden fazla SAS varsa hangi ürün nereden belli olsun
-            st.dataframe(
-                sas_filter[['Sipariş No', 'Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']],
-                use_container_width=True, hide_index=True
+            st.subheader("📦 Gelen Miktar Tablosu (Düzenlenebilir)")
+            
+            sas_gosterim = sas_filter[['Sipariş No', 'Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']].copy()
+            sas_gosterim.index = sas_filter.index
+            
+            edited_sas = st.data_editor(
+                sas_gosterim,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Gelen (Yeni)": st.column_config.NumberColumn(
+                        "Gelen (Yeni)",
+                        min_value=0,
+                        step=1,
+                        format="%d"
+                    )
+                },
+                disabled=['Sipariş No', 'Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı'],
+                key='sas_editor'
             )
+
+            if edited_sas is not None:
+                for idx, row in edited_sas.iterrows():
+                    for b_code, b_data in st.session_state.mk_gecici_liste.items():
+                        if b_data['SAS_Kalem_ID'] == idx:
+                            b_data['Miktar'] = float(row['Gelen (Yeni)'])
+                            break
 
             if st.session_state.mk_gecici_liste:
                 if st.button("🚀 STOĞA AKTARIMI TAMAMLA", type="primary", use_container_width=True):
@@ -416,7 +381,6 @@ def run(conn):
                             "Miktar": b_data['Miktar'], "Durum": b_data['Durum'], "Tedarikçi Barkod": b_code
                         }])], ignore_index=True)
 
-                        # Hareketler tablosuna kaydederken kendi orjinal "Siparis_No" sunu ekliyoruz
                         gercek_siparis_no = b_data.get('Siparis_No', st.session_state.sel_siparis)
                         df_har = pd.concat([df_har, pd.DataFrame([{
                             "Tarih": datetime.now().strftime("%Y-%m-%d %H:%M"), "İşlem": "GİRİŞ",
@@ -425,8 +389,6 @@ def run(conn):
                             "Tedarikçi Barkod": b_code, "Durum": b_data['Durum']
                         }])], ignore_index=True)
 
-                        # YENİ: SAS_Kalem_ID artık None olabilir (API'den gelen, SAS karşılığı olmayan kayıtlar).
-                        # Bu satır olmadan .loc[None, ...] hata verirdi.
                         if b_data.get('SAS_Kalem_ID') is not None:
                             df_sas_up.loc[b_data['SAS_Kalem_ID'], 'Gelen Miktar'] = b_data['Miktar']
                             df_sas_up.loc[b_data['SAS_Kalem_ID'], 'Tedarikçi Barkodu'] = b_code
@@ -439,5 +401,5 @@ def run(conn):
                     st.success("✅ Tüm ürünler gerçek barkodlarıyla işlendi!")
                     st.rerun()
 
-    st.markdown("---")
-    st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("<div style='text-align: right;'><b>🚀 Bilal Kemertaş | BRN 2026</b></div>", unsafe_allow_html=True)
