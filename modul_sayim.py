@@ -895,7 +895,8 @@ def goster(conn=None):
             div[data-testid="stTextInput"] input,
             div[data-testid="stNumberInput"] input {
                 font-size: 26px !important;
-                height: 58px !important;
+                min-height: 58px !important;
+                height: auto !important;
                 padding: 8px 12px !important;
             }
             div[data-testid="stSelectbox"] div[data-baseweb="select"] {
@@ -904,7 +905,11 @@ def goster(conn=None):
             }
             div.stButton > button {
                 font-size: 22px !important;
-                height: 62px !important;
+                min-height: 62px !important;
+                height: auto !important;
+                white-space: normal !important;
+                line-height: 1.3 !important;
+                padding: 10px 12px !important;
                 font-weight: 700 !important;
             }
             div[data-testid="stMarkdownContainer"] h4 {
