@@ -761,10 +761,18 @@ def goster(conn=None):
                     sayim_etiketi = _upper_text(sayim_etiketi).replace(" ", "_")
                     yeni_oturum_id = f"{sayim_etiketi}_{datetime.now().strftime('%d%m_%H%M')}"
 
-                    if not _snapshot_exists_for_session(yeni_oturum_id):
+                    # DÜZELTME: sayim_snapshot artık tek sefer okunuyor
+                    # (öncesinde varlık kontrolü için bir kez, kayıt için
+                    # tekrar okunuyordu - aynı sekmeye çift bağlantı).
+                    mevcut_snapshots = _get_df("sayim_snapshot")
+                    oc_snap = _find_col(mevcut_snapshots, ["Oturum_Adi"])
+                    snapshot_zaten_var = (
+                        oc_snap is not None and not mevcut_snapshots.empty and
+                        (mevcut_snapshots[oc_snap].astype(str) == str(yeni_oturum_id)).any()
+                    )
+                    if not snapshot_zaten_var:
                         snapshot_df = _prepare_snapshot_for_session(yeni_oturum_id)
                         if not snapshot_df.empty:
-                            mevcut_snapshots = _get_df("sayim_snapshot")
                             yeni_snapshots = snapshot_df if mevcut_snapshots.empty else pd.concat([mevcut_snapshots, snapshot_df], ignore_index=True)
                             _save_df("sayim_snapshot", _dedupe_exact(yeni_snapshots))
 
@@ -832,15 +840,36 @@ def goster(conn=None):
             go_sayim_menu()
             st.rerun()
 
-        # DÜZELTME: Eskiden burada sadece "sayim" sekmesine bakılıyordu,
-        # bu yüzden yeni açılan bir oturum (henüz kimse barkod okutmadan)
-        # bu listede hiç görünmüyordu - kısır döngü oluşuyordu. Artık
-        # _open_sessions() kullanılıyor; bu fonksiyon hem "sayim" hem
-        # "sayim_snapshot" sekmelerine bakıyor ve "sayim_tamamlanan"da
-        # (yönetici tarafından POST edilmiş) olanları hariç tutuyor.
-        # Böylece bir oturum, YÖNETİCİ POST EDENE KADAR - hiç kimse tek
-        # satır saymamış olsa bile - tüm ekip için görünür ve seçilebilir.
-        bekleyenler = _open_sessions()
+        # DÜZELTME: Eskiden burada df_sayim_ana/df_tamamlanan okunuyor,
+        # SONRA _open_sessions() aynı sekmeleri (+ sayim_snapshot) YENİDEN
+        # okuyordu, SONRA aşağıda ilerleme/atanan gösterimi için üçüncü kez
+        # okunuyordu. Bu ekran her barkod okutmada/tuşlamada yeniden
+        # çalıştığı için (on_change), aynı sekmelere saniyede defalarca
+        # bağlanılıyor ve Google Sheets kota limitine takılıp sayfa
+        # "Running GSheetsServiceAccountClient.read..." durumunda asılı
+        # kalıyordu. Artık her sekme sayfa başına SADECE 1 KEZ okunuyor.
+        df_sayim_ana = _get_df("sayim")
+        df_tamamlanan = _get_df("sayim_tamamlanan")
+        df_snapshot_ana = _get_df("sayim_snapshot")
+        df_oturum_meta_all = _get_df("sayim_oturumlari")
+
+        tamamlanmis = []
+        if not df_tamamlanan.empty:
+            oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
+            if oc:
+                tamamlanmis = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
+
+        tum_o = []
+        if not df_sayim_ana.empty:
+            oc = _find_col(df_sayim_ana, ["Oturum_Adi"])
+            if oc:
+                tum_o.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
+        if not df_snapshot_ana.empty:
+            oc = _find_col(df_snapshot_ana, ["Oturum_Adi"])
+            if oc:
+                tum_o.extend(df_snapshot_ana[oc].dropna().astype(str).unique().tolist())
+
+        bekleyenler = [o for o in sorted(list(set(tum_o))) if o not in tamamlanmis]
 
         if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in bekleyenler:
             bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
@@ -853,11 +882,13 @@ def goster(conn=None):
 
             st.selectbox("📡 Çalışılacak Oturum:", bekleyenler, index=bekleyenler.index(st.session_state.aktif_sayim_adi))
 
-            # YENİ: Seçili oturumun açan kişi / atanan personel / ilerleme bilgisi
-            _meta_satiri = _oturum_meta_satiri(st.session_state.aktif_sayim_adi)
+            # DÜZELTME: Artık yukarıda zaten okunmuş df_oturum_meta_all,
+            # df_sayim_ana, df_snapshot_ana kullanılıyor - tekrar Google
+            # Sheets'e bağlanmıyor.
+            _meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, st.session_state.aktif_sayim_adi)
             _acan_metni = _meta_satiri["Acan_Kisi"] if _meta_satiri is not None else "-"
             _atanan_metni = _norm_text(_meta_satiri["Atanan_Personel"]) if _meta_satiri is not None else ""
-            _sayilan, _toplam = _oturum_ilerleme(st.session_state.aktif_sayim_adi)
+            _sayilan, _toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, st.session_state.aktif_sayim_adi)
             st.caption(
                 f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
                 f"📊 İlerleme: {_sayilan} / {_toplam}" if _toplam else
