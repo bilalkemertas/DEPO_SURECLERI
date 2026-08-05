@@ -357,16 +357,23 @@ def goster(conn=None):
         return pd.to_numeric(series, errors='coerce').fillna(0.0).astype(float)
 
     def _get_df(table_name):
-        for i in range(15):
+        son_hata = None
+        for i in range(3):
             try:
                 df = conn.read(worksheet=table_name, ttl=0)
                 if df is None:
                     return pd.DataFrame()
                 return df.copy()
-            except Exception:
-                if i == 14:
+            except Exception as e:
+                son_hata = e
+                if i == 2:
+                    st.error(f"❌ '{table_name}' sekmesi okunamadı! Hata: {son_hata}")
+                    st.warning(
+                        f"Kontrol et: Google Sheets dosyanda '{table_name}' adında bir sekme "
+                        "gerçekten var mı? Sekme adı büyük/küçük harf dahil BİREBİR aynı olmalı."
+                    )
                     return pd.DataFrame()
-                time.sleep(random.uniform(0.2, 0.7))
+                time.sleep(random.uniform(0.2, 0.5))
 
     def _save_df(table_name, df):
         if df is None:
