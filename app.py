@@ -47,6 +47,18 @@ header { visibility: hidden; height: 0 !important; }
 footer { visibility: hidden; height: 0 !important; }
 [data-testid="stHeader"] {display: none !important;}
 
+/* DÜZELTME: İkon fontu istisnası. Üstteki genel kural TÜM span/div'lerin
+   font-family'sini zorla değiştiriyordu; Streamlit'in ok/chevron gibi
+   ikonları da aslında "arrow_right", "expand_more" gibi kelimelerin özel
+   bir fontla (Material Symbols) ikona dönüşmesiyle gösteriliyor. Font
+   zorla değiştirilince o kelimeler düz metin olarak kalıp butonun/
+   başlığın üzerine biniyordu. Bu kural ikon elemanlarını muaf tutar. */
+[data-testid="stIconMaterial"],
+span[class*="material-symbols"],
+span[class*="material-icons"] {
+    font-family: 'Material Symbols Rounded', 'Material Icons' !important;
+}
+
 /* DÜZELTME: Alanlar arası boşluk - eskiden 0.3rem/2px idi, üst üste binmeye
    sebep oluyordu. Emoji + 11pt satırların gerçek yüksekliği bu boşluğa
    sığmıyordu. Şimdi elemanların rahatça nefes alması için büyütüldü. */
@@ -277,6 +289,15 @@ def page_ayarlar():
     header {visibility: hidden; height: 0 !important;}
     footer {visibility: hidden; height: 0 !important;}
     [data-testid="stHeader"] {display: none !important;}
+
+    /* DÜZELTME: İkon fontu istisnası (bkz. üstteki ana CSS bloğundaki
+       aynı isimli not) - ok/chevron ikonlarının düz metin olarak
+       görünmesini ve butonların üzerine binmesini önler. */
+    [data-testid="stIconMaterial"],
+    span[class*="material-symbols"],
+    span[class*="material-icons"] {
+        font-family: 'Material Symbols Rounded', 'Material Icons' !important;
+    }
 
     /* DÜZELTME: satır arası boşluk büyütüldü (eskiden 0.3rem/2px idi,
        üst üste binmeye sebep oluyordu) */
