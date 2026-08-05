@@ -983,14 +983,14 @@ def goster(conn=None):
                 st.markdown("---")
                 st.markdown("#### 📦 Malzeme Bilgileri")
 
-                # -----------------------------
-                # KRİTİK ALAN: Tedarikçi Barkod / Parti No Bilgi Gösterimi ve Manuel Müdahale Alanı
-                # -----------------------------
-                s_barcode_val = st.text_input(
-                    "🔌 Tedarikçi Barkodu / Parti No:",
-                    value=st.session_state.def_s_barcode,
-                    placeholder="Okutulan barkod burada görünür, elle de yazabilirsiniz..."
-                )
+                # DÜZELTME: Eskiden burada İKİNCİ bir "Tedarikçi Barkodu / Parti
+                # No" giriş kutusu vardı - yukarıdaki okuma alanıyla aynı işi
+                # yapıyor, kafa karıştırıyordu. Artık tek barkod alanı var
+                # (yukarıdaki, otomatik enter yapan). Okutulan/girilen barkod
+                # değeri session_state'te tutuluyor, burada sadece bilgi
+                # amaçlı salt-okunur gösteriliyor.
+                if st.session_state.def_s_barcode:
+                    st.caption(f"🔌 Kayıtlı Barkod / Parti No: **{st.session_state.def_s_barcode}**")
 
                 katalog = get_dinamik_katalog()
 
@@ -1036,7 +1036,7 @@ def goster(conn=None):
                             "Birim": "-",
                             "Personel": _norm_text(aktif_kullanici),
                             "Durum": _norm_text(s_dur),
-                            "Tedarikçi_Barkodu": _norm_text(s_barcode_val)  # Barkodu da kayda iliştiriyoruz
+                            "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)  # Barkodu da kayda iliştiriyoruz
                         }
                         mevcut = st.session_state['gecici_sayim_listesi']
                         mevcut.append(yeni_satir)
