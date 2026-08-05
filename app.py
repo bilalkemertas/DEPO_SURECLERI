@@ -3,6 +3,9 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 
+# 0. MERKEZİ TEMA (SAP Fiori/Horizon esintili, turkuaz) - TEK CSS KAYNAĞI
+import tema
+
 # 1. TÜM MODÜLLERİ VE YENİ ÜRETİM BİTİŞ MODÜLÜNÜ İÇE AKTARIYORUZ
 import teslim_alma
 import blok_kesim  # Yeni modüler paket yapısını tetikler (blok_kesim/ klasörünü okur)
@@ -12,7 +15,7 @@ import modul_sayim
 import modul_rapor
 import modul_uretim_bitis  # Yeni Eklenen Mamül Bazlı Üretim Bitiş Modülü
 
-# --- SAYFA AYARLARI VE ENDÜSTRİYEL TEMA ---
+# --- SAYFA AYARLARI ---
 st.set_page_config(page_title="BRN WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
 
 # 🖥️ STREAMLIT OTURUMU CANLI TUTMA SİHİRBAZI (KEEP-ALIVE)
@@ -24,129 +27,13 @@ const interval = setInterval(function() {
 </script>
 """, height=0)
 
-# Tam Ekran, 12 Punto Endüstriyel WMS CSS Tasarımı
-st.markdown("""
-<style>
-/* GENEL 12 PUNTO SABİTLEMESİ */
-html, body, [class*="css"], p, span, div, label, input, select, button {
-    font-size: 11pt !important;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-}
-
-h1, h2, h3, .erp-title {
-    font-size: 12pt !important;
-    font-weight: bold !important;
-    margin-top: 4px !important;
-    margin-bottom: 6px !important;
-    padding: 0 !important;
-    color: #0b3c5d !important;
-}
-
-.block-container { padding: 0.5rem !important; max-width: 100%; }
-header { visibility: hidden; height: 0 !important; }
-footer { visibility: hidden; height: 0 !important; }
-[data-testid="stHeader"] {display: none !important;}
-
-/* DÜZELTME: İkon fontu istisnası. Üstteki genel kural TÜM span/div'lerin
-   font-family'sini zorla değiştiriyordu; Streamlit'in ok/chevron gibi
-   ikonları da aslında "arrow_right", "expand_more" gibi kelimelerin özel
-   bir fontla (Material Symbols) ikona dönüşmesiyle gösteriliyor. Font
-   zorla değiştirilince o kelimeler düz metin olarak kalıp butonun/
-   başlığın üzerine biniyordu. Bu kural ikon elemanlarını muaf tutar. */
-[data-testid="stIconMaterial"],
-span[class*="material-symbols"],
-span[class*="material-icons"] {
-    font-family: 'Material Symbols Rounded', 'Material Icons' !important;
-}
-
-/* DÜZELTME: Alanlar arası boşluk - eskiden 0.3rem/2px idi, üst üste binmeye
-   sebep oluyordu. Emoji + 11pt satırların gerçek yüksekliği bu boşluğa
-   sığmıyordu. Şimdi elemanların rahatça nefes alması için büyütüldü. */
-[data-testid="stVerticalBlock"] { gap: 0.6rem !important; }
-.element-container { margin-bottom: 8px !important; }
-
-/* DÜZELTME: Eskiden burada etiket (label) ve kutuyu (input) yan yana
-   zorlayan, label genişliğini 130px'e sabitleyen ve white-space: nowrap
-   uygulayan 3 kural vardı. Uzun Türkçe etiketler (örn. "🔌 Tedarikçi
-   Barkodu / Parti No:") bu dar alana sığmayıp kutunun üzerine taşıyordu.
-   O kurallar tamamen kaldırıldı; Streamlit'in varsayılan davranışına
-   (etiket kutunun ÜSTÜNDE) dönüldü - bu, üst üste binmeyi kökünden
-   engeller ve el terminali/mobil ekranlarda da daha güvenlidir. */
-
-/* DÜZELTME: Expander (aç/kapa panel) başlığındaki ok ikonu ile yazının
-   çakışmasını önlemek için minimum yükseklik ve normal satır kaydırma. */
-[data-testid="stExpander"] summary {
-    min-height: 42px !important;
-    display: flex !important;
-    align-items: center !important;
-    line-height: 1.4 !important;
-    padding: 8px 4px !important;
-}
-[data-testid="stExpander"] summary p {
-    margin: 0 !important;
-    white-space: normal !important;
-}
-
-/* ANA MENÜ TERMİNAL BUTON KUTULARI (Primary) */
-button[kind="primary"] {
-    min-height: 48px !important;   /* DÜZELTME: height yerine min-height */
-    height: auto !important;       /* DÜZELTME: 2 satıra düşen yazı artık kesilmiyor */
-    width: 100% !important;
-    border-radius: 4px !important;
-    font-size: 11pt !important;
-    font-weight: bold !important;
-    background-color: #ffffff !important;
-    color: #0b3c5d !important;
-    border: 1px solid #dcdcdc !important;
-    transition: all 0.2s ease !important;
-    white-space: normal !important;   /* DÜZELTME: pre-wrap yerine normal */
-    line-height: 1.3 !important;      /* DÜZELTME: çok satırlı metin nefes alsın */
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 8px !important;
-    padding: 8px 10px !important;
-}
-button[kind="primary"]:hover {
-    background-color: #0b3c5d !important;
-    color: #ffffff !important;
-    border-color: #11caa0 !important;
-}
-
-/* STANDART İKİNCİL BUTONLAR (Geri Dön, Çıkış vs.) */
-button[kind="secondary"] {
-    min-height: 35px !important;   /* DÜZELTME: height yerine min-height */
-    height: auto !important;
-    border-radius: 4px !important;
-    font-size: 11pt !important;
-    font-weight: bold !important;
-    line-height: 1.3 !important;
-    border: 1px solid #dcdcdc !important;
-    color: #0b3c5d !important;
-    transition: all 0.2s ease !important;
-}
-button[kind="secondary"]:hover {
-    border-color: #11caa0 !important;
-    color: #11caa0 !important;
-    background-color: #f8f9fa !important;
-}
-
-/* Üst Bilgi Barı */
-.erp-header {
-    background-color: #0b3c5d;
-    color: white;
-    padding: 6px 12px;
-    border-radius: 4px;
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.erp-title { margin: 0; font-size: 12pt !important; color: white !important; letter-spacing: 0.5px; }
-.erp-user { margin: 0; font-size: 10pt !important; opacity: 0.95; }
-</style>
-""", unsafe_allow_html=True)
+# DÜZELTME: Eskiden burada ~150 satırlık bir CSS bloğu vardı ve bu blok
+# page_ayarlar() fonksiyonunda neredeyse birebir TEKRAR ediliyordu - iki
+# kopya zamanla birbirinden sapmıştı (spagetti kodun ana kaynağı buydu).
+# Artık TÜM CSS tema.py'de TEK bir yerde tanımlı. Tek satırla uygulanıyor
+# ve bu uygulama tek sayfalık (session_state ile geçiş yapan) bir yapı
+# olduğu için, burada bir kez çağrılması TÜM ekranlara otomatik yansır.
+tema.uygula()
 
 # Google Sheets Bağlantısı
 try:
@@ -175,7 +62,7 @@ if not st.session_state['logged_in']:
             st.markdown("<h3>🏢 BRN WMS Giriş</h3>", unsafe_allow_html=True)
             kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adı")
             sifre = st.text_input("Şifre", type="password", placeholder="Şifre")
-            if st.button("Sisteme Giriş Yap", use_container_width=True):
+            if st.button("Sisteme Giriş Yap", use_container_width=True, type="primary"):
                 if "users" in st.secrets:
                     kullanici_listesi = st.secrets["users"]
                     if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre:
@@ -190,12 +77,10 @@ if not st.session_state['logged_in']:
 
 # --- 2. ANA UYGULAMA (GİRİŞ YAPILDIYSA) ---
 else:
-    st.markdown(f"""
-    <div class="erp-header">
-        <p class="erp-title">BRN WMS Enterprise</p>
-        <p class="erp-user">👤 {st.session_state['kullanici_adi']}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # DÜZELTME: Elle yazılan <div class="erp-header"> yerine tema.py'deki
+    # ortak fonksiyon kullanılıyor - başlık barı artık her ekranda birebir
+    # aynı görünüyor (tekrar kod yazmaya gerek yok).
+    tema.baslik_bari("BRN WMS Enterprise", st.session_state['kullanici_adi'])
 
     # --- ANA MENÜ PANELİ (Endüstriyel Grid Düzen) ---
     if st.session_state['page'] in ['main', 'home']:
@@ -228,13 +113,13 @@ else:
                 st.session_state['page'] = 'rapor'
                 st.rerun()
         with col_out:
-            if st.button("🚪 Güvenli Çıkış", use_container_width=True):
+            if st.button("🚪 Güvenli Çıkış", use_container_width=True, type="secondary"):
                 st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
                 st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
     else:
-        if st.button("⬅️ Ana Menüye Dön", use_container_width=True):
+        if st.button("⬅️ Ana Menüye Dön", use_container_width=True, type="secondary"):
             st.session_state['page'] = 'main'
             if 'sayim_page' in st.session_state:
                 st.session_state.sayim_page = 'menu'
@@ -255,122 +140,25 @@ else:
         elif st.session_state['page'] == 'rapor':
             modul_rapor.goster()
 
+    tema.imza_yazdir()
+
+
+# ══════════════════════════════════════════════════════════════
+# GERİYE DÖNÜK UYUMLULUK (backward compatibility)
+# ──────────────────────────────────────────────────────────────
+# DÜZELTME: Bu üç fonksiyon eskiden burada kendi CSS/markup kodlarını
+# taşıyordu (spagetti kodun bir parçası). Başka bir modül bunları
+# çağırıyor olabileceği ihtimaline karşı SİLİNMEDİ, sadece içleri
+# tema.py'ye yönlendirildi - davranış değişmez, kod tekrarı kalkar.
+# Not: app.py'nin kendisi bu üçünü artık çağırmıyor (tema.uygula() ve
+# tema.imza_yazdir() yukarıda zaten kullanıldı). Hiçbir modülde bu
+# fonksiyonlara `import app` ile erişildiğini görmedim - muhtemelen
+# ölü kod, ama riske girmemek için koruyorum.
+# ══════════════════════════════════════════════════════════════
 
 def page_ayarlar():
-    """Tüm sayfalarda geçerli olacak kurumsal, kompakt ve endüstriyel WMS arayüz ayarları"""
-    st.markdown("""
-    <style>
-    /* 1. KATI 12 PUNTO KURALI VE ENDÜSTRİYEL FONT */
-    html, body, [class*="css"], p, span, div, label, input, select, button {
-        font-size: 11pt !important;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
-    }
-
-    /* BAŞLIKLAR MAKSİMUM 12 PUNTO (Şık ve net) */
-    h1, h2, h3, .erp-title {
-        font-size: 12pt !important;
-        font-weight: bold !important;
-        margin-top: 4px !important;
-        margin-bottom: 6px !important;
-        padding: 0 !important;
-        color: #0b3c5d !important;
-    }
-
-    /* 2. EKRAN BOŞLUKLARINI KOMPAKT TUT */
-    .block-container {
-        padding-top: 0.5rem !important;
-        padding-bottom: 0.5rem !important;
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-        max-width: 100% !important;
-    }
-
-    /* ÜST VE ALT STANDART MENÜLERİ GİZLE */
-    header {visibility: hidden; height: 0 !important;}
-    footer {visibility: hidden; height: 0 !important;}
-    [data-testid="stHeader"] {display: none !important;}
-
-    /* DÜZELTME: İkon fontu istisnası (bkz. üstteki ana CSS bloğundaki
-       aynı isimli not) - ok/chevron ikonlarının düz metin olarak
-       görünmesini ve butonların üzerine binmesini önler. */
-    [data-testid="stIconMaterial"],
-    span[class*="material-symbols"],
-    span[class*="material-icons"] {
-        font-family: 'Material Symbols Rounded', 'Material Icons' !important;
-    }
-
-    /* DÜZELTME: satır arası boşluk büyütüldü (eskiden 0.3rem/2px idi,
-       üst üste binmeye sebep oluyordu) */
-    [data-testid="stVerticalBlock"] { gap: 0.6rem !important; }
-    .element-container { margin-bottom: 8px !important; }
-
-    /* DÜZELTME: Etiket/kutu yan yana zorlayan ve genişliği 130px'e
-       sabitleyen kurallar kaldırıldı - etiket artık kutunun üstünde,
-       taşma/çakışma imkansız. */
-
-    /* DÜZELTME: Expander başlığı ok ikonu ile yazı çakışmasını önle */
-    [data-testid="stExpander"] summary {
-        min-height: 42px !important;
-        display: flex !important;
-        align-items: center !important;
-        line-height: 1.4 !important;
-        padding: 8px 4px !important;
-    }
-    [data-testid="stExpander"] summary p {
-        margin: 0 !important;
-        white-space: normal !important;
-    }
-
-    /* 3. KOMPAKT STANDART BUTONLAR */
-    .stButton>button {
-        width: 100% !important;
-        border-radius: 4px !important;
-        border: 1px solid #11caa0 !important;
-        font-size: 11pt !important;
-        font-weight: bold !important;
-        min-height: 40px !important;   /* DÜZELTME: height yerine min-height */
-        height: auto !important;
-        line-height: 1.3 !important;   /* DÜZELTME: çok satırlı metin nefes alsın */
-        white-space: normal !important;
-        padding: 8px 6px !important;
-        transition: all 0.2s ease;
-        background-color: #ffffff !important;
-        color: #0b3c5d !important;
-    }
-    .stButton>button:hover {
-        background-color: #11caa0 !important;
-        color: white !important;
-    }
-
-    /* 4. MİNİMALİST HEADER DÜZENİ */
-    .erp-header {
-        background-color: #0b3c5d;
-        color: white;
-        padding: 6px 12px;
-        border-radius: 4px;
-        margin-bottom: 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .erp-user { margin: 0; font-size: 10pt !important; opacity: 0.95; }
-
-    /* 5. METRİK KUTULARI */
-    .stMetric {
-        background-color: #f8f9fa;
-        padding: 6px !important;
-        border-radius: 4px;
-        border-left: 4px solid #11caa0;
-    }
-    .stMetric [data-testid="stMetricValue"] {
-        font-size: 12pt !important;
-        font-weight: bold !important;
-    }
-    .stMetric [data-testid="stMetricLabel"] {
-        font-size: 9pt !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    """[ESKİ] Artık tema.uygula()'ya yönlendiriyor - geriye dönük uyumluluk için duruyor."""
+    tema.uygula()
 
 
 def session_kontrol():
@@ -384,9 +172,5 @@ def session_kontrol():
 
 
 def imza_yazdir():
-    """Tüm sayfalarda standart imza alanını en alt kısıma ince şerit olarak basar."""
-    st.markdown("""
-    <div style='text-align: center; color: #a0aec0; font-size: 9pt; margin-top: 20px; padding-top: 5px; border-top: 1px solid #e2e8f0;'>
-        🚀 Bilal Kemertaş | BRN 2026
-    </div>
-    """, unsafe_allow_html=True)
+    """[ESKİ] Artık tema.imza_yazdir()'a yönlendiriyor - geriye dönük uyumluluk için duruyor."""
+    tema.imza_yazdir()
