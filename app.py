@@ -69,6 +69,11 @@ if not st.session_state['logged_in']:
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize()
                         st.session_state['user'] = kadi.capitalize()
+                        # YENİ: secrets.toml'daki [roles] tablosundan kullanıcının rolünü oku
+                        # ve session_state['role'] içine yaz. yetkilendirme.py bu değeri okuyor.
+                        # Rol tanımlı değilse (roles altında yoksa) varsayılan "operator" atanır.
+                        roller = st.secrets.get("roles", {})
+                        st.session_state['role'] = roller.get(kadi, "operator")
                         st.rerun()
                     else:
                         st.error("Hatalı kullanıcı adı veya şifre!")
@@ -114,7 +119,7 @@ else:
                 st.rerun()
         with col_out:
             if st.button("🚪 Güvenli Çıkış", use_container_width=True, type="secondary"):
-                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
+                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': "", 'role': ""})
                 st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
