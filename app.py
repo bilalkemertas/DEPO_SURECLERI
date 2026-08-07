@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
-import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 
 # 0. MERKEZİ TEMA (SAP Fiori/Horizon esintili, turkuaz) - TEK CSS KAYNAĞI
 import tema
@@ -17,15 +17,6 @@ import modul_uretim_bitis  # Yeni Eklenen Mamül Bazlı Üretim Bitiş Modülü
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="BRN WMS Enterprise", page_icon="🏢", layout="wide", initial_sidebar_state="collapsed")
-
-# 🖥️ STREAMLIT OTURUMU CANLI TUTMA SİHİRBAZI (KEEP-ALIVE)
-components.html("""
-<script>
-const interval = setInterval(function() {
-    window.parent.postMessage({type: 'streamlit:render'}, '*');
-}, 30000); // 30 Saniyede bir tetikler
-</script>
-""", height=0)
 
 # DÜZELTME: Eskiden burada ~150 satırlık bir CSS bloğu vardı ve bu blok
 # page_ayarlar() fonksiyonunda neredeyse birebir TEKRAR ediliyordu - iki
@@ -60,20 +51,22 @@ if not st.session_state['logged_in']:
     with col2:
         with st.container(border=True):
             st.markdown("<h3>🏢 BRN WMS Giriş</h3>", unsafe_allow_html=True)
-            kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adı")
-            sifre = st.text_input("Şifre", type="password", placeholder="Şifre")
-            if st.button("Sisteme Giriş Yap", use_container_width=True, type="primary"):
+            # DÜZELTME: Girişler artık st.form içinde. Streamlit'te Enter
+            # tuşu SADECE form içindeki alanlarda "gönder" gibi davranır -
+            # form olmadan Enter, kutunun değerini kaydeder ama butonu
+            # tetiklemez. Bu yüzden şifre alanında Enter çalışmıyordu.
+            with st.form("giris_formu", clear_on_submit=False):
+                kadi = st.text_input("Kullanıcı Adı", placeholder="Kullanıcı adı")
+                sifre = st.text_input("Şifre", type="password", placeholder="Şifre")
+                giris_tiklandi = st.form_submit_button("Sisteme Giriş Yap", use_container_width=True, type="primary")
+
+            if giris_tiklandi:
                 if "users" in st.secrets:
                     kullanici_listesi = st.secrets["users"]
                     if kadi in kullanici_listesi and kullanici_listesi[kadi] == sifre:
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize()
                         st.session_state['user'] = kadi.capitalize()
-                        # YENİ: secrets.toml'daki [roles] tablosundan kullanıcının rolünü oku
-                        # ve session_state['role'] içine yaz. yetkilendirme.py bu değeri okuyor.
-                        # Rol tanımlı değilse (roles altında yoksa) varsayılan "operator" atanır.
-                        roller = st.secrets.get("roles", {})
-                        st.session_state['role'] = roller.get(kadi, "operator")
                         st.rerun()
                     else:
                         st.error("Hatalı kullanıcı adı veya şifre!")
@@ -82,9 +75,15 @@ if not st.session_state['logged_in']:
 
 # --- 2. ANA UYGULAMA (GİRİŞ YAPILDIYSA) ---
 else:
-    # DÜZELTME: Elle yazılan <div class="erp-header"> yerine tema.py'deki
-    # ortak fonksiyon kullanılıyor - başlık barı artık her ekranda birebir
-    # aynı görünüyor (tekrar kod yazmaya gerek yok).
+    # DÜZELTME: Gerçek keep-alive. Eskiden burada sadece tarayıcı içinde
+    # kalan (sunucuya hiç gitmeyen) bir postMessage script'i vardı - bu
+    # yüzden 5 dakika gibi kısa sürede oturum/bağlantı düşüyordu. Artık
+    # st_autorefresh, GERÇEKTEN sunucuya periyodik istek gönderiyor - bu
+    # da oturumun canlı kalmasını sağlıyor. 4 dakikada bir (5 dakikalık
+    # eşiğin altında) - kullanıcı bir alana yazarken nadiren denk gelir,
+    # denk gelse bile Streamlit widget değerini kaybetmez.
+    st_autorefresh(interval=4 * 60 * 1000, key="oturum_canli_tut")
+
     tema.baslik_bari("BRN WMS Enterprise", st.session_state['kullanici_adi'])
 
     # --- ANA MENÜ PANELİ (Endüstriyel Grid Düzen) ---
@@ -119,7 +118,7 @@ else:
                 st.rerun()
         with col_out:
             if st.button("🚪 Güvenli Çıkış", use_container_width=True, type="secondary"):
-                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': "", 'role': ""})
+                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
                 st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
