@@ -5,6 +5,7 @@ from streamlit_autorefresh import st_autorefresh
 
 # 0. MERKEZİ TEMA (SAP Fiori/Horizon esintili, turkuaz) - TEK CSS KAYNAĞI
 import tema
+import yetkilendirme
 
 # 1. TÜM MODÜLLERİ VE YENİ ÜRETİM BİTİŞ MODÜLÜNÜ İÇE AKTARIYORUZ
 import teslim_alma
@@ -94,6 +95,7 @@ else:
     st_autorefresh(interval=4 * 60 * 1000, key="oturum_canli_tut")
 
     tema.baslik_bari("BRN WMS Enterprise", st.session_state['kullanici_adi'])
+    yetkilendirme.role_badge()
 
     # --- ANA MENÜ PANELİ (Endüstriyel Grid Düzen) ---
     if st.session_state['page'] in ['main', 'home']:
@@ -132,11 +134,15 @@ else:
 
     # --- MODÜL YÖNLENDİRMELERİ ---
     else:
-        if st.button("⬅️ Ana Menüye Dön", use_container_width=True, type="secondary"):
-            st.session_state['page'] = 'main'
-            if 'sayim_page' in st.session_state:
-                st.session_state.sayim_page = 'menu'
-            st.rerun()
+        # DÜZELTME: Tam genişlik yerine dar bir sütunda - küçük ekranlarda
+        # (el terminali gibi) her ekranda gereksiz yer kaplamasın diye.
+        c_geri_ana, _bos_ana = st.columns([1, 3])
+        with c_geri_ana:
+            if st.button("⬅️ Ana Menü", use_container_width=True, type="secondary"):
+                st.session_state['page'] = 'main'
+                if 'sayim_page' in st.session_state:
+                    st.session_state.sayim_page = 'menu'
+                st.rerun()
 
         if st.session_state['page'] == 'mal_kabul':
             teslim_alma.run(conn)
