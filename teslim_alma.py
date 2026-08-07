@@ -75,16 +75,16 @@ def handle_barcode():
 
     # YENİ: ÖNCE SEÇİLİ SAS'TA (full_sas_data) ARA
     sas_df = st.session_state.get('full_sas_data', pd.DataFrame())
-    
+
     if not sas_df.empty:
         sas_df_temp = sas_df.copy()
         sas_df_temp['Temiz_Barkod'] = sas_df_temp['Tedarikçi Barkodu'].astype(str).str.strip()
-        
+
         found = sas_df_temp[sas_df_temp['Temiz_Barkod'] == raw_code]
-        
+
         if found.empty:
             found = sas_df_temp[sas_df_temp['Temiz_Barkod'] == parti_no]
-        
+
         if not found.empty:
             row = found.iloc[0]
             st.toast(f"✅ Ürün Bulundu (Seçili SAS'ta): {row.get('Stok Adı', '')}", icon="✔️")
@@ -103,7 +103,7 @@ def handle_barcode():
                         final_kod, final_ad = match.iloc[0][brn_k_col], match.iloc[0][brn_a_col]
 
             sas_kalem_id = sas_df.index[sas_df_temp.index.get_loc(found.index[0])]
-            
+
             st.session_state.mk_gecici_liste[raw_code] = {
                 "Kod": final_kod,
                 "Ad": final_ad,
@@ -361,7 +361,18 @@ def run(conn):
 
         with st.expander("⚙️ Varsayılan Depo Ayarları", expanded=True):
             c_adr, c_dur = st.columns(2)
-            st.session_state.def_adres = c_adr.text_input("📍 Adres:", value=st.session_state.def_adres).upper()
+            with c_adr:
+                # DÜZELTME: Adres artık serbest metin değil, Depo_Adresler.xlsx
+                # üzerinden öneri/arama yapılabilen bir açılır liste. Listede
+                # olmayan bir adres gerekirse "+ MANUEL" seçilip elle yazılabilir.
+                adres_listesi = veritabani.get_adres_listesi()
+                secenekler = ["+ MANUEL"] + adres_listesi
+                mevcut_index = secenekler.index(st.session_state.def_adres) if st.session_state.def_adres in adres_listesi else 0
+                sec_adres = st.selectbox("📍 Adres:", secenekler, index=mevcut_index)
+                if sec_adres != "+ MANUEL":
+                    st.session_state.def_adres = sec_adres
+                else:
+                    st.session_state.def_adres = st.text_input("📍 Adres (elle):", value=st.session_state.def_adres).upper()
             st.session_state.def_durum = c_dur.selectbox("🛡️ Durum:", ["Kullanılabilir", "Kalite Kontrol", "Bloke"])
 
         tab_barkod, tab_manuel = st.tabs(["🔍 Barkod Okut", "✍️ Manuel Ekle"])
@@ -374,17 +385,17 @@ def run(conn):
             st.subheader("✍️ Barkodsuz Ürün Ekle")
             with st.container(border=True):
                 df_ref = st.session_state.full_sas_data.copy()
-                
+
                 if not df_ref.empty:
                     col_sel_1, col_sel_2 = st.columns(2)
-                    
+
                     siparis_no_list = sorted(list(set(str(x).strip() for x in df_ref['Sipariş No'].dropna() if str(x).strip() != "")))
                     sec_siparis = col_sel_1.selectbox("📄 Sipariş No:", siparis_no_list, key="man_siparis")
-                    
+
                     filtre_sip = df_ref[df_ref['Sipariş No'].astype(str) == sec_siparis]
                     urun_list = filtre_sip['Stok Adı'].dropna().unique().tolist()
                     sec_urun = col_sel_2.selectbox("📦 Ürün Adı:", urun_list, key="man_urun")
-                    
+
                     urun_satir = filtre_sip[filtre_sip['Stok Adı'] == sec_urun]
                     if not urun_satir.empty:
                         row_data = urun_satir.iloc[0]
@@ -392,12 +403,12 @@ def run(conn):
                         urun_adi = row_data.get('Stok Adı', '')
                         sas_kalem_id = urun_satir.index[0]
                         siparis_no_val = row_data.get('Sipariş No', '')
-                        
+
                         col_m1, col_m2 = st.columns(2)
                         gelen_mik = col_m1.number_input("📊 Gelen Miktar:", min_value=0.0, step=0.1, key="man_miktar")
                         barkod_man = col_m2.text_input("🏷️ Tedarikçi Barkodu (Opsiyonel):", key="man_barkod").strip().upper()
                         final_barkod_man = barkod_man if barkod_man else f"BARKODSUZ-{datetime.now().strftime('%H%M%S')}"
-                        
+
                         if st.button("➕ EKLE", use_container_width=True, key="btn_manuel_ekle"):
                             st.session_state.mk_gecici_liste[final_barkod_man] = {
                                 "Kod": urun_kodu,
@@ -415,17 +426,17 @@ def run(conn):
 
         sas_filter = st.session_state.full_sas_data.copy()
         sas_filter['Gelen (Yeni)'] = 0.0
-        
+
         for b_code, b_data in st.session_state.mk_gecici_liste.items():
             mask = (sas_filter.index == b_data['SAS_Kalem_ID'])
             if mask.any():
                 sas_filter.loc[mask, 'Gelen (Yeni)'] = b_data['Miktar']
 
         st.subheader("📦 Gelen Miktar Tablosu (Düzenlenebilir)")
-        
+
         sas_gosterim = sas_filter[['Sipariş No', 'Tedarikçi Barkodu', 'Stok Kodu', 'Stok Adı', 'Sipariş Miktarı', 'Gelen (Yeni)']].copy()
         sas_gosterim.index = sas_filter.index
-        
+
         edited_sas = st.data_editor(
             sas_gosterim,
             use_container_width=True,
@@ -450,10 +461,10 @@ def run(conn):
                         break
 
         st.markdown("---")
-        
+
         if len(st.session_state.mk_gecici_liste) > 0:
             st.success(f"✅ {len(st.session_state.mk_gecici_liste)} ürün hazır. Aşağıdaki butona tıkla.")
-            
+
             if st.button("🚀 STOĞA AKTARIMI TAMAMLA", type="primary", use_container_width=True):
                 with st.spinner("Veritabanına kaydediliyor..."):
                     try:
@@ -469,7 +480,7 @@ def run(conn):
                             df_sas_up = pd.DataFrame()
 
                         basarili_kayit = 0
-                        
+
                         for b_code, b_data in st.session_state.mk_gecici_liste.items():
                             df_stok = pd.concat([df_stok, pd.DataFrame([{
                                 "Kod": b_data['Kod'],
@@ -514,7 +525,7 @@ def run(conn):
                         st.session_state.mk_gecici_liste = {}
                         st.session_state.full_sas_data = pd.DataFrame()
                         st.session_state.teslim_page = 'menu'
-                        
+
                         import time
                         time.sleep(2)
                         st.rerun()
