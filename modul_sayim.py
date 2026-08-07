@@ -316,6 +316,8 @@ def goster(conn=None):
         st.session_state.github_form_sunger_url = "FORM_SUNGER.xlsx"
     if 'github_brn_form_url' not in st.session_state:
         st.session_state.github_brn_form_url = "BRN-FORM EŞLEŞME.xlsx"
+    if 'github_depo_adresler_url' not in st.session_state:
+        st.session_state.github_depo_adresler_url = "Depo_Adresler.xlsx"
 
     # -----------------------------
     # Gelişmiş GitHub Bağlantı Paneli (Sidebar)
@@ -331,6 +333,11 @@ def goster(conn=None):
             "BRN-FORM EŞLEŞME.xlsx Yolu/URL:",
             value=st.session_state.github_brn_form_url,
             help="Yerel dosya adını ya da GitHub Raw URL'sini girebilirsiniz."
+        )
+        st.session_state.github_depo_adresler_url = st.text_input(
+            "Depo_Adresler.xlsx Yolu/URL:",
+            value=st.session_state.github_depo_adresler_url,
+            help="Adres öneri listesi. Yerel dosya adını ya da GitHub Raw URL'sini girebilirsiniz."
         )
         if st.button("Önbelleği Temizle"):
             load_github_xlsx.clear()
@@ -462,7 +469,29 @@ def goster(conn=None):
 
         return katalog_listesi
 
-    def get_dinamik_katalog():
+    def get_dinamik_adres_listesi():
+        """
+        Depo_Adresler.xlsx dosyasından (GitHub/yerel) adres kodlarını okuyup
+        session_state'te önbelleğe alır - ürün kataloğu ile birebir aynı
+        desen. Personel adres kutusuna yazmaya başlayınca bu liste üzerinden
+        arama/öneri yapılır (Streamlit selectbox zaten yazdıkça filtreler).
+        """
+        if st.session_state.get('adres_hafiza'):
+            return st.session_state['adres_hafiza']
+
+        adres_listesi = []
+        df_adres = load_github_xlsx(st.session_state.github_depo_adresler_url)
+        if df_adres is not None and not df_adres.empty:
+            df_adres.columns = [str(c).strip() for c in df_adres.columns]
+            kod_col = _find_col(df_adres, ["Kod", "Raf Kodu", "Adres"])
+            if kod_col:
+                kodlar = df_adres[kod_col].astype(str).str.strip()
+                adres_listesi = sorted(list(set([k.upper() for k in kodlar if k and k.lower() != "nan"])))
+
+        st.session_state['adres_hafiza'] = adres_listesi
+        return adres_listesi
+
+
         if st.session_state.get('katalog_hafiza'):
             return st.session_state['katalog_hafiza']
 
@@ -984,7 +1013,16 @@ def goster(conn=None):
             )
 
             with st.container(border=True):
-                s_adr = st.text_input("📍 Adres:").upper()
+                adres_listesi = get_dinamik_adres_listesi()
+                sec_adres = st.selectbox(
+                    "📍 Adres:",
+                    ["+ MANUEL"] + adres_listesi,
+                    help="Yazmaya başlayınca listede arama yapabilirsin. Listede yoksa '+ MANUEL' seçip elle yaz."
+                )
+                if sec_adres != "+ MANUEL":
+                    s_adr = sec_adres
+                else:
+                    s_adr = st.text_input("📍 Adres (elle):").upper()
 
                 # -----------------------------
                 # 1. Adım: Tedarikçi Barkod Okutma Alanı (Okuyucu Girişi)
@@ -1196,12 +1234,22 @@ def goster(conn=None):
 
             with st.container(border=True):
                 st.markdown("#### 1️⃣ Adres")
-                el_adr = st.text_input(
+                adres_listesi_el = get_dinamik_adres_listesi()
+                sec_adres_el = st.selectbox(
                     "Adres:",
-                    key="el_adres_key",
+                    ["+ MANUEL"] + adres_listesi_el,
                     label_visibility="collapsed",
-                    placeholder="ADRES"
-                ).upper()
+                    key="el_adres_secim_key"
+                )
+                if sec_adres_el != "+ MANUEL":
+                    el_adr = sec_adres_el
+                else:
+                    el_adr = st.text_input(
+                        "Adres (elle):",
+                        key="el_adres_key",
+                        label_visibility="collapsed",
+                        placeholder="ADRES"
+                    ).upper()
 
                 st.markdown("#### 2️⃣ Barkod (Okutunca Otomatik İşlenir)")
                 st.text_input(
