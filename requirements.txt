@@ -6,3 +6,4 @@ oauth2client
 st-gsheets-connection
 xlsxwriter
 requests
+streamlit-autorefresh
