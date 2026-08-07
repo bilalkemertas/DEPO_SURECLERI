@@ -6,6 +6,7 @@ import random
 import os
 import uuid
 import veri_onbellek as vo
+import veritabani
 from datetime import datetime
 
 # Navigation Helpers
@@ -97,9 +98,38 @@ def handle_supplier_barcode(barcode_scanned):
     st.toast(f"🔍 Barkod Çözümlendi! Parti No: {parti_no} aranıyor...", icon="⏳")
 
     # ──────────────────────────────────────────────────────────
-    # NOT: Tedarikçi Portalı (API) entegrasyonu iptal edildi.
-    # Barkod eşleştirmesi artık sadece FORM_SUNGER.xlsx / BRN-FORM
-    # EŞLEŞME.xlsx dosyalarıyla (yerel/GitHub Excel) yapılır.
+    # YENİ: Önce "Satin_Alma" (Satın Alma Sipariş) sekmesinde ara.
+    # Bu, Mal Kabul modülünün de kullandığı aynı kaynak - buradaki
+    # eşleşme, eski Excel dosyalarından (FORM_SUNGER/BRN eşleşme)
+    # daha güncel ve güvenilir kabul edilir, o yüzden önce buraya
+    # bakılır. Bulunursa Stok Kodu/Adı/Sipariş Miktarı otomatik
+    # dolduruluyor ve barkod (parti/seri no) Tedarikçi_Barkodu
+    # alanına taşınarak stoğa kaydediliyor.
+    # ──────────────────────────────────────────────────────────
+    df_sas = veritabani.get_internal_data("Satin_Alma")
+    if df_sas is not None and not df_sas.empty and "Tedarikçi Barkodu" in df_sas.columns:
+        df_sas_temp = df_sas.copy()
+        df_sas_temp["Temiz_Barkod"] = df_sas_temp["Tedarikçi Barkodu"].astype(str).str.strip()
+
+        found_sas = df_sas_temp[df_sas_temp["Temiz_Barkod"] == str(barcode_scanned).strip()]
+        if found_sas.empty:
+            found_sas = df_sas_temp[df_sas_temp["Temiz_Barkod"] == parti_no]
+
+        if not found_sas.empty:
+            sas_row = found_sas.iloc[0]
+            st.session_state.def_s_kod = str(sas_row.get("Stok Kodu", "")).strip()
+            st.session_state.def_s_isim = str(sas_row.get("Stok Adı", "")).strip()
+            try:
+                st.session_state.def_s_mik = float(sas_row.get("Sipariş Miktarı", 0) or 0)
+            except (ValueError, TypeError):
+                st.session_state.def_s_mik = 0.0
+            st.session_state.def_s_barcode = str(barcode_scanned).strip()
+            st.toast(f"✅ Satın Alma'da bulundu: {sas_row.get('Stok Adı', '')}", icon="✔️")
+            return
+
+    # ──────────────────────────────────────────────────────────
+    # Satın Alma'da bulunamazsa: FORM_SUNGER.xlsx / BRN-FORM
+    # EŞLEŞME.xlsx dosyalarıyla (yerel/GitHub Excel) devam et.
     # ──────────────────────────────────────────────────────────
 
     # 2. FORM_SUNGER.xlsx Dosyasını Yükle
@@ -993,10 +1023,38 @@ def goster(conn=None):
         if not bekleyenler:
             st.warning("⚠️ Bekleyen sayım oturumu bulunamadı. Lütfen önce oturum başlatın.")
         else:
+            # YENİ: Ekrana her girişte TÜM post edilmemiş (açık) oturumlar
+            # bir tabloda görünür - Açan/Atanan/İlerleme bilgisiyle birlikte.
+            # Otomatik hiçbir oturuma girilmiyor, seçim tamamen kullanıcıda.
+            st.markdown("#### 📋 Post Edilmemiş Tüm Sayım Oturumları")
+            satirlar = []
+            for o in bekleyenler:
+                meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, o)
+                acan = meta_satiri["Acan_Kisi"] if meta_satiri is not None else "-"
+                atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
+                sayilan, toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, o)
+                satirlar.append({
+                    "Oturum": o,
+                    "Açan": acan,
+                    "Atanan Personel": atanan if atanan else "Herkes",
+                    "İlerleme": f"{sayilan} / {toplam}" if toplam else f"{sayilan} kalem sayıldı"
+                })
+            st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
+
             if st.session_state.aktif_sayim_adi not in bekleyenler:
                 st.session_state.aktif_sayim_adi = bekleyenler[0]
 
-            st.selectbox("📡 Çalışılacak Oturum:", bekleyenler, index=bekleyenler.index(st.session_state.aktif_sayim_adi))
+            # DÜZELTME: Seçim artık gerçekten işleniyor - eskiden selectbox
+            # sonucu hiçbir değişkene atanmıyordu, dropdown'dan farklı bir
+            # oturum seçmek görünürde çalışıyor ama hiçbir etkisi olmuyordu.
+            secilen_oturum = st.selectbox(
+                "📡 Çalışılacak Oturum:",
+                bekleyenler,
+                index=bekleyenler.index(st.session_state.aktif_sayim_adi)
+            )
+            if secilen_oturum != st.session_state.aktif_sayim_adi:
+                st.session_state.aktif_sayim_adi = secilen_oturum
+                st.rerun()
 
             # DÜZELTME: Artık yukarıda zaten okunmuş df_oturum_meta_all,
             # df_sayim_ana, df_snapshot_ana kullanılıyor - tekrar Google
