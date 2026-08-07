@@ -491,7 +491,7 @@ def goster(conn=None):
         st.session_state['adres_hafiza'] = adres_listesi
         return adres_listesi
 
-
+    def get_dinamik_katalog():
         if st.session_state.get('katalog_hafiza'):
             return st.session_state['katalog_hafiza']
 
