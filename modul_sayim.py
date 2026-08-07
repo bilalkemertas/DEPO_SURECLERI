@@ -109,11 +109,27 @@ def handle_supplier_barcode(barcode_scanned):
     df_sas = veritabani.get_internal_data("Satin_Alma")
     if df_sas is not None and not df_sas.empty and "Tedarikçi Barkodu" in df_sas.columns:
         df_sas_temp = df_sas.copy()
-        df_sas_temp["Temiz_Barkod"] = df_sas_temp["Tedarikçi Barkodu"].astype(str).str.strip()
 
-        found_sas = df_sas_temp[df_sas_temp["Temiz_Barkod"] == str(barcode_scanned).strip()]
+        # DÜZELTME: Google Sheets'te barkod sütunu sayısal olarak
+        # saklanmışsa (örn. "2608041845"), Python'a okunurken
+        # "2608041845.0" gibi ondalıklı bir değere dönüşebiliyor. Bu
+        # yüzden birebir metin karşılaştırması tutmuyordu - veri Sheets'te
+        # GERÇEKTEN var olsa bile "bulunamadı" hatası veriyordu. Aynı
+        # temizleme mantığı bu projede clean_code() adıyla zaten var
+        # (teslim_alma.py) - burada da uyguluyoruz.
+        def _barkod_temizle(val):
+            s = str(val).strip()
+            if s.endswith(".0"):
+                s = s[:-2]
+            return s
+
+        df_sas_temp["Temiz_Barkod"] = df_sas_temp["Tedarikçi Barkodu"].apply(_barkod_temizle)
+        barkod_aranan = _barkod_temizle(barcode_scanned)
+        parti_aranan = _barkod_temizle(parti_no)
+
+        found_sas = df_sas_temp[df_sas_temp["Temiz_Barkod"] == barkod_aranan]
         if found_sas.empty:
-            found_sas = df_sas_temp[df_sas_temp["Temiz_Barkod"] == parti_no]
+            found_sas = df_sas_temp[df_sas_temp["Temiz_Barkod"] == parti_aranan]
 
         if not found_sas.empty:
             sas_row = found_sas.iloc[0]
@@ -126,6 +142,14 @@ def handle_supplier_barcode(barcode_scanned):
             st.session_state.def_s_barcode = str(barcode_scanned).strip()
             st.toast(f"✅ Satın Alma'da bulundu: {sas_row.get('Stok Adı', '')}", icon="✔️")
             return
+        else:
+            # DÜZELTME: Bulunamama durumu artık görünür - Satin_Alma'nın
+            # gerçekten kontrol edildiği ama eşleşme çıkmadığı belli oluyor.
+            st.toast(f"ℹ️ '{parti_no}' Satın Alma'da bulunamadı, FORM_SUNGER.xlsx kontrol ediliyor...", icon="🔎")
+    elif df_sas is not None and not df_sas.empty:
+        st.toast("⚠️ Satın Alma sekmesinde 'Tedarikçi Barkodu' sütunu bulunamadı, atlanıyor.", icon="⚠️")
+    else:
+        st.toast("ℹ️ Satın Alma sekmesi boş/erişilemedi, FORM_SUNGER.xlsx kontrol ediliyor...", icon="🔎")
 
     # ──────────────────────────────────────────────────────────
     # Satın Alma'da bulunamazsa: FORM_SUNGER.xlsx / BRN-FORM
@@ -545,7 +569,13 @@ def goster(conn=None):
         return katalog_listesi
 
     def _session_completed_sessions():
-        df_tamamlanan = _get_df("sayim_tamamlanan")
+        # DÜZELTME: Artık doğrudan _get_df (ağa gider) yerine, zaten
+        # önbelleğe alınmış ortak veriden okunuyor. Bu fonksiyon
+        # _open_sessions() üzerinden HER SAYFA YENİLEMESİNDE çağrıldığı
+        # için, önbellek olmadan adres seçmek gibi ufak etkileşimlerde
+        # bile Google Sheets'e gidiyordu.
+        _veri_ortak = _sayim_ortak_verileri_yukle()
+        df_tamamlanan = _veri_ortak["sayim_tamamlanan"]
         if df_tamamlanan.empty:
             return []
         oturum_col = _find_col(df_tamamlanan, ["Oturum_Adi"])
@@ -554,9 +584,11 @@ def goster(conn=None):
         return df_tamamlanan[oturum_col].dropna().astype(str).unique().tolist()
 
     def _session_all_sessions():
+        # DÜZELTME: Aynı sebeple önbellekten okunuyor (yukarıdaki nota bak).
         tum = []
-        df_sayim = _get_df("sayim")
-        df_snapshot = _get_df("sayim_snapshot")
+        _veri_ortak = _sayim_ortak_verileri_yukle()
+        df_sayim = _veri_ortak["sayim"]
+        df_snapshot = _veri_ortak["sayim_snapshot"]
 
         oturum_col = _find_col(df_sayim, ["Oturum_Adi"])
         if not df_sayim.empty and oturum_col:
@@ -1240,9 +1272,11 @@ def goster(conn=None):
             go_sayim_menu()
             st.rerun()
 
-        df_sayim_ana = _get_df("sayim")
-        df_snapshot_ana = _get_df("sayim_snapshot")
-        df_urun = _get_df("Urun_Listesi")
+        # DÜZELTME: Burada da doğrudan _get_df yerine önbellekten okunuyor -
+        # aynı sebep, selectbox değiştikçe tekrar tekrar ağa gitmesin diye.
+        _veri_rapor = _sayim_ortak_verileri_yukle()
+        df_sayim_ana = _veri_rapor["sayim"]
+        df_snapshot_ana = _veri_rapor["sayim_snapshot"]
 
         if not df_sayim_ana.empty:
             mevcut_oturumlar = df_sayim_ana["Oturum_Adi"].dropna().astype(str).unique().tolist()
