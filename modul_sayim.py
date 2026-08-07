@@ -5,6 +5,7 @@ import time
 import random
 import os
 import uuid
+import veri_onbellek as vo
 from datetime import datetime
 
 # Navigation Helpers
@@ -634,14 +635,18 @@ def goster(conn=None):
     # gereksiz bağlanma olmaz.
     # ──────────────────────────────────────────────────────────
     def _sayim_ortak_verileri_yukle(zorla=False):
-        if zorla or '_sayim_ortak_veri' not in st.session_state:
-            st.session_state['_sayim_ortak_veri'] = {
-                "sayim": _get_df("sayim"),
-                "sayim_tamamlanan": _get_df("sayim_tamamlanan"),
-                "sayim_snapshot": _get_df("sayim_snapshot"),
-                "sayim_oturumlari": _get_df("sayim_oturumlari"),
-            }
-        return st.session_state['_sayim_ortak_veri']
+        # DÜZELTME: Eskiden burada "sayim", "sayim_tamamlanan",
+        # "sayim_snapshot", "sayim_oturumlari" SIRAYLA (biri bitmeden
+        # diğeri başlamadan) okunuyordu - 4 ayrı bekleme demekti. Artık
+        # veri_onbellek.py üzerinden PARALEL okunuyor (aynı anda 4 istek),
+        # toplam bekleme süresi en yavaş tekil okuma kadar oluyor. Süre
+        # sınırı hâlâ yok - sadece ilk giriş / kayıt sonrası / elle
+        # "Yenile" ile yenileniyor (bkz. veri_onbellek.py).
+        return vo.modul_verisi_yukle(
+            conn, "sayim",
+            ["sayim", "sayim_tamamlanan", "sayim_snapshot", "sayim_oturumlari"],
+            zorla=zorla
+        )
 
     def _normalize_count_buffer(list_items):
         if not list_items:
