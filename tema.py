@@ -105,20 +105,52 @@ def uygula():
         white-space: normal !important;
     }}
 
-    /* ── GİRİŞ ALANLARI (etiket kutunun ÜSTÜNDE - taşma yok) ──── */
-    div[data-testid="stTextInput"] label,
-    div[data-testid="stNumberInput"] label,
-    div[data-testid="stSelectbox"] label {{
+    /* ── GİRİŞ ALANLARI ─────────────────────────────────────────
+       YENİ: Etiket artık kutunun ÜSTÜNDE değil SOLUNDA (klasik SAP
+       ekran düzeni). clamp(min, tercih_vw, max) kullanılıyor - boyutlar
+       tarayıcının GERÇEK ekran genişliğine göre orantılı ölçekleniyor,
+       böylece hem masaüstünde hem dar el terminali ekranlarında TEK bir
+       CSS ile doğru görünür (cihaza özel ayrı kod gerekmiyor).
+       NOT: Önceki denemede (app.py'nin eski hâlinde) bu tür bir düzen
+       "white-space: nowrap" + sabit dar max-width yüzünden üst üste
+       binmelere sebep olmuştu. Burada "white-space: normal" (gerekirse
+       satır kaydırır) + clamp() bazlı esnek genişlik kullanılarak o
+       hata tekrarlanmıyor. ────────────────────────────────────── */
+    div[data-testid="stTextInput"],
+    div[data-testid="stNumberInput"],
+    div[data-testid="stSelectbox"] {{
+        display: flex !important;
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: clamp(6px, 1.2vw, 10px) !important;
+    }}
+    div[data-testid="stTextInput"] > label,
+    div[data-testid="stNumberInput"] > label,
+    div[data-testid="stSelectbox"] > label {{
+        flex: 0 0 auto !important;
+        min-width: clamp(70px, 12vw, 140px) !important;
+        max-width: clamp(90px, 18vw, 200px) !important;
+        white-space: normal !important;
+        text-align: right !important;
         font-weight: 600 !important;
         color: {RENK["metin_soluk"]} !important;
-        font-size: 10pt !important;
-        margin-bottom: 2px !important;
+        font-size: clamp(11px, 1.8vw, 13px) !important;
+        margin-bottom: 0 !important;
+        line-height: 1.3 !important;
+    }}
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stSelectbox"] > div {{
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
     }}
     div[data-testid="stTextInput"] input,
     div[data-testid="stNumberInput"] input,
     div[data-baseweb="select"] {{
         border-radius: 6px !important;
         border: 1px solid {RENK["kenarlik"]} !important;
+        font-size: clamp(13px, 2vw, 15px) !important;
+        min-height: clamp(34px, 6vw, 42px) !important;
     }}
     div[data-testid="stTextInput"] input:focus,
     div[data-testid="stNumberInput"] input:focus {{
