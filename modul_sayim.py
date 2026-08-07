@@ -288,35 +288,6 @@ def goster(conn=None):
     if 'sayim_page' not in st.session_state:
         st.session_state.sayim_page = 'menu'
 
-    # ──────────────────────────────────────────────────────────
-    # YENİ: URL BAZLI OTURUM KALICILIĞI
-    # Bağlantı gerçekten koparsa (autorefresh her zaman engelleyemiyor),
-    # Streamlit session_state'i tamamen sıfırlıyor ve kullanıcı ana menüye
-    # düşüyor. Bu, "menüden yeniden aktif etmem gerekiyor" şikayetinin
-    # sebebi. URL (?s_oturum=...) bağlantı koptuğunda/yeniden kurulduğunda
-    # DEĞİŞMEDİĞİ için, aktif oturumu session_state yerine (ek olarak) URL'ye
-    # de yazıyoruz. Bağlantı toparlanınca, session_state boşsa URL'den okuyup
-    # kullanıcıyı DOĞRUDAN Sayım Girişi ekranına, aynı oturumla geri koyuyoruz
-    # - rastgele bir oturum seçmiyor, sadece kullanıcının zaten üzerinde
-    # olduğu oturumu hatırlıyor.
-    # ──────────────────────────────────────────────────────────
-    if st.session_state.aktif_sayim_adi is None:
-        url_oturum = st.query_params.get("s_oturum")
-        if url_oturum:
-            # Not: Gerçekten hâlâ açık mı kontrolü (post edilmiş olabilir)
-            # aşağıda, yardımcı fonksiyonlar tanımlandıktan SONRA yapılıyor
-            # (bkz. UI RENDER SÜREÇLERİ'nden hemen önceki doğrulama bloğu).
-            st.session_state.aktif_sayim_adi = url_oturum
-            st.session_state.sayim_page = 'giris'
-
-    def _oturumu_aktiflestir(oturum_adi):
-        """Aktif oturumu hem session_state'e hem URL'ye yazar (bağlantı kopmasına karşı)."""
-        st.session_state.aktif_sayim_adi = oturum_adi
-        if oturum_adi:
-            st.query_params["s_oturum"] = oturum_adi
-        else:
-            st.query_params.pop("s_oturum", None)
-
     # -----------------------------
     # 🆕 OTOMATİK CİHAZ ALGILAMA (Buton YOK - Sistem kendisi karar verir)
     # Tarayıcının User-Agent bilgisine bakarak el terminali / mobil / Android
@@ -859,12 +830,28 @@ def goster(conn=None):
     def _refresh_and_rerun():
         st.rerun()
 
-    # URL'den geri yüklenen oturumun hâlâ gerçekten açık (post edilmemiş)
-    # olduğunu doğrula - post edilmiş bir oturuma "geri dönme" olmasın.
-    if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi in _session_completed_sessions():
+    # ──────────────────────────────────────────────────────────
+    # YENİ: CİHAZ BAĞIMSIZ AKTİF BELGE MANTIĞI
+    # Eskiden "aktif belge" her cihazın kendi session_state'inde ayrı ayrı
+    # tutuluyordu - masaüstünde aktifleştirilen bir belge el terminalinde
+    # görünmüyordu, çünkü ikisi tamamen ayrı tarayıcı oturumları.
+    # Kural netleşti: "Bir belge varsa ve açıksa, herkese her ekranda
+    # açıktır. Kapalıysa herkese kapatılır." Bu yüzden aktif belge artık
+    # cihazda saklanmıyor - HER SAYFA YÜKLENİŞİNDE paylaşımlı veriden
+    # (sayim_oturumlari / sayim_snapshot / sayim) YENİDEN hesaplanıyor:
+    #   - Açık belge yoksa  -> aktif belge yok (herkese kapalı)
+    #   - Açık belge 1 taneyse -> o belge otomatik aktif (herkese açık)
+    #   - Açık belge birden fazlaysa -> otomatik seçim yapılamaz (hangisi
+    #     olduğu belirsiz), kullanıcı listeden kendi seçer; ama seçimi
+    #     yine bu cihaza özeldir (paralel sayım senaryosunda kaçınılmaz).
+    # ──────────────────────────────────────────────────────────
+    _acik_belgeler_genel = _open_sessions()
+    if len(_acik_belgeler_genel) == 0:
         st.session_state.aktif_sayim_adi = None
-        st.session_state.sayim_page = 'menu'
-        st.query_params.pop("s_oturum", None)
+    elif len(_acik_belgeler_genel) == 1:
+        st.session_state.aktif_sayim_adi = _acik_belgeler_genel[0]
+    elif st.session_state.aktif_sayim_adi not in _acik_belgeler_genel:
+        st.session_state.aktif_sayim_adi = None
 
     # ==============================================================================
     # UI RENDER SÜREÇLERİ
@@ -965,7 +952,7 @@ def goster(conn=None):
                     _sayim_ortak_verileri_yukle(zorla=True)
 
                     st.session_state['gecici_sayim_listesi'] = []
-                    _oturumu_aktiflestir(yeni_oturum_id)
+                    st.session_state.aktif_sayim_adi = yeni_oturum_id
                     _refresh_and_rerun()
 
         if bekleyenler:
@@ -987,27 +974,34 @@ def goster(conn=None):
                 if satirlar:
                     st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
 
+                # Not: Sadece birden fazla belge açıkken bu seçim anlamlı -
+                # tek belge açıkken zaten otomatik aktif oluyor (yukarıdaki
+                # cihaz bağımsız mantık).
                 secilen_bekleyen = st.selectbox("Aktifleştirilecek Sayım Belgesini Seçin:", bekleyenler)
                 if st.button("🔄 BELGEYİ GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
-                    _oturumu_aktiflestir(secilen_bekleyen)
+                    st.session_state.aktif_sayim_adi = secilen_bekleyen
                     _refresh_and_rerun()
 
         if st.session_state.aktif_sayim_adi:
             st.success(f"📡 Şuan Çalışılan Sayım Belgesi: **{st.session_state.aktif_sayim_adi}**")
-            if st.button("🛑 BELGEYİ SADECE KAPAT", use_container_width=True):
-                _oturumu_aktiflestir(None)
-                st.rerun()
+            # NOT: "Sadece Kapat" butonu kaldırıldı - artık aktif belge
+            # cihazda saklanmıyor, paylaşımlı veriden hesaplanıyor. Belge
+            # açık kaldıkça (post edilmedikçe) TÜM cihazlarda otomatik
+            # aktif görünmeye devam eder - bu, "açıksa herkese açık,
+            # kapalıysa herkese kapalı" kuralının ta kendisi. Belgeyi
+            # gerçekten kapatmanın tek yolu aşağıdaki POST işlemi.
 
             onay = st.checkbox("Sayım verilerinin doğruluğunu onaylıyorum.")
             if st.button("🚀 STOKLARI GÜNCELLE VE ARŞİVLE", use_container_width=True, disabled=not onay):
                 basarili, mesaj = _post_session_to_stock(st.session_state.aktif_sayim_adi)
                 if basarili:
                     _sayim_ortak_verileri_yukle(zorla=True)
-                    _oturumu_aktiflestir(None)
+                    st.session_state.aktif_sayim_adi = None
                     st.success(mesaj)
                     _refresh_and_rerun()
                 else:
                     st.error(mesaj)
+
 
     elif st.session_state.sayim_page == 'giris':
         st.subheader("📝 Sayım Girişi")
@@ -1089,7 +1083,7 @@ def goster(conn=None):
                 index=bekleyenler.index(st.session_state.aktif_sayim_adi)
             )
             if secilen_oturum != st.session_state.aktif_sayim_adi:
-                _oturumu_aktiflestir(secilen_oturum)
+                st.session_state.aktif_sayim_adi = secilen_oturum
                 st.rerun()
 
             # DÜZELTME: Artık yukarıda zaten okunmuş df_oturum_meta_all,
