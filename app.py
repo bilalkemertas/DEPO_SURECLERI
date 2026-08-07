@@ -134,15 +134,22 @@ else:
 
     # --- MODÜL YÖNLENDİRMELERİ ---
     else:
-        # DÜZELTME: Tam genişlik yerine dar bir sütunda - küçük ekranlarda
-        # (el terminali gibi) her ekranda gereksiz yer kaplamasın diye.
-        c_geri_ana, _bos_ana = st.columns([1, 3])
-        with c_geri_ana:
-            if st.button("⬅️ Ana Menü", use_container_width=True, type="secondary"):
-                st.session_state['page'] = 'main'
-                if 'sayim_page' in st.session_state:
-                    st.session_state.sayim_page = 'menu'
-                st.rerun()
+        # DÜZELTME: Dar bir sütunda (tam genişlik değil) - küçük ekranlarda
+        # yer tasarrufu. El Terminali ekranında bu buton hiç gösterilmiyor,
+        # çünkü o ekranın kendi "Ana Menü" butonu zaten var (modul_sayim.py) -
+        # aksi halde aynı işi yapan iki buton üst üste yığılırdı.
+        _el_terminali_aktif = (
+            st.session_state.get('page') == 'sayim'
+            and st.session_state.get('sayim_page') == 'el_terminali'
+        )
+        if not _el_terminali_aktif:
+            c_geri_ana, _bos_ana = st.columns([1, 3])
+            with c_geri_ana:
+                if st.button("⬅️ Ana Menü", use_container_width=True, type="secondary"):
+                    st.session_state['page'] = 'main'
+                    if 'sayim_page' in st.session_state:
+                        st.session_state.sayim_page = 'menu'
+                    st.rerun()
 
         if st.session_state['page'] == 'mal_kabul':
             teslim_alma.run(conn)
