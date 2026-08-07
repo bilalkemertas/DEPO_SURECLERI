@@ -687,6 +687,40 @@ def goster(conn=None):
 
         return sayilan, toplam
 
+    def _barkod_daha_once_kullanildi_mi(barkod):
+        """
+        Aynı barkodun aynı belgede DAHA ÖNCE okutulup okutulmadığını
+        kontrol eder. Hem henüz kaydedilmemiş geçici listeye (session_state)
+        hem de zaten "sayim" sekmesine kaydedilmiş veriye (aktif belge için)
+        bakar. Aynı fiziksel ürünün barkodu yanlışlıkla birden fazla kez
+        okutulursa listeye tekrar tekrar eklenmesini engeller.
+        """
+        barkod_temiz = _norm_text(barkod)
+        if not barkod_temiz:
+            return False
+
+        # 1) Henüz buluta kaydedilmemiş geçici listede var mı?
+        for item in st.session_state.get('gecici_sayim_listesi', []):
+            if _norm_text(item.get('Tedarikçi_Barkodu', '')) == barkod_temiz:
+                return True
+
+        # 2) Aynı belge için zaten buluta kaydedilmiş "sayim" verisinde var mı?
+        aktif_belge = st.session_state.get('aktif_sayim_adi')
+        if aktif_belge and '_sayim_ortak_veri' in st.session_state:
+            df_sayim_kontrol = st.session_state['_sayim_ortak_veri'].get('sayim')
+            if df_sayim_kontrol is not None and not df_sayim_kontrol.empty:
+                barkod_col = _find_col(df_sayim_kontrol, ["Tedarikçi_Barkodu"])
+                oturum_col = _find_col(df_sayim_kontrol, ["Oturum_Adi"])
+                if barkod_col and oturum_col:
+                    eslesme = df_sayim_kontrol[
+                        (df_sayim_kontrol[oturum_col].astype(str) == str(aktif_belge)) &
+                        (df_sayim_kontrol[barkod_col].astype(str).str.strip() == barkod_temiz)
+                    ]
+                    if not eslesme.empty:
+                        return True
+
+        return False
+
     def _snapshot_exists_for_session(oturum_adi):
         df_snapshot = _get_df("sayim_snapshot")
         if df_snapshot.empty:
@@ -1170,6 +1204,18 @@ def goster(conn=None):
                     # listeye ekleniyor - barkod okutmak zaten "bu ürünü
                     # ekle" demek, ayrı bir tıklama gereksiz tekrar.
                     if st.session_state.def_s_kod:
+                        # YENİ: Aynı barkod bu belgede daha önce okutulmuşsa
+                        # (geçici listede ya da zaten kaydedilmiş veride)
+                        # tekrar eklenmesin - yanlışlıkla aynı ürünü birden
+                        # fazla kez saymayı/eklemeyi engeller.
+                        if _barkod_daha_once_kullanildi_mi(st.session_state.def_s_barcode):
+                            st.toast(f"⚠️ Bu barkod ('{st.session_state.def_s_barcode}') zaten eklenmiş, tekrar eklenmedi.", icon="🚫")
+                            st.session_state.def_s_kod = ""
+                            st.session_state.def_s_isim = ""
+                            st.session_state.def_s_mik = 0.0
+                            st.session_state.def_s_barcode = ""
+                            return
+
                         adres_deger = st.session_state.get("giris_adres_secim_key", "+ MANUEL")
                         if adres_deger == "+ MANUEL":
                             adres_deger = st.session_state.get("giris_adres_manuel_key", "")
@@ -1361,44 +1407,62 @@ def goster(conn=None):
     # ==============================================================================
     elif st.session_state.sayim_page == 'el_terminali':
         # ──────────────────────────────────────────────────────────
-        # CİHAZDAN BAĞIMSIZ, EKRANA DUYARLI TASARIM
-        # Eskiden burada tek bir cihaza (Honeywell EDA52, ~360-400px)
-        # göre SABİT piksel değerleri vardı. Farklı marka/model el
-        # terminalleri (Zebra, Datalogic, farklı Android telefonlar,
-        # tabletler...) farklı ekran genişliklerine sahip olacağı için
-        # bu kırılgan bir yaklaşımdı - başka bir cihazda ya çok küçük
-        # ya da hâlâ sığmayacak kadar büyük görünebilirdi.
+        # CIHAZDAN BAGIMSIZ, EKRANA DUYARLI TASARIM
+        # clamp(min, tercih_vw, max) kullaniliyor: boyutlar tarayicinin
+        # GERCEK ekran genisligine (vw) gore orantili olceklenir, belirli
+        # bir marka/modele (Honeywell, Zebra, Android telefon, tablet...)
+        # gore SABIT piksel yazmiyoruz. Referans aralik: tipik endustriyel
+        # el terminalleri ~320-480px CSS genisliginde portre ekrana
+        # sahiptir; clamp() bu araligi hedefler, disinda kalan cihazlarda
+        # da makul sinirlarda kalir.
         #
-        # Artık `clamp(min, tercih_edilen_vw, max)` kullanılıyor: tarayıcı
-        # kendi GERÇEK ekran genişliğini (vw = viewport width) raporlar,
-        # boyutlar buna göre orantılı olarak otomatik ölçeklenir - alt ve
-        # üst sınır içinde kalarak. Yani:
-        #   - Dar bir el terminalinde (örn. 360px) küçük ama okunaklı,
-        #   - Daha geniş bir telefon/tablette (örn. 480-600px) biraz daha
-        #     büyük görünür - hepsi TEK bir CSS ile, cihaz modeli bilmeye
-        #     gerek kalmadan.
-        # Referans aralık: tipik endüstriyel el terminalleri (Honeywell,
-        # Zebra, Datalogic vb.) genelde 320px-480px CSS genişliğinde
-        # portre ekrana sahiptir - clamp() sınırları bu aralığı hedefler,
-        # ama daha geniş/dar cihazlarda da makul sınırlarda kalır.
+        # YENI: Etiketler artik alanin USTUNDE degil SOLUNDA (klasik SAP
+        # ekran duzeni gibi) - flex-row ile. Bu stil SADECE bu sayfa
+        # render edilirken enjekte ediliyor, diger ekranlari etkilemiyor.
         # ──────────────────────────────────────────────────────────
         st.markdown("""
             <style>
-            /* Ana kapsayıcıdaki boşlukları sıkılaştır */
-            .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
-            [data-testid="stVerticalBlock"] { gap: clamp(0.25rem, 1.2vw, 0.5rem) !important; }
-            .element-container { margin-bottom: clamp(3px, 0.8vw, 6px) !important; }
+            .block-container { padding-top: 0.4rem !important; padding-bottom: 0.4rem !important; }
+            [data-testid="stVerticalBlock"] { gap: clamp(0.15rem, 0.6vw, 0.3rem) !important; }
+            .element-container { margin-bottom: clamp(2px, 0.5vw, 4px) !important; }
+
+            div[data-testid="stTextInput"],
+            div[data-testid="stNumberInput"],
+            div[data-testid="stSelectbox"] {
+                display: flex !important;
+                flex-direction: row !important;
+                align-items: center !important;
+                gap: clamp(4px, 1.5vw, 8px) !important;
+            }
+            div[data-testid="stTextInput"] > label,
+            div[data-testid="stNumberInput"] > label,
+            div[data-testid="stSelectbox"] > label {
+                flex: 0 0 auto !important;
+                min-width: clamp(48px, 15vw, 70px) !important;
+                max-width: clamp(60px, 22vw, 100px) !important;
+                white-space: normal !important;
+                text-align: right !important;
+                font-size: clamp(10px, 2.6vw, 12px) !important;
+                margin-bottom: 0 !important;
+                line-height: 1.2 !important;
+            }
+            div[data-testid="stTextInput"] > div,
+            div[data-testid="stNumberInput"] > div,
+            div[data-testid="stSelectbox"] > div {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+            }
 
             div[data-testid="stTextInput"] input,
             div[data-testid="stNumberInput"] input {
                 font-size: clamp(14px, 4vw, 18px) !important;
-                min-height: clamp(36px, 9vw, 46px) !important;
+                min-height: clamp(34px, 8.5vw, 42px) !important;
                 height: auto !important;
                 padding: clamp(4px, 1.5vw, 8px) clamp(8px, 2.5vw, 12px) !important;
             }
             div[data-testid="stSelectbox"] div[data-baseweb="select"] {
                 font-size: clamp(13px, 3.7vw, 17px) !important;
-                min-height: clamp(34px, 8.5vw, 44px) !important;
+                min-height: clamp(32px, 8vw, 40px) !important;
             }
             div.stButton > button {
                 font-size: clamp(13px, 3.7vw, 17px) !important;
@@ -1409,25 +1473,23 @@ def goster(conn=None):
                 padding: clamp(4px, 1.5vw, 8px) clamp(8px, 2.5vw, 12px) !important;
                 font-weight: 700 !important;
             }
-            div[data-testid="stTextInput"] label,
-            div[data-testid="stNumberInput"] label,
-            div[data-testid="stSelectbox"] label {
-                font-size: clamp(10px, 2.8vw, 13px) !important;
-                margin-bottom: 1px !important;
-            }
             div[data-testid="stMarkdownContainer"] p {
                 font-size: clamp(11px, 3vw, 14px) !important;
                 margin-bottom: 2px !important;
             }
+            div[data-testid="stDataFrame"] { font-size: clamp(11px, 3vw, 13px) !important; }
             </style>
         """, unsafe_allow_html=True)
 
-        # DÜZELTME: "📱 El Terminali Modu" başlığı kaldırıldı - küçük
-        # ekranda yer kaplayan, işlevsel olmayan bir satırdı. Geri butonu
-        # da artık tam genişlik değil, dar bir sütunda.
-        c_geri, _bos = st.columns([1, 2])
-        with c_geri:
-            if st.button("⬅️ Menü", use_container_width=True):
+        # YENI: Ana Menu ve Sayim Menusu butonlari yan yana.
+        c_ana, c_menu = st.columns(2)
+        with c_ana:
+            if st.button("🏠 Ana Menü", use_container_width=True):
+                st.session_state['page'] = 'main'
+                st.session_state.sayim_page = 'menu'
+                st.rerun()
+        with c_menu:
+            if st.button("⬅️ Sayım Menü", use_container_width=True):
                 go_sayim_menu()
                 st.rerun()
 
@@ -1449,9 +1511,17 @@ def goster(conn=None):
                 handle_supplier_barcode(barkod)
                 st.session_state.el_barkod_key = ""
 
-                # YENİ: Barkod bir ürünle eşleştiyse, "LİSTEYE EKLE"ye
-                # basmayı beklemeden doğrudan geçici listeye ekleniyor.
                 if st.session_state.def_s_kod:
+                    # YENİ: Aynı barkod bu belgede daha önce okutulmuşsa
+                    # tekrar eklenmesin.
+                    if _barkod_daha_once_kullanildi_mi(st.session_state.def_s_barcode):
+                        st.toast(f"⚠️ Bu barkod ('{st.session_state.def_s_barcode}') zaten eklenmiş, tekrar eklenmedi.", icon="🚫")
+                        st.session_state.def_s_kod = ""
+                        st.session_state.def_s_isim = ""
+                        st.session_state.def_s_mik = 0.0
+                        st.session_state.def_s_barcode = ""
+                        return
+
                     adres_deger = st.session_state.get("el_adres_secim_key", "+ MANUEL")
                     if adres_deger == "+ MANUEL":
                         adres_deger = st.session_state.get("el_adres_key", "")
@@ -1483,44 +1553,35 @@ def goster(conn=None):
                     st.session_state.def_s_barcode = ""
 
             with st.container(border=True):
-                # DÜZELTME: "1️⃣ Adres", "2️⃣ Barkod" gibi ayrı başlık
-                # satırları kaldırıldı - widget'ın kendi etiketi (küçük
-                # fontla) yeterli, her biri bir satır tasarruf ettiriyor.
                 adres_listesi_el = get_dinamik_adres_listesi()
                 sec_adres_el = st.selectbox(
-                    "📍 Adres",
+                    "Adres",
                     ["+ MANUEL"] + adres_listesi_el,
                     key="el_adres_secim_key"
                 )
                 if sec_adres_el != "+ MANUEL":
                     el_adr = sec_adres_el
                 else:
-                    el_adr = st.text_input("📍 Adres (elle)", key="el_adres_key", placeholder="ADRES").upper()
+                    el_adr = st.text_input("Adres (elle)", key="el_adres_key", placeholder="ADRES").upper()
 
                 st.text_input(
-                    "🔌 Barkod (okutunca otomatik eklenir)",
+                    "Barkod",
                     key="el_barkod_key",
-                    placeholder="Barkodu okutun...",
+                    placeholder="Okutun...",
                     on_change=_el_barkod_auto_submit
                 )
 
-                c_kod, c_isim = st.columns(2)
-                with c_kod:
-                    st.text_input("Kod", value=st.session_state.def_s_kod, disabled=True, key="el_kod_goster")
-                with c_isim:
-                    st.text_input("İsim", value=st.session_state.def_s_isim, disabled=True, key="el_isim_goster")
+                st.text_input("Kod", value=st.session_state.def_s_kod, disabled=True, key="el_kod_goster")
+                st.text_input("İsim", value=st.session_state.def_s_isim, disabled=True, key="el_isim_goster")
 
-                c_mik, c_dur = st.columns(2)
-                with c_mik:
-                    el_mik = st.number_input(
-                        "Miktar",
-                        min_value=0.0,
-                        step=0.01,
-                        value=st.session_state.def_s_mik,
-                        key="el_mik_key"
-                    )
-                with c_dur:
-                    el_dur = st.selectbox("Durum", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="el_durum_key")
+                el_mik = st.number_input(
+                    "Miktar",
+                    min_value=0.0,
+                    step=0.01,
+                    value=st.session_state.def_s_mik,
+                    key="el_mik_key"
+                )
+                el_dur = st.selectbox("Durum", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="el_durum_key")
 
                 if st.button("✅ LİSTEYE EKLE (Manuel)", use_container_width=True):
                     if not _norm_text(st.session_state.def_s_kod):
@@ -1546,12 +1607,14 @@ def goster(conn=None):
                         st.toast("✅ Eklendi!", icon="📥")
                         st.rerun()
 
+                # YENI: ALV benzeri liste (SAP'taki gibi) - eklenen TUM
+                # kalemler tablo halinde gorunur.
                 if st.session_state['gecici_sayim_listesi']:
-                    son_kayit = st.session_state['gecici_sayim_listesi'][-1]
-                    st.caption(
-                        f"📋 Bekleyen: {len(st.session_state['gecici_sayim_listesi'])} | "
-                        f"Son: 📍{son_kayit['Adres']} 📦{son_kayit['Kod']} 🔢{son_kayit['Miktar']}"
-                    )
+                    st.markdown(f"**📋 Bekleyen: {len(st.session_state['gecici_sayim_listesi'])}**")
+                    _alv_df = pd.DataFrame(st.session_state['gecici_sayim_listesi'])[
+                        ["Adres", "Kod", "İsim", "Miktar", "Durum"]
+                    ]
+                    st.dataframe(_alv_df, use_container_width=True, hide_index=True, height=180)
 
                     if st.button("📤 BULUTA KAYDET", use_container_width=True, key="el_kaydet"):
                         yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
