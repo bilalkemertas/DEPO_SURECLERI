@@ -1137,12 +1137,13 @@ def goster(conn=None):
                 sec_adres = st.selectbox(
                     "📍 Adres:",
                     ["+ MANUEL"] + adres_listesi,
+                    key="giris_adres_secim_key",
                     help="Yazmaya başlayınca listede arama yapabilirsin. Listede yoksa '+ MANUEL' seçip elle yaz."
                 )
                 if sec_adres != "+ MANUEL":
                     s_adr = sec_adres
                 else:
-                    s_adr = st.text_input("📍 Adres (elle):").upper()
+                    s_adr = st.text_input("📍 Adres (elle):", key="giris_adres_manuel_key").upper()
 
                 # -----------------------------
                 # 1. Adım: Tedarikçi Barkod Okutma Alanı (Okuyucu Girişi)
@@ -1151,10 +1152,55 @@ def goster(conn=None):
                 # -----------------------------
                 def _sup_barcode_auto_submit():
                     barkod = st.session_state.get("supplier_barcode_key", "").strip()
-                    if barkod:
-                        handle_supplier_barcode(barkod)
-                        st.session_state.last_handled_barcode = barkod
-                        st.session_state.supplier_barcode_key = ""
+                    if not barkod:
+                        return
+
+                    # Önceki eşleşmeden kalıntı olmasın diye temizle
+                    st.session_state.def_s_kod = ""
+                    st.session_state.def_s_isim = ""
+                    st.session_state.def_s_mik = 0.0
+                    st.session_state.def_s_barcode = ""
+
+                    handle_supplier_barcode(barkod)
+                    st.session_state.last_handled_barcode = barkod
+                    st.session_state.supplier_barcode_key = ""
+
+                    # YENİ: Barkod bir ürünle eşleştiyse (def_s_kod dolduysa),
+                    # "EKLE" butonuna basmayı beklemeden DOĞRUDAN geçici
+                    # listeye ekleniyor - barkod okutmak zaten "bu ürünü
+                    # ekle" demek, ayrı bir tıklama gereksiz tekrar.
+                    if st.session_state.def_s_kod:
+                        adres_deger = st.session_state.get("giris_adres_secim_key", "+ MANUEL")
+                        if adres_deger == "+ MANUEL":
+                            adres_deger = st.session_state.get("giris_adres_manuel_key", "")
+                        durum_deger = st.session_state.get("giris_durum_key", "Kullanılabilir")
+
+                        if not _norm_text(adres_deger):
+                            st.toast("⚠️ Önce adres seç - ürün bulundu ama listeye eklenmedi.", icon="⚠️")
+                            return
+
+                        yeni_satir = {
+                            "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                            "Adres": _upper_text(adres_deger),
+                            "Kod": _upper_text(st.session_state.def_s_kod),
+                            "İsim": _norm_text(st.session_state.def_s_isim),
+                            "Miktar": float(st.session_state.def_s_mik),
+                            "Birim": "-",
+                            "Personel": _norm_text(aktif_kullanici),
+                            "Durum": _norm_text(durum_deger),
+                            "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)
+                        }
+                        mevcut = st.session_state['gecici_sayim_listesi']
+                        mevcut.append(yeni_satir)
+                        st.session_state['gecici_sayim_listesi'] = mevcut
+                        st.toast(f"📥 Otomatik eklendi: {yeni_satir['Kod']}", icon="✅")
+
+                        # Bir sonraki barkoda hazır olsun diye formu temizle
+                        st.session_state.def_s_kod = ""
+                        st.session_state.def_s_isim = ""
+                        st.session_state.def_s_mik = 0.0
+                        st.session_state.def_s_barcode = ""
 
                 st.markdown("---")
                 st.markdown("#### 🔌 Tedarikçi Barkodu Okutun")
@@ -1176,7 +1222,8 @@ def goster(conn=None):
                     handle_supplier_barcode(sup_barcode_input)
 
                 st.markdown("---")
-                st.markdown("#### 📦 Malzeme Bilgileri")
+                st.markdown("#### ✍️ Manuel Ürün Ekleme")
+                st.caption("Barkod okutulduğunda ürün zaten otomatik eklenir. Burası sadece barkodsuz/elle ekleme içindir.")
 
                 # DÜZELTME: Eskiden burada İKİNCİ bir "Tedarikçi Barkodu / Parti
                 # No" giriş kutusu vardı - yukarıdaki okuma alanıyla aynı işi
@@ -1210,14 +1257,20 @@ def goster(conn=None):
 
                 # Barkoddan çekilen miktar otomatik doldurulur
                 s_mik = st.number_input("Miktar:", min_value=0.0, step=0.01, value=st.session_state.def_s_mik)
-                s_dur = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"])
+                s_dur = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="giris_durum_key")
 
-                # Temizle butonu ile formu boşaltma imkanı sağla
-                if st.button("🧹 Girişleri Temizle", use_container_width=True):
-                    st.session_state.clear_sayim_form = True
-                    st.rerun()
+                # YENİ: EKLE butonu artık manuel ürün seçme alanının hemen
+                # altında - barkod zaten otomatik eklediği için bu buton
+                # sadece manuel akışa ait, konumu da bunu netleştiriyor.
+                c_ekle, c_temizle = st.columns([3, 1])
+                with c_ekle:
+                    ekle_tiklandi = st.button("➕ EKLE (Manuel)", use_container_width=True)
+                with c_temizle:
+                    if st.button("🧹", use_container_width=True, help="Girişleri Temizle"):
+                        st.session_state.clear_sayim_form = True
+                        st.rerun()
 
-                if st.button("➕ EKLE", use_container_width=True):
+                if ekle_tiklandi:
                     if not _norm_text(s_kod):
                         st.error("Ürün kodu boş bırakılamamaktadır.")
                     else:
@@ -1307,98 +1360,153 @@ def goster(conn=None):
     # YENİ: EL TERMİNALİ MODU (El terminali / dokunmatik cihazlar için sade ekran)
     # ==============================================================================
     elif st.session_state.sayim_page == 'el_terminali':
-        # Büyük yazı tipi ve büyük dokunma alanları için CSS
+        # ──────────────────────────────────────────────────────────
+        # CİHAZ NOTU (dipnot): Honeywell ScanPal EDA52
+        # - Ekran: 5.5" Gorilla Glass, 1440x720 fiziksel piksel
+        # - Dikey (portre) modda tarayıcı bunu ~360-400px CSS genişliği
+        #   olarak yorumlar (tipik Android DPR ölçeklemesi ile)
+        # - Amaç: TÜM ekranı kaydırma (scroll) olmadan tek seferde
+        #   sığdırmak - bu yüzden yazı boyutları ve boşluklar önceki
+        #   (26px/62px) sürüme göre belirgin şekilde küçültüldü.
+        # ──────────────────────────────────────────────────────────
         st.markdown("""
             <style>
+            /* Ana kapsayıcıdaki boşlukları sıkılaştır */
+            .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
+            [data-testid="stVerticalBlock"] { gap: 0.35rem !important; }
+            .element-container { margin-bottom: 4px !important; }
+
             div[data-testid="stTextInput"] input,
             div[data-testid="stNumberInput"] input {
-                font-size: 26px !important;
-                min-height: 58px !important;
+                font-size: 16px !important;
+                min-height: 40px !important;
                 height: auto !important;
-                padding: 8px 12px !important;
+                padding: 6px 10px !important;
             }
             div[data-testid="stSelectbox"] div[data-baseweb="select"] {
-                font-size: 22px !important;
-                min-height: 55px !important;
+                font-size: 15px !important;
+                min-height: 38px !important;
             }
             div.stButton > button {
-                font-size: 22px !important;
-                min-height: 62px !important;
+                font-size: 15px !important;
+                min-height: 40px !important;
                 height: auto !important;
                 white-space: normal !important;
-                line-height: 1.3 !important;
-                padding: 10px 12px !important;
+                line-height: 1.2 !important;
+                padding: 6px 10px !important;
                 font-weight: 700 !important;
             }
-            div[data-testid="stMarkdownContainer"] h4 {
-                font-size: 20px !important;
-                margin-top: 6px !important;
-                margin-bottom: 2px !important;
+            div[data-testid="stTextInput"] label,
+            div[data-testid="stNumberInput"] label,
+            div[data-testid="stSelectbox"] label {
+                font-size: 12px !important;
+                margin-bottom: 1px !important;
             }
+            div[data-testid="stMarkdownContainer"] p { font-size: 13px !important; margin-bottom: 2px !important; }
             </style>
         """, unsafe_allow_html=True)
 
-        st.subheader("📱 El Terminali Modu")
-        if st.button("⬅️ GERİ", use_container_width=True):
-            go_sayim_menu()
-            st.rerun()
+        # DÜZELTME: "📱 El Terminali Modu" başlığı kaldırıldı - küçük
+        # ekranda yer kaplayan, işlevsel olmayan bir satırdı. Geri butonu
+        # da artık tam genişlik değil, dar bir sütunda.
+        c_geri, _bos = st.columns([1, 2])
+        with c_geri:
+            if st.button("⬅️ Menü", use_container_width=True):
+                go_sayim_menu()
+                st.rerun()
 
         if not st.session_state.aktif_sayim_adi:
-            st.warning("⚠️ Aktif sayım belgesi yok. Önce 'Sayım Belgesi Yönetimi' ekranından bir belge oluşturun veya aktifleştirin.")
+            st.warning("⚠️ Aktif belge yok.")
         else:
-            st.success(f"📡 Sayım Belgesi: **{st.session_state.aktif_sayim_adi}**")
+            st.caption(f"📡 {st.session_state.aktif_sayim_adi}")
 
             def _el_barkod_auto_submit():
                 barkod = st.session_state.get("el_barkod_key", "").strip()
-                if barkod:
-                    handle_supplier_barcode(barkod)
-                    st.session_state.el_barkod_key = ""
+                if not barkod:
+                    return
+
+                st.session_state.def_s_kod = ""
+                st.session_state.def_s_isim = ""
+                st.session_state.def_s_mik = 0.0
+                st.session_state.def_s_barcode = ""
+
+                handle_supplier_barcode(barkod)
+                st.session_state.el_barkod_key = ""
+
+                # YENİ: Barkod bir ürünle eşleştiyse, "LİSTEYE EKLE"ye
+                # basmayı beklemeden doğrudan geçici listeye ekleniyor.
+                if st.session_state.def_s_kod:
+                    adres_deger = st.session_state.get("el_adres_secim_key", "+ MANUEL")
+                    if adres_deger == "+ MANUEL":
+                        adres_deger = st.session_state.get("el_adres_key", "")
+                    durum_deger = st.session_state.get("el_durum_key", "Kullanılabilir")
+                    miktar_deger = st.session_state.get("el_mik_key", st.session_state.def_s_mik)
+
+                    if not _norm_text(adres_deger):
+                        st.toast("⚠️ Önce adres seç - ürün bulundu ama listeye eklenmedi.", icon="⚠️")
+                        return
+
+                    yeni_satir = {
+                        "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                        "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                        "Adres": _upper_text(adres_deger),
+                        "Kod": _upper_text(st.session_state.def_s_kod),
+                        "İsim": _norm_text(st.session_state.def_s_isim),
+                        "Miktar": float(miktar_deger or st.session_state.def_s_mik),
+                        "Birim": "-",
+                        "Personel": _norm_text(aktif_kullanici),
+                        "Durum": _norm_text(durum_deger),
+                        "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)
+                    }
+                    st.session_state['gecici_sayim_listesi'].append(yeni_satir)
+                    st.toast(f"📥 Otomatik eklendi: {yeni_satir['Kod']}", icon="✅")
+
+                    st.session_state.def_s_kod = ""
+                    st.session_state.def_s_isim = ""
+                    st.session_state.def_s_mik = 0.0
+                    st.session_state.def_s_barcode = ""
 
             with st.container(border=True):
-                st.markdown("#### 1️⃣ Adres")
+                # DÜZELTME: "1️⃣ Adres", "2️⃣ Barkod" gibi ayrı başlık
+                # satırları kaldırıldı - widget'ın kendi etiketi (küçük
+                # fontla) yeterli, her biri bir satır tasarruf ettiriyor.
                 adres_listesi_el = get_dinamik_adres_listesi()
                 sec_adres_el = st.selectbox(
-                    "Adres:",
+                    "📍 Adres",
                     ["+ MANUEL"] + adres_listesi_el,
-                    label_visibility="collapsed",
                     key="el_adres_secim_key"
                 )
                 if sec_adres_el != "+ MANUEL":
                     el_adr = sec_adres_el
                 else:
-                    el_adr = st.text_input(
-                        "Adres (elle):",
-                        key="el_adres_key",
-                        label_visibility="collapsed",
-                        placeholder="ADRES"
-                    ).upper()
+                    el_adr = st.text_input("📍 Adres (elle)", key="el_adres_key", placeholder="ADRES").upper()
 
-                st.markdown("#### 2️⃣ Barkod (Okutunca Otomatik İşlenir)")
                 st.text_input(
-                    "Barkod:",
+                    "🔌 Barkod (okutunca otomatik eklenir)",
                     key="el_barkod_key",
-                    label_visibility="collapsed",
                     placeholder="Barkodu okutun...",
                     on_change=_el_barkod_auto_submit
                 )
 
-                st.markdown("#### 📦 Malzeme")
-                st.text_input("Kod:", value=st.session_state.def_s_kod, disabled=True, key="el_kod_goster")
-                st.text_input("İsim:", value=st.session_state.def_s_isim, disabled=True, key="el_isim_goster")
+                c_kod, c_isim = st.columns(2)
+                with c_kod:
+                    st.text_input("Kod", value=st.session_state.def_s_kod, disabled=True, key="el_kod_goster")
+                with c_isim:
+                    st.text_input("İsim", value=st.session_state.def_s_isim, disabled=True, key="el_isim_goster")
 
-                st.markdown("#### 3️⃣ Miktar")
-                el_mik = st.number_input(
-                    "Miktar:",
-                    min_value=0.0,
-                    step=0.01,
-                    value=st.session_state.def_s_mik,
-                    key="el_mik_key",
-                    label_visibility="collapsed"
-                )
+                c_mik, c_dur = st.columns(2)
+                with c_mik:
+                    el_mik = st.number_input(
+                        "Miktar",
+                        min_value=0.0,
+                        step=0.01,
+                        value=st.session_state.def_s_mik,
+                        key="el_mik_key"
+                    )
+                with c_dur:
+                    el_dur = st.selectbox("Durum", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="el_durum_key")
 
-                el_dur = st.selectbox("Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="el_durum_key")
-
-                if st.button("✅ LİSTEYE EKLE", use_container_width=True):
+                if st.button("✅ LİSTEYE EKLE (Manuel)", use_container_width=True):
                     if not _norm_text(st.session_state.def_s_kod):
                         st.error("Önce barkod okutun veya Kod alanını doldurun.")
                     else:
@@ -1422,11 +1530,12 @@ def goster(conn=None):
                         st.toast("✅ Eklendi!", icon="📥")
                         st.rerun()
 
-                st.markdown(f"**📋 Bu Sayım Belgesinde Bekleyen Kayıt: {len(st.session_state['gecici_sayim_listesi'])}**")
-
                 if st.session_state['gecici_sayim_listesi']:
                     son_kayit = st.session_state['gecici_sayim_listesi'][-1]
-                    st.info(f"Son: 📍{son_kayit['Adres']} | 📦{son_kayit['Kod']} | 🔢{son_kayit['Miktar']}")
+                    st.caption(
+                        f"📋 Bekleyen: {len(st.session_state['gecici_sayim_listesi'])} | "
+                        f"Son: 📍{son_kayit['Adres']} 📦{son_kayit['Kod']} 🔢{son_kayit['Miktar']}"
+                    )
 
                     if st.button("📤 BULUTA KAYDET", use_container_width=True, key="el_kaydet"):
                         yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
