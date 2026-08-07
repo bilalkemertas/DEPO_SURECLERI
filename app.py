@@ -67,6 +67,15 @@ if not st.session_state['logged_in']:
                         st.session_state['logged_in'] = True
                         st.session_state['kullanici_adi'] = kadi.capitalize()
                         st.session_state['user'] = kadi.capitalize()
+                        # DÜZELTME: Rol bilgisi secrets'taki [roles] tablosundan
+                        # okunup session_state'e yazılıyor - yetkilendirme.py
+                        # (is_admin/admin_only) bu değeri okuyor. Bu satır
+                        # eksikti, bu yüzden herkes daima "operator" varsayılan
+                        # rolüne düşüyor, admin ekranlarına giremiyordu.
+                        if "roles" in st.secrets and kadi in st.secrets["roles"]:
+                            st.session_state['role'] = st.secrets["roles"][kadi]
+                        else:
+                            st.session_state['role'] = "operator"
                         st.rerun()
                     else:
                         st.error("Hatalı kullanıcı adı veya şifre!")
@@ -118,7 +127,7 @@ else:
                 st.rerun()
         with col_out:
             if st.button("🚪 Güvenli Çıkış", use_container_width=True, type="secondary"):
-                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': ""})
+                st.session_state.update({'logged_in': False, 'kullanici_adi': "", 'user': "", 'role': "operator"})
                 st.rerun()
 
     # --- MODÜL YÖNLENDİRMELERİ ---
