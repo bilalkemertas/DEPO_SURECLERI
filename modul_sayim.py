@@ -4,6 +4,7 @@ import io
 import time
 import random
 import os
+import uuid
 from datetime import datetime
 
 # Navigation Helpers
@@ -399,6 +400,35 @@ def goster(conn=None):
                 time.sleep(random.uniform(0.2, 0.7))
         return False
 
+    # ──────────────────────────────────────────────────────────
+    # YENİ: Gerçek (native) EKLEME. _save_df'in aksine sekmenin tamamını
+    # OKUMAZ/ÜZERİNE YAZMAZ - Google'ın "spreadsheets.values.append"
+    # API'sini kullanarak SADECE yeni satırları sona ekler. Mevcut
+    # binlerce satır hiç etkilenmez, bu yüzden hem çok daha hızlıdır
+    # hem de "tüm sekme tek satırla değişti" tarzı veri kaybı riski
+    # taşımaz. Sütun sırasını sekmedeki GERÇEK başlık satırından okur.
+    # ──────────────────────────────────────────────────────────
+    def _guvenli_satirlar_ekle(worksheet_adi, satirlar_df):
+        if satirlar_df is None or satirlar_df.empty:
+            return True
+        try:
+            ws = conn.client._open_spreadsheet().worksheet(worksheet_adi)
+            basliklar = ws.row_values(1)
+            if not basliklar:
+                basliklar = list(satirlar_df.columns)
+                ws.append_row(basliklar, value_input_option="USER_ENTERED")
+            # Sekmede olup dataframe'de olmayan sütunlar için boş değer,
+            # dataframe'de olup sekmede olmayan sütunlar yoksayılır.
+            eklenecek = []
+            for _, satir in satirlar_df.iterrows():
+                eklenecek.append([str(satir.get(b, "")) for b in basliklar])
+            ws.append_rows(eklenecek, value_input_option="USER_ENTERED")
+            return True
+        except Exception as e:
+            st.error(f"❌ '{worksheet_adi}' sekmesine satır eklenemedi: {e}")
+            st.warning("Bu, native ekleme API'sinde bir sorun olduğunu gösterir - eski yönteme (tam sekme yazma) dönmek için tekrar dene.")
+            return False
+
     def _find_col(df, candidates):
         if df is None or df.empty:
             return None
@@ -619,12 +649,14 @@ def goster(conn=None):
 
         df = pd.DataFrame(list_items).copy()
         needed = {
-            "Oturum_Adi": "", "Tarih": "", "Adres": "", "Kod": "",
+            "Kayit_ID": "", "Oturum_Adi": "", "Tarih": "", "Adres": "", "Kod": "",
             "İsim": "", "Miktar": 0.0, "Birim": "-", "Personel": "", "Durum": "Kullanılabilir",
             "Tedarikçi_Barkodu": ""
         }
         df = _ensure_columns(df, needed)
 
+        df["Kayit_ID"] = df["Kayit_ID"].astype(str).str.strip()
+        df.loc[df["Kayit_ID"] == "", "Kayit_ID"] = [uuid.uuid4().hex for _ in range((df["Kayit_ID"] == "").sum())]
         df["Oturum_Adi"] = df["Oturum_Adi"].astype(str).str.strip()
         df["Tarih"] = df["Tarih"].astype(str).str.strip()
         df["Adres"] = df["Adres"].astype(str).str.strip().str.upper()
@@ -1061,13 +1093,15 @@ def goster(conn=None):
                     if st.button("📤 BULUTA KAYDET", use_container_width=True):
                         yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
                         if not yeni_veri_df.empty:
-                            eski_df = _get_df("sayim")
-                            guncel_df = yeni_veri_df if eski_df.empty else pd.concat([eski_df, yeni_veri_df], ignore_index=True)
-                            _save_df("sayim", _dedupe_exact(guncel_df))
-                            _sayim_ortak_verileri_yukle(zorla=True)
-                            st.session_state['gecici_sayim_listesi'] = []
-                            st.success("Tüm veriler başarıyla kaydedildi!")
-                            _refresh_and_rerun()
+                            # DÜZELTME: Artık "oku + tüm sekmeyi üzerine yaz"
+                            # yerine native EKLEME kullanılıyor - mevcut
+                            # binlerce satıra dokunulmuyor.
+                            basarili = _guvenli_satirlar_ekle("sayim", yeni_veri_df)
+                            if basarili:
+                                _sayim_ortak_verileri_yukle(zorla=True)
+                                st.session_state['gecici_sayim_listesi'] = []
+                                st.success("Tüm veriler başarıyla kaydedildi!")
+                                _refresh_and_rerun()
 
     elif st.session_state.sayim_page == 'rapor':
         st.subheader("📊 Fark Raporu")
@@ -1222,9 +1256,9 @@ def goster(conn=None):
                     if st.button("📤 BULUTA KAYDET", use_container_width=True, key="el_kaydet"):
                         yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
                         if not yeni_veri_df.empty:
-                            eski_df = _get_df("sayim")
-                            guncel_df = yeni_veri_df if eski_df.empty else pd.concat([eski_df, yeni_veri_df], ignore_index=True)
-                            _save_df("sayim", _dedupe_exact(guncel_df))
-                            st.session_state['gecici_sayim_listesi'] = []
-                            st.success("Kaydedildi!")
-                            st.rerun()
+                            basarili = _guvenli_satirlar_ekle("sayim", yeni_veri_df)
+                            if basarili:
+                                _sayim_ortak_verileri_yukle(zorla=True)
+                                st.session_state['gecici_sayim_listesi'] = []
+                                st.success("Kaydedildi!")
+                                st.rerun()
