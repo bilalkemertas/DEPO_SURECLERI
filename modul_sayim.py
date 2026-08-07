@@ -1361,48 +1361,64 @@ def goster(conn=None):
     # ==============================================================================
     elif st.session_state.sayim_page == 'el_terminali':
         # ──────────────────────────────────────────────────────────
-        # CİHAZ NOTU (dipnot): Honeywell ScanPal EDA52
-        # - Ekran: 5.5" Gorilla Glass, 1440x720 fiziksel piksel
-        # - Dikey (portre) modda tarayıcı bunu ~360-400px CSS genişliği
-        #   olarak yorumlar (tipik Android DPR ölçeklemesi ile)
-        # - Amaç: TÜM ekranı kaydırma (scroll) olmadan tek seferde
-        #   sığdırmak - bu yüzden yazı boyutları ve boşluklar önceki
-        #   (26px/62px) sürüme göre belirgin şekilde küçültüldü.
+        # CİHAZDAN BAĞIMSIZ, EKRANA DUYARLI TASARIM
+        # Eskiden burada tek bir cihaza (Honeywell EDA52, ~360-400px)
+        # göre SABİT piksel değerleri vardı. Farklı marka/model el
+        # terminalleri (Zebra, Datalogic, farklı Android telefonlar,
+        # tabletler...) farklı ekran genişliklerine sahip olacağı için
+        # bu kırılgan bir yaklaşımdı - başka bir cihazda ya çok küçük
+        # ya da hâlâ sığmayacak kadar büyük görünebilirdi.
+        #
+        # Artık `clamp(min, tercih_edilen_vw, max)` kullanılıyor: tarayıcı
+        # kendi GERÇEK ekran genişliğini (vw = viewport width) raporlar,
+        # boyutlar buna göre orantılı olarak otomatik ölçeklenir - alt ve
+        # üst sınır içinde kalarak. Yani:
+        #   - Dar bir el terminalinde (örn. 360px) küçük ama okunaklı,
+        #   - Daha geniş bir telefon/tablette (örn. 480-600px) biraz daha
+        #     büyük görünür - hepsi TEK bir CSS ile, cihaz modeli bilmeye
+        #     gerek kalmadan.
+        # Referans aralık: tipik endüstriyel el terminalleri (Honeywell,
+        # Zebra, Datalogic vb.) genelde 320px-480px CSS genişliğinde
+        # portre ekrana sahiptir - clamp() sınırları bu aralığı hedefler,
+        # ama daha geniş/dar cihazlarda da makul sınırlarda kalır.
         # ──────────────────────────────────────────────────────────
         st.markdown("""
             <style>
             /* Ana kapsayıcıdaki boşlukları sıkılaştır */
             .block-container { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
-            [data-testid="stVerticalBlock"] { gap: 0.35rem !important; }
-            .element-container { margin-bottom: 4px !important; }
+            [data-testid="stVerticalBlock"] { gap: clamp(0.25rem, 1.2vw, 0.5rem) !important; }
+            .element-container { margin-bottom: clamp(3px, 0.8vw, 6px) !important; }
 
             div[data-testid="stTextInput"] input,
             div[data-testid="stNumberInput"] input {
-                font-size: 16px !important;
-                min-height: 40px !important;
+                font-size: clamp(14px, 4vw, 18px) !important;
+                min-height: clamp(36px, 9vw, 46px) !important;
                 height: auto !important;
-                padding: 6px 10px !important;
+                padding: clamp(4px, 1.5vw, 8px) clamp(8px, 2.5vw, 12px) !important;
             }
             div[data-testid="stSelectbox"] div[data-baseweb="select"] {
-                font-size: 15px !important;
-                min-height: 38px !important;
+                font-size: clamp(13px, 3.7vw, 17px) !important;
+                min-height: clamp(34px, 8.5vw, 44px) !important;
             }
             div.stButton > button {
-                font-size: 15px !important;
-                min-height: 40px !important;
+                font-size: clamp(13px, 3.7vw, 17px) !important;
+                min-height: clamp(36px, 9vw, 46px) !important;
                 height: auto !important;
                 white-space: normal !important;
                 line-height: 1.2 !important;
-                padding: 6px 10px !important;
+                padding: clamp(4px, 1.5vw, 8px) clamp(8px, 2.5vw, 12px) !important;
                 font-weight: 700 !important;
             }
             div[data-testid="stTextInput"] label,
             div[data-testid="stNumberInput"] label,
             div[data-testid="stSelectbox"] label {
-                font-size: 12px !important;
+                font-size: clamp(10px, 2.8vw, 13px) !important;
                 margin-bottom: 1px !important;
             }
-            div[data-testid="stMarkdownContainer"] p { font-size: 13px !important; margin-bottom: 2px !important; }
+            div[data-testid="stMarkdownContainer"] p {
+                font-size: clamp(11px, 3vw, 14px) !important;
+                margin-bottom: 2px !important;
+            }
             </style>
         """, unsafe_allow_html=True)
 
