@@ -288,6 +288,35 @@ def goster(conn=None):
     if 'sayim_page' not in st.session_state:
         st.session_state.sayim_page = 'menu'
 
+    # ──────────────────────────────────────────────────────────
+    # YENİ: URL BAZLI OTURUM KALICILIĞI
+    # Bağlantı gerçekten koparsa (autorefresh her zaman engelleyemiyor),
+    # Streamlit session_state'i tamamen sıfırlıyor ve kullanıcı ana menüye
+    # düşüyor. Bu, "menüden yeniden aktif etmem gerekiyor" şikayetinin
+    # sebebi. URL (?s_oturum=...) bağlantı koptuğunda/yeniden kurulduğunda
+    # DEĞİŞMEDİĞİ için, aktif oturumu session_state yerine (ek olarak) URL'ye
+    # de yazıyoruz. Bağlantı toparlanınca, session_state boşsa URL'den okuyup
+    # kullanıcıyı DOĞRUDAN Sayım Girişi ekranına, aynı oturumla geri koyuyoruz
+    # - rastgele bir oturum seçmiyor, sadece kullanıcının zaten üzerinde
+    # olduğu oturumu hatırlıyor.
+    # ──────────────────────────────────────────────────────────
+    if st.session_state.aktif_sayim_adi is None:
+        url_oturum = st.query_params.get("s_oturum")
+        if url_oturum:
+            # Not: Gerçekten hâlâ açık mı kontrolü (post edilmiş olabilir)
+            # aşağıda, yardımcı fonksiyonlar tanımlandıktan SONRA yapılıyor
+            # (bkz. UI RENDER SÜREÇLERİ'nden hemen önceki doğrulama bloğu).
+            st.session_state.aktif_sayim_adi = url_oturum
+            st.session_state.sayim_page = 'giris'
+
+    def _oturumu_aktiflestir(oturum_adi):
+        """Aktif oturumu hem session_state'e hem URL'ye yazar (bağlantı kopmasına karşı)."""
+        st.session_state.aktif_sayim_adi = oturum_adi
+        if oturum_adi:
+            st.query_params["s_oturum"] = oturum_adi
+        else:
+            st.query_params.pop("s_oturum", None)
+
     # -----------------------------
     # 🆕 OTOMATİK CİHAZ ALGILAMA (Buton YOK - Sistem kendisi karar verir)
     # Tarayıcının User-Agent bilgisine bakarak el terminali / mobil / Android
@@ -830,6 +859,13 @@ def goster(conn=None):
     def _refresh_and_rerun():
         st.rerun()
 
+    # URL'den geri yüklenen oturumun hâlâ gerçekten açık (post edilmemiş)
+    # olduğunu doğrula - post edilmiş bir oturuma "geri dönme" olmasın.
+    if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi in _session_completed_sessions():
+        st.session_state.aktif_sayim_adi = None
+        st.session_state.sayim_page = 'menu'
+        st.query_params.pop("s_oturum", None)
+
     # ==============================================================================
     # UI RENDER SÜREÇLERİ
     # ==============================================================================
@@ -839,7 +875,7 @@ def goster(conn=None):
             st.caption(f"Algılanan cihaz: {st.session_state.oto_algilanan_cihaz}")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.button("📁 OTURUM YÖNETİMİ", use_container_width=True, on_click=go_oturum)
+            st.button("📁 SAYIM BELGESİ YÖNETİMİ", use_container_width=True, on_click=go_oturum)
         with c2:
             st.button("📝 SAYIM GİRİŞİ", use_container_width=True, on_click=go_giris)
         with c3:
@@ -848,12 +884,12 @@ def goster(conn=None):
             st.button("📱 EL TERMİNALİ MODU", use_container_width=True, on_click=go_el_terminal)
 
         if st.session_state.aktif_sayim_adi:
-            st.success(f"📡 Aktif Oturum: **{st.session_state.aktif_sayim_adi}**")
+            st.success(f"📡 Aktif Sayım Belgesi: **{st.session_state.aktif_sayim_adi}**")
         else:
-            st.info("ℹ️ Açık oturum yok. İşlem için oturum başlatın veya bekleyen bir oturumu aktifleştirin.")
+            st.info("ℹ️ Açık sayım belgesi yok. İşlem için belge oluşturun veya bekleyen bir belgeyi aktifleştirin.")
 
     elif st.session_state.sayim_page == 'oturum':
-        st.subheader("📁 Oturum Yönetimi")
+        st.subheader("📁 Sayım Belgesi Yönetimi")
         c_geri, c_yenile = st.columns([3, 1])
         with c_geri:
             if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
@@ -887,8 +923,8 @@ def goster(conn=None):
 
         bekleyenler = [o for o in sorted(list(set(tum_oturumlar))) if o not in tamamlanmis_oturumlar]
 
-        with st.expander("🆕 Yeni Sayım Oturumu Başlat", expanded=(st.session_state.aktif_sayim_adi is None)):
-            sayim_etiketi = st.text_input("Oturum İsmi:", placeholder="Örn: A_Blok")
+        with st.expander("🆕 Yeni Sayım Belgesi Oluştur", expanded=(st.session_state.aktif_sayim_adi is None)):
+            sayim_etiketi = st.text_input("Sayım Belgesi Adı:", placeholder="Örn: A_Blok")
             atanan_personel = st.text_input(
                 "👥 Atanan Personel (opsiyonel):",
                 placeholder="Örn: Ahmet, Mehmet — boş bırakırsan herkes çalışabilir"
@@ -928,12 +964,12 @@ def goster(conn=None):
                     # ortak önbelleği zorla yeniliyoruz.
                     _sayim_ortak_verileri_yukle(zorla=True)
 
-                    st.session_state.aktif_sayim_adi = yeni_oturum_id
                     st.session_state['gecici_sayim_listesi'] = []
+                    _oturumu_aktiflestir(yeni_oturum_id)
                     _refresh_and_rerun()
 
         if bekleyenler:
-            with st.expander("⏳ Bekleyen (Açık) Oturumlar", expanded=True):
+            with st.expander("⏳ Bekleyen (Açık) Sayım Belgeleri", expanded=True):
                 df_oturum_meta_all = _veri["sayim_oturumlari"]
 
                 satirlar = []
@@ -943,7 +979,7 @@ def goster(conn=None):
                     atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
                     sayilan, toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, o)
                     satirlar.append({
-                        "Oturum": o,
+                        "Sayım Belgesi": o,
                         "Açan": acan,
                         "Atanan Personel": atanan if atanan else "Herkes",
                         "İlerleme": f"{sayilan} / {toplam}" if toplam else f"{sayilan} kalem sayıldı"
@@ -951,15 +987,15 @@ def goster(conn=None):
                 if satirlar:
                     st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
 
-                secilen_bekleyen = st.selectbox("Aktifleştirilecek Oturumu Seçin:", bekleyenler)
-                if st.button("🔄 OTURUMU GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
-                    st.session_state.aktif_sayim_adi = secilen_bekleyen
+                secilen_bekleyen = st.selectbox("Aktifleştirilecek Sayım Belgesini Seçin:", bekleyenler)
+                if st.button("🔄 BELGEYİ GERİ AÇ (AKTİFLEŞTİR)", use_container_width=True):
+                    _oturumu_aktiflestir(secilen_bekleyen)
                     _refresh_and_rerun()
 
         if st.session_state.aktif_sayim_adi:
-            st.success(f"📡 Şuan Çalışılan Oturum: **{st.session_state.aktif_sayim_adi}**")
-            if st.button("🛑 OTURUMU SADECE KAPAT", use_container_width=True):
-                st.session_state.aktif_sayim_adi = None
+            st.success(f"📡 Şuan Çalışılan Sayım Belgesi: **{st.session_state.aktif_sayim_adi}**")
+            if st.button("🛑 BELGEYİ SADECE KAPAT", use_container_width=True):
+                _oturumu_aktiflestir(None)
                 st.rerun()
 
             onay = st.checkbox("Sayım verilerinin doğruluğunu onaylıyorum.")
@@ -967,7 +1003,7 @@ def goster(conn=None):
                 basarili, mesaj = _post_session_to_stock(st.session_state.aktif_sayim_adi)
                 if basarili:
                     _sayim_ortak_verileri_yukle(zorla=True)
-                    st.session_state.aktif_sayim_adi = None
+                    _oturumu_aktiflestir(None)
                     st.success(mesaj)
                     _refresh_and_rerun()
                 else:
@@ -1021,12 +1057,12 @@ def goster(conn=None):
             bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
 
         if not bekleyenler:
-            st.warning("⚠️ Bekleyen sayım oturumu bulunamadı. Lütfen önce oturum başlatın.")
+            st.warning("⚠️ Bekleyen sayım belgesi bulunamadı. Lütfen önce belge oluşturun.")
         else:
-            # YENİ: Ekrana her girişte TÜM post edilmemiş (açık) oturumlar
+            # YENİ: Ekrana her girişte TÜM post edilmemiş (açık) belgeler
             # bir tabloda görünür - Açan/Atanan/İlerleme bilgisiyle birlikte.
-            # Otomatik hiçbir oturuma girilmiyor, seçim tamamen kullanıcıda.
-            st.markdown("#### 📋 Post Edilmemiş Tüm Sayım Oturumları")
+            # Otomatik hiçbir belgeye girilmiyor, seçim tamamen kullanıcıda.
+            st.markdown("#### 📋 Post Edilmemiş Tüm Sayım Belgeleri")
             satirlar = []
             for o in bekleyenler:
                 meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, o)
@@ -1034,7 +1070,7 @@ def goster(conn=None):
                 atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
                 sayilan, toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, o)
                 satirlar.append({
-                    "Oturum": o,
+                    "Sayım Belgesi": o,
                     "Açan": acan,
                     "Atanan Personel": atanan if atanan else "Herkes",
                     "İlerleme": f"{sayilan} / {toplam}" if toplam else f"{sayilan} kalem sayıldı"
@@ -1046,14 +1082,14 @@ def goster(conn=None):
 
             # DÜZELTME: Seçim artık gerçekten işleniyor - eskiden selectbox
             # sonucu hiçbir değişkene atanmıyordu, dropdown'dan farklı bir
-            # oturum seçmek görünürde çalışıyor ama hiçbir etkisi olmuyordu.
+            # belge seçmek görünürde çalışıyor ama hiçbir etkisi olmuyordu.
             secilen_oturum = st.selectbox(
-                "📡 Çalışılacak Oturum:",
+                "📡 Çalışılacak Sayım Belgesi:",
                 bekleyenler,
                 index=bekleyenler.index(st.session_state.aktif_sayim_adi)
             )
             if secilen_oturum != st.session_state.aktif_sayim_adi:
-                st.session_state.aktif_sayim_adi = secilen_oturum
+                _oturumu_aktiflestir(secilen_oturum)
                 st.rerun()
 
             # DÜZELTME: Artık yukarıda zaten okunmuş df_oturum_meta_all,
@@ -1216,7 +1252,7 @@ def goster(conn=None):
 
         if not df_sayim_ana.empty:
             mevcut_oturumlar = df_sayim_ana["Oturum_Adi"].dropna().astype(str).unique().tolist()
-            secilen_oturum = st.selectbox("Raporu Gösterilecek Oturum:", mevcut_oturumlar)
+            secilen_oturum = st.selectbox("Raporu Gösterilecek Sayım Belgesi:", mevcut_oturumlar)
 
             df_sayim = df_sayim_ana[df_sayim_ana["Oturum_Adi"].astype(str) == str(secilen_oturum)].copy()
 
@@ -1280,9 +1316,9 @@ def goster(conn=None):
             st.rerun()
 
         if not st.session_state.aktif_sayim_adi:
-            st.warning("⚠️ Aktif oturum yok. Önce 'Oturum Yönetimi' ekranından bir oturum başlatın veya aktifleştirin.")
+            st.warning("⚠️ Aktif sayım belgesi yok. Önce 'Sayım Belgesi Yönetimi' ekranından bir belge oluşturun veya aktifleştirin.")
         else:
-            st.success(f"📡 Oturum: **{st.session_state.aktif_sayim_adi}**")
+            st.success(f"📡 Sayım Belgesi: **{st.session_state.aktif_sayim_adi}**")
 
             def _el_barkod_auto_submit():
                 barkod = st.session_state.get("el_barkod_key", "").strip()
@@ -1358,7 +1394,7 @@ def goster(conn=None):
                         st.toast("✅ Eklendi!", icon="📥")
                         st.rerun()
 
-                st.markdown(f"**📋 Bu Oturumda Bekleyen Kayıt: {len(st.session_state['gecici_sayim_listesi'])}**")
+                st.markdown(f"**📋 Bu Sayım Belgesinde Bekleyen Kayıt: {len(st.session_state['gecici_sayim_listesi'])}**")
 
                 if st.session_state['gecici_sayim_listesi']:
                     son_kayit = st.session_state['gecici_sayim_listesi'][-1]
