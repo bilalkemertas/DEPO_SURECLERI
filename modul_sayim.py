@@ -980,7 +980,8 @@ def goster(conn=None):
             sayim_etiketi = st.text_input("Sayım Belgesi Adı:", placeholder="Örn: A_Blok")
             atanan_personel = st.text_input(
                 "👥 Atanan Personel (opsiyonel):",
-                placeholder="Örn: Ahmet, Mehmet — boş bırakırsan herkes çalışabilir"
+                placeholder="Personel 
+                adı Gir"
             )
             if st.button("🚀 SAYIMI BAŞLAT", use_container_width=True):
                 if sayim_etiketi:
