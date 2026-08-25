@@ -1069,7 +1069,138 @@ def goster(conn=None):
                     st.error(mesaj)
 
 
-    elif st.session_state.sayim_page == 'giris':
+    # --- SAYIM GİRİŞ EKRANI (MOBILE OPTİMİZE) ---
+elif st.session_state.sayim_page == 'giris':
+    if st.button("⬅️ GERİ"):
+        go_sayim_menu()
+        st.rerun()
+    
+    st.markdown("""
+        <style>
+        /* Mobile Optimization */
+        [data-testid="stMetricValue"] { font-size: 16px !important; }
+        [data-testid="stMetricLabel"] { font-size: 11px !important; }
+        .stCaption { font-size: 10px !important; }
+        
+        /* Compact Input Fields */
+        .stNumberInput > div > div > input,
+        .stTextInput > div > div > input {
+            font-size: 14px !important;
+            padding: 8px !important;
+        }
+        
+        /* Responsive Button Sizing */
+        button {
+            font-size: 13px !important;
+            padding: 10px !important;
+            min-height: 40px !important;
+        }
+        
+        /* Container Padding */
+        [data-testid="stVerticalBlock"] {
+            gap: 0.5rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("📦 Sayım Giriş")
+    st.markdown("---")
+    
+    # --- BARKOD GİRİŞ ALANINI KENT TUTUN ---
+    barcode_input_col1, barcode_input_col2 = st.columns([3, 1])
+    
+    with barcode_input_col1:
+        giris_barkod = st.text_input(
+            "🔍 Barkod Tara",
+            placeholder="Barkodunuzu tarayın...",
+            label_visibility="collapsed"
+        )
+    
+    with barcode_input_col2:
+        if st.button("✓", use_container_width=True, help="Barkodu gönder"):
+            if giris_barkod:
+                st.session_state.temp_barkod = giris_barkod
+    
+    # --- STOK BİLGİSİ GÖSTER (Eğer varsa) ---
+    if hasattr(st.session_state, 'temp_barkod') and st.session_state.temp_barkod:
+        # Burada barkod işleme fonksiyonunu çağırabilirsiniz
+        barkod_result = handle_supplier_barcode(st.session_state.temp_barkod)
+        
+        if barkod_result:
+            # Kompakt metric gösterimi
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("Stok Kodu", barkod_result.get('kod', '-'), label_visibility="collapsed")
+            mc2.metric("Miktar", f"{barkod_result.get('miktar', 0)}", label_visibility="collapsed")
+            mc3.metric("Raf", barkod_result.get('adres', '-'), label_visibility="collapsed")
+    
+    st.markdown("---")
+    
+    # --- SAYIM MİKTARI ALANI (Kompakt) ---
+    sayim_col1, sayim_col2 = st.columns([2, 1])
+    
+    with sayim_col1:
+        giris_miktar = st.number_input(
+            "Sayılan Miktar",
+            min_value=0.0,
+            step=1.0,
+            value=0.0,
+            label_visibility="collapsed"
+        )
+    
+    with sayim_col2:
+        if st.button("➕ EKLE", use_container_width=True, type="primary"):
+            if giris_barkod and giris_miktar > 0:
+                # Sayım kaydını ekle
+                if 'sayim_kayitlari' not in st.session_state:
+                    st.session_state.sayim_kayitlari = []
+                
+                st.session_state.sayim_kayitlari.append({
+                    'barkod': giris_barkod,
+                    'miktar': giris_miktar,
+                    'zaman': datetime.now().strftime("%H:%M:%S")
+                })
+                
+                st.toast("✅ Kayıt eklendi")
+                st.session_state.temp_barkod = ""
+                st.rerun()
+            else:
+                st.warning("⚠️ Barkod ve miktar gerekli")
+    
+    st.markdown("---")
+    
+    # --- SON KAYITLAR (Minimal gösterim) ---
+    if hasattr(st.session_state, 'sayim_kayitlari') and st.session_state.sayim_kayitlari:
+        st.caption(f"📋 Toplam Kayıt: {len(st.session_state.sayim_kayitlari)}")
+        
+        # Tablı sadece gerekli kolonlarla göster
+        df_kayitlar = pd.DataFrame(st.session_state.sayim_kayitlari)
+        st.dataframe(
+            df_kayitlar[['barkod', 'miktar', 'zaman']],
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    # --- ALT BUTON GRUP (Compact) ---
+    st.markdown("---")
+    btn_col1, btn_col2 = st.columns(2)
+    
+    with btn_col1:
+        if st.button("🧹 TEMİZLE", use_container_width=True):
+            st.session_state.sayim_kayitlari = []
+            st.rerun()
+    
+    with btn_col2:
+        if st.button("💾 KAYDET", use_container_width=True, type="primary"):
+            if hasattr(st.session_state, 'sayim_kayitlari') and st.session_state.sayim_kayitlari:
+                # Veritabanına kaydet
+                df_to_save = pd.DataFrame(st.session_state.sayim_kayitlari)
+                veritabani.update_data("Sayim_Girisleri", df_to_save)
+                st.success("✅ Sayım giriş verileri kaydedildi!")
+                time.sleep(1)
+                st.session_state.sayim_kayitlari = []
+                st.rerun()
+            else:
+                st.warning("⚠️ Kaydedilecek veri yok")
         st.subheader("📝 Sayım Girişi")
         c_geri, c_yenile = st.columns([3, 1])
         with c_geri:
