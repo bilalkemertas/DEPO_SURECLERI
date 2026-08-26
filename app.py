@@ -200,3 +200,5 @@ def session_kontrol():
 def imza_yazdir():
     """[ESKİ] Artık tema.imza_yazdir()'a yönlendiriyor - geriye dönük uyumluluk için duruyor."""
     tema.imza_yazdir()
+
+trigger: Force cache clear
