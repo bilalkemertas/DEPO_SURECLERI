@@ -1070,431 +1070,431 @@ def goster(conn=None):
 
 
     # --- SAYIM GİRİŞ EKRANI (MOBILE OPTİMİZE) ---
-elif st.session_state.sayim_page == 'giris':
+    elif st.session_state.sayim_page == 'giris':
         if st.button("⬅️ GERİ"):
-        go_sayim_menu()
-        st.rerun()
-    
-    st.markdown("""
-        <style>
-        /* Mobile Optimization */
-        [data-testid="stMetricValue"] { font-size: 16px !important; }
-        [data-testid="stMetricLabel"] { font-size: 11px !important; }
-        .stCaption { font-size: 10px !important; }
-        
-        /* Compact Input Fields */
-        .stNumberInput > div > div > input,
-        .stTextInput > div > div > input {
-            font-size: 14px !important;
-            padding: 8px !important;
-        }
-        
-        /* Responsive Button Sizing */
-        button {
-            font-size: 13px !important;
-            padding: 10px !important;
-            min-height: 40px !important;
-        }
-        
-        /* Container Padding */
-        [data-testid="stVerticalBlock"] {
-            gap: 0.5rem !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    st.subheader("📦 Sayım Giriş")
-    st.markdown("---")
-    
-    # --- BARKOD GİRİŞ ALANINI KENT TUTUN ---
-    barcode_input_col1, barcode_input_col2 = st.columns([3, 1])
-    
-    with barcode_input_col1:
-        giris_barkod = st.text_input(
-            "🔍 Barkod Tara",
-            placeholder="Barkodunuzu tarayın...",
-            label_visibility="collapsed"
-        )
-    
-    with barcode_input_col2:
-        if st.button("✓", use_container_width=True, help="Barkodu gönder"):
-            if giris_barkod:
-                st.session_state.temp_barkod = giris_barkod
-    
-    # --- STOK BİLGİSİ GÖSTER (Eğer varsa) ---
-    if hasattr(st.session_state, 'temp_barkod') and st.session_state.temp_barkod:
-        # Burada barkod işleme fonksiyonunu çağırabilirsiniz
-        barkod_result = handle_supplier_barcode(st.session_state.temp_barkod)
-        
-        if barkod_result:
-            # Kompakt metric gösterimi
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.metric("Stok Kodu", barkod_result.get('kod', '-'), label_visibility="collapsed")
-            mc2.metric("Miktar", f"{barkod_result.get('miktar', 0)}", label_visibility="collapsed")
-            mc3.metric("Raf", barkod_result.get('adres', '-'), label_visibility="collapsed")
-    
-    st.markdown("---")
-    
-    # --- SAYIM MİKTARI ALANI (Kompakt) ---
-    sayim_col1, sayim_col2 = st.columns([2, 1])
-    
-    with sayim_col1:
-        giris_miktar = st.number_input(
-            "Sayılan Miktar",
-            min_value=0.0,
-            step=1.0,
-            value=0.0,
-            label_visibility="collapsed"
-        )
-    
-    with sayim_col2:
-        if st.button("➕ EKLE", use_container_width=True, type="primary"):
-            if giris_barkod and giris_miktar > 0:
-                # Sayım kaydını ekle
-                if 'sayim_kayitlari' not in st.session_state:
-                    st.session_state.sayim_kayitlari = []
-                
-                st.session_state.sayim_kayitlari.append({
-                    'barkod': giris_barkod,
-                    'miktar': giris_miktar,
-                    'zaman': datetime.now().strftime("%H:%M:%S")
-                })
-                
-                st.toast("✅ Kayıt eklendi")
-                st.session_state.temp_barkod = ""
-                st.rerun()
-            else:
-                st.warning("⚠️ Barkod ve miktar gerekli")
-    
-    st.markdown("---")
-    
-    # --- SON KAYITLAR (Minimal gösterim) ---
-    if hasattr(st.session_state, 'sayim_kayitlari') and st.session_state.sayim_kayitlari:
-        st.caption(f"📋 Toplam Kayıt: {len(st.session_state.sayim_kayitlari)}")
-        
-        # Tablı sadece gerekli kolonlarla göster
-        df_kayitlar = pd.DataFrame(st.session_state.sayim_kayitlari)
-        st.dataframe(
-            df_kayitlar[['barkod', 'miktar', 'zaman']],
-            use_container_width=True,
-            hide_index=True
-        )
-    
-    # --- ALT BUTON GRUP (Compact) ---
-    st.markdown("---")
-    btn_col1, btn_col2 = st.columns(2)
-    
-    with btn_col1:
-        if st.button("🧹 TEMİZLE", use_container_width=True):
-            st.session_state.sayim_kayitlari = []
+            go_sayim_menu()
             st.rerun()
     
-    with btn_col2:
-        if st.button("💾 KAYDET", use_container_width=True, type="primary"):
-            if hasattr(st.session_state, 'sayim_kayitlari') and st.session_state.sayim_kayitlari:
-                # Veritabanına kaydet
-                df_to_save = pd.DataFrame(st.session_state.sayim_kayitlari)
-                veritabani.update_data("Sayim_Girisleri", df_to_save)
-                st.success("✅ Sayım giriş verileri kaydedildi!")
-                time.sleep(1)
+        st.markdown("""
+            <style>
+            /* Mobile Optimization */
+            [data-testid="stMetricValue"] { font-size: 16px !important; }
+            [data-testid="stMetricLabel"] { font-size: 11px !important; }
+            .stCaption { font-size: 10px !important; }
+        
+            /* Compact Input Fields */
+            .stNumberInput > div > div > input,
+            .stTextInput > div > div > input {
+                font-size: 14px !important;
+                padding: 8px !important;
+            }
+        
+            /* Responsive Button Sizing */
+            button {
+                font-size: 13px !important;
+                padding: 10px !important;
+                min-height: 40px !important;
+            }
+        
+            /* Container Padding */
+            [data-testid="stVerticalBlock"] {
+                gap: 0.5rem !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+    
+        st.subheader("📦 Sayım Giriş")
+        st.markdown("---")
+    
+        # --- BARKOD GİRİŞ ALANINI KENT TUTUN ---
+        barcode_input_col1, barcode_input_col2 = st.columns([3, 1])
+    
+        with barcode_input_col1:
+            giris_barkod = st.text_input(
+                "🔍 Barkod Tara",
+                placeholder="Barkodunuzu tarayın...",
+                label_visibility="collapsed"
+            )
+    
+        with barcode_input_col2:
+            if st.button("✓", use_container_width=True, help="Barkodu gönder"):
+                if giris_barkod:
+                    st.session_state.temp_barkod = giris_barkod
+    
+        # --- STOK BİLGİSİ GÖSTER (Eğer varsa) ---
+        if hasattr(st.session_state, 'temp_barkod') and st.session_state.temp_barkod:
+            # Burada barkod işleme fonksiyonunu çağırabilirsiniz
+            barkod_result = handle_supplier_barcode(st.session_state.temp_barkod)
+        
+            if barkod_result:
+                # Kompakt metric gösterimi
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Stok Kodu", barkod_result.get('kod', '-'), label_visibility="collapsed")
+                mc2.metric("Miktar", f"{barkod_result.get('miktar', 0)}", label_visibility="collapsed")
+                mc3.metric("Raf", barkod_result.get('adres', '-'), label_visibility="collapsed")
+    
+        st.markdown("---")
+    
+        # --- SAYIM MİKTARI ALANI (Kompakt) ---
+        sayim_col1, sayim_col2 = st.columns([2, 1])
+    
+        with sayim_col1:
+            giris_miktar = st.number_input(
+                "Sayılan Miktar",
+                min_value=0.0,
+                step=1.0,
+                value=0.0,
+                label_visibility="collapsed"
+            )
+    
+        with sayim_col2:
+            if st.button("➕ EKLE", use_container_width=True, type="primary"):
+                if giris_barkod and giris_miktar > 0:
+                    # Sayım kaydını ekle
+                    if 'sayim_kayitlari' not in st.session_state:
+                        st.session_state.sayim_kayitlari = []
+                
+                    st.session_state.sayim_kayitlari.append({
+                        'barkod': giris_barkod,
+                        'miktar': giris_miktar,
+                        'zaman': datetime.now().strftime("%H:%M:%S")
+                    })
+                
+                    st.toast("✅ Kayıt eklendi")
+                    st.session_state.temp_barkod = ""
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Barkod ve miktar gerekli")
+    
+        st.markdown("---")
+    
+        # --- SON KAYITLAR (Minimal gösterim) ---
+        if hasattr(st.session_state, 'sayim_kayitlari') and st.session_state.sayim_kayitlari:
+            st.caption(f"📋 Toplam Kayıt: {len(st.session_state.sayim_kayitlari)}")
+        
+            # Tablı sadece gerekli kolonlarla göster
+            df_kayitlar = pd.DataFrame(st.session_state.sayim_kayitlari)
+            st.dataframe(
+                df_kayitlar[['barkod', 'miktar', 'zaman']],
+                use_container_width=True,
+                hide_index=True
+            )
+    
+        # --- ALT BUTON GRUP (Compact) ---
+        st.markdown("---")
+        btn_col1, btn_col2 = st.columns(2)
+    
+        with btn_col1:
+            if st.button("🧹 TEMİZLE", use_container_width=True):
                 st.session_state.sayim_kayitlari = []
                 st.rerun()
-            else:
-                st.warning("⚠️ Kaydedilecek veri yok")
-        st.subheader("📝 Sayım Girişi")
-        c_geri, c_yenile = st.columns([3, 1])
-        with c_geri:
-            if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
-                go_sayim_menu()
-                st.rerun()
-        with c_yenile:
-            if st.button("🔄 Yenile", use_container_width=True):
-                _sayim_ortak_verileri_yukle(zorla=True)
-                st.rerun()
-
-        # DÜZELTME: Eskiden burada df_sayim_ana/df_tamamlanan okunuyor,
-        # SONRA _open_sessions() aynı sekmeleri (+ sayim_snapshot) YENİDEN
-        # okuyordu, SONRA aşağıda ilerleme/atanan gösterimi için üçüncü kez
-        # okunuyordu. Bu ekran her barkod okutmada/tuşlamada yeniden
-        # çalıştığı için (on_change), aynı sekmelere saniyede defalarca
-        # bağlanılıyor ve Google Sheets kota limitine takılıp sayfa
-        # "Running GSheetsServiceAccountClient.read..." durumunda asılı
-        # kalıyordu. Artık her sekme sayfa başına SADECE 1 KEZ okunuyor.
-        _veri = _sayim_ortak_verileri_yukle()
-        df_sayim_ana = _veri["sayim"]
-        df_tamamlanan = _veri["sayim_tamamlanan"]
-        df_snapshot_ana = _veri["sayim_snapshot"]
-        df_oturum_meta_all = _veri["sayim_oturumlari"]
-
-        tamamlanmis = []
-        if not df_tamamlanan.empty:
-            oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
-            if oc:
-                tamamlanmis = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
-
-        tum_o = []
-        if not df_sayim_ana.empty:
-            oc = _find_col(df_sayim_ana, ["Oturum_Adi"])
-            if oc:
-                tum_o.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
-        if not df_snapshot_ana.empty:
-            oc = _find_col(df_snapshot_ana, ["Oturum_Adi"])
-            if oc:
-                tum_o.extend(df_snapshot_ana[oc].dropna().astype(str).unique().tolist())
-
-        bekleyenler = [o for o in sorted(list(set(tum_o))) if o not in tamamlanmis]
-
-        if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in bekleyenler:
-            bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
-
-        if not bekleyenler:
-            st.warning("⚠️ Bekleyen sayım belgesi bulunamadı. Lütfen önce belge oluşturun.")
-        else:
-            # YENİ: Ekrana her girişte TÜM post edilmemiş (açık) belgeler
-            # bir tabloda görünür - Açan/Atanan/İlerleme bilgisiyle birlikte.
-            # Otomatik hiçbir belgeye girilmiyor, seçim tamamen kullanıcıda.
-            st.markdown("#### 📋 Post Edilmemiş Tüm Sayım Belgeleri")
-            satirlar = []
-            for o in bekleyenler:
-                meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, o)
-                acan = meta_satiri["Acan_Kisi"] if meta_satiri is not None else "-"
-                atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
-                sayilan, toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, o)
-                satirlar.append({
-                    "Sayım Belgesi": o,
-                    "Açan": acan,
-                    "Atanan Personel": atanan if atanan else "Herkes",
-                    "İlerleme": f"{sayilan} / {toplam}" if toplam else f"{sayilan} kalem sayıldı"
-                })
-            st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
-
-            if st.session_state.aktif_sayim_adi not in bekleyenler:
-                st.session_state.aktif_sayim_adi = bekleyenler[0]
-
-            # DÜZELTME: Seçim artık gerçekten işleniyor - eskiden selectbox
-            # sonucu hiçbir değişkene atanmıyordu, dropdown'dan farklı bir
-            # belge seçmek görünürde çalışıyor ama hiçbir etkisi olmuyordu.
-            secilen_oturum = st.selectbox(
-                "📡 Çalışılacak Sayım Belgesi:",
-                bekleyenler,
-                index=bekleyenler.index(st.session_state.aktif_sayim_adi)
-            )
-            if secilen_oturum != st.session_state.aktif_sayim_adi:
-                st.session_state.aktif_sayim_adi = secilen_oturum
-                st.rerun()
-
-            # DÜZELTME: Artık yukarıda zaten okunmuş df_oturum_meta_all,
-            # df_sayim_ana, df_snapshot_ana kullanılıyor - tekrar Google
-            # Sheets'e bağlanmıyor.
-            _meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, st.session_state.aktif_sayim_adi)
-            _acan_metni = _meta_satiri["Acan_Kisi"] if _meta_satiri is not None else "-"
-            _atanan_metni = _norm_text(_meta_satiri["Atanan_Personel"]) if _meta_satiri is not None else ""
-            _sayilan, _toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, st.session_state.aktif_sayim_adi)
-            st.caption(
-                f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
-                f"📊 İlerleme: {_sayilan} / {_toplam}" if _toplam else
-                f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
-                f"📊 İlerleme: {_sayilan} kalem sayıldı"
-            )
-
-            with st.container(border=True):
-                adres_listesi = get_dinamik_adres_listesi()
-                sec_adres = st.selectbox(
-                    "📍 Adres:",
-                    ["+ MANUEL"] + adres_listesi,
-                    key="giris_adres_secim_key",
-                    help="Yazmaya başlayınca listede arama yapabilirsin. Listede yoksa '+ MANUEL' seçip elle yaz."
-                )
-                if sec_adres != "+ MANUEL":
-                    s_adr = sec_adres
+    
+        with btn_col2:
+            if st.button("💾 KAYDET", use_container_width=True, type="primary"):
+                if hasattr(st.session_state, 'sayim_kayitlari') and st.session_state.sayim_kayitlari:
+                    # Veritabanına kaydet
+                    df_to_save = pd.DataFrame(st.session_state.sayim_kayitlari)
+                    veritabani.update_data("Sayim_Girisleri", df_to_save)
+                    st.success("✅ Sayım giriş verileri kaydedildi!")
+                    time.sleep(1)
+                    st.session_state.sayim_kayitlari = []
+                    st.rerun()
                 else:
-                    s_adr = st.text_input("📍 Adres (elle):", key="giris_adres_manuel_key").upper()
+                    st.warning("⚠️ Kaydedilecek veri yok")
+            st.subheader("📝 Sayım Girişi")
+            c_geri, c_yenile = st.columns([3, 1])
+            with c_geri:
+                if st.button("⬅️ Sayım Menüsüne Dön", use_container_width=True):
+                    go_sayim_menu()
+                    st.rerun()
+            with c_yenile:
+                if st.button("🔄 Yenile", use_container_width=True):
+                    _sayim_ortak_verileri_yukle(zorla=True)
+                    st.rerun()
 
-                # -----------------------------
-                # 1. Adım: Tedarikçi Barkod Okutma Alanı (Okuyucu Girişi)
-                # OTOMATİK ENTER: on_change ile barkod okutulunca otomatik işlenir,
-                # işlendikten sonra alan otomatik temizlenir (yeni okutmaya hazır).
-                # -----------------------------
-                def _sup_barcode_auto_submit():
-                    barkod = st.session_state.get("supplier_barcode_key", "").strip()
-                    if not barkod:
-                        return
+            # DÜZELTME: Eskiden burada df_sayim_ana/df_tamamlanan okunuyor,
+            # SONRA _open_sessions() aynı sekmeleri (+ sayim_snapshot) YENİDEN
+            # okuyordu, SONRA aşağıda ilerleme/atanan gösterimi için üçüncü kez
+            # okunuyordu. Bu ekran her barkod okutmada/tuşlamada yeniden
+            # çalıştığı için (on_change), aynı sekmelere saniyede defalarca
+            # bağlanılıyor ve Google Sheets kota limitine takılıp sayfa
+            # "Running GSheetsServiceAccountClient.read..." durumunda asılı
+            # kalıyordu. Artık her sekme sayfa başına SADECE 1 KEZ okunuyor.
+            _veri = _sayim_ortak_verileri_yukle()
+            df_sayim_ana = _veri["sayim"]
+            df_tamamlanan = _veri["sayim_tamamlanan"]
+            df_snapshot_ana = _veri["sayim_snapshot"]
+            df_oturum_meta_all = _veri["sayim_oturumlari"]
 
-                    # Önceki eşleşmeden kalıntı olmasın diye temizle
-                    st.session_state.def_s_kod = ""
-                    st.session_state.def_s_isim = ""
-                    st.session_state.def_s_mik = 0.0
-                    st.session_state.def_s_barcode = ""
+            tamamlanmis = []
+            if not df_tamamlanan.empty:
+                oc = _find_col(df_tamamlanan, ["Oturum_Adi"])
+                if oc:
+                    tamamlanmis = df_tamamlanan[oc].dropna().astype(str).unique().tolist()
 
-                    handle_supplier_barcode(barkod)
-                    st.session_state.last_handled_barcode = barkod
-                    st.session_state.supplier_barcode_key = ""
+            tum_o = []
+            if not df_sayim_ana.empty:
+                oc = _find_col(df_sayim_ana, ["Oturum_Adi"])
+                if oc:
+                    tum_o.extend(df_sayim_ana[oc].dropna().astype(str).unique().tolist())
+            if not df_snapshot_ana.empty:
+                oc = _find_col(df_snapshot_ana, ["Oturum_Adi"])
+                if oc:
+                    tum_o.extend(df_snapshot_ana[oc].dropna().astype(str).unique().tolist())
 
-                    # YENİ: Barkod bir ürünle eşleştiyse (def_s_kod dolduysa),
-                    # "EKLE" butonuna basmayı beklemeden DOĞRUDAN geçici
-                    # listeye ekleniyor - barkod okutmak zaten "bu ürünü
-                    # ekle" demek, ayrı bir tıklama gereksiz tekrar.
-                    if st.session_state.def_s_kod:
-                        # YENİ: Aynı barkod bu belgede daha önce okutulmuşsa
-                        # (geçici listede ya da zaten kaydedilmiş veride)
-                        # tekrar eklenmesin - yanlışlıkla aynı ürünü birden
-                        # fazla kez saymayı/eklemeyi engeller.
-                        if _barkod_daha_once_kullanildi_mi(st.session_state.def_s_barcode):
-                            st.toast(f"⚠️ Bu barkod ('{st.session_state.def_s_barcode}') zaten eklenmiş, tekrar eklenmedi.", icon="🚫")
-                            st.session_state.def_s_kod = ""
-                            st.session_state.def_s_isim = ""
-                            st.session_state.def_s_mik = 0.0
-                            st.session_state.def_s_barcode = ""
+            bekleyenler = [o for o in sorted(list(set(tum_o))) if o not in tamamlanmis]
+
+            if st.session_state.aktif_sayim_adi and st.session_state.aktif_sayim_adi not in bekleyenler:
+                bekleyenler.insert(0, st.session_state.aktif_sayim_adi)
+
+            if not bekleyenler:
+                st.warning("⚠️ Bekleyen sayım belgesi bulunamadı. Lütfen önce belge oluşturun.")
+            else:
+                # YENİ: Ekrana her girişte TÜM post edilmemiş (açık) belgeler
+                # bir tabloda görünür - Açan/Atanan/İlerleme bilgisiyle birlikte.
+                # Otomatik hiçbir belgeye girilmiyor, seçim tamamen kullanıcıda.
+                st.markdown("#### 📋 Post Edilmemiş Tüm Sayım Belgeleri")
+                satirlar = []
+                for o in bekleyenler:
+                    meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, o)
+                    acan = meta_satiri["Acan_Kisi"] if meta_satiri is not None else "-"
+                    atanan = _norm_text(meta_satiri["Atanan_Personel"]) if meta_satiri is not None else ""
+                    sayilan, toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, o)
+                    satirlar.append({
+                        "Sayım Belgesi": o,
+                        "Açan": acan,
+                        "Atanan Personel": atanan if atanan else "Herkes",
+                        "İlerleme": f"{sayilan} / {toplam}" if toplam else f"{sayilan} kalem sayıldı"
+                    })
+                st.dataframe(pd.DataFrame(satirlar), use_container_width=True, hide_index=True)
+
+                if st.session_state.aktif_sayim_adi not in bekleyenler:
+                    st.session_state.aktif_sayim_adi = bekleyenler[0]
+
+                # DÜZELTME: Seçim artık gerçekten işleniyor - eskiden selectbox
+                # sonucu hiçbir değişkene atanmıyordu, dropdown'dan farklı bir
+                # belge seçmek görünürde çalışıyor ama hiçbir etkisi olmuyordu.
+                secilen_oturum = st.selectbox(
+                    "📡 Çalışılacak Sayım Belgesi:",
+                    bekleyenler,
+                    index=bekleyenler.index(st.session_state.aktif_sayim_adi)
+                )
+                if secilen_oturum != st.session_state.aktif_sayim_adi:
+                    st.session_state.aktif_sayim_adi = secilen_oturum
+                    st.rerun()
+
+                # DÜZELTME: Artık yukarıda zaten okunmuş df_oturum_meta_all,
+                # df_sayim_ana, df_snapshot_ana kullanılıyor - tekrar Google
+                # Sheets'e bağlanmıyor.
+                _meta_satiri = _oturum_meta_satiri_bellekten(df_oturum_meta_all, st.session_state.aktif_sayim_adi)
+                _acan_metni = _meta_satiri["Acan_Kisi"] if _meta_satiri is not None else "-"
+                _atanan_metni = _norm_text(_meta_satiri["Atanan_Personel"]) if _meta_satiri is not None else ""
+                _sayilan, _toplam = _oturum_ilerleme_bellekten(df_sayim_ana, df_snapshot_ana, st.session_state.aktif_sayim_adi)
+                st.caption(
+                    f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
+                    f"📊 İlerleme: {_sayilan} / {_toplam}" if _toplam else
+                    f"👤 Açan: {_acan_metni} | 👥 Atanan: {_atanan_metni if _atanan_metni else 'Herkes çalışabilir'} | "
+                    f"📊 İlerleme: {_sayilan} kalem sayıldı"
+                )
+
+                with st.container(border=True):
+                    adres_listesi = get_dinamik_adres_listesi()
+                    sec_adres = st.selectbox(
+                        "📍 Adres:",
+                        ["+ MANUEL"] + adres_listesi,
+                        key="giris_adres_secim_key",
+                        help="Yazmaya başlayınca listede arama yapabilirsin. Listede yoksa '+ MANUEL' seçip elle yaz."
+                    )
+                    if sec_adres != "+ MANUEL":
+                        s_adr = sec_adres
+                    else:
+                        s_adr = st.text_input("📍 Adres (elle):", key="giris_adres_manuel_key").upper()
+
+                    # -----------------------------
+                    # 1. Adım: Tedarikçi Barkod Okutma Alanı (Okuyucu Girişi)
+                    # OTOMATİK ENTER: on_change ile barkod okutulunca otomatik işlenir,
+                    # işlendikten sonra alan otomatik temizlenir (yeni okutmaya hazır).
+                    # -----------------------------
+                    def _sup_barcode_auto_submit():
+                        barkod = st.session_state.get("supplier_barcode_key", "").strip()
+                        if not barkod:
                             return
 
-                        adres_deger = st.session_state.get("giris_adres_secim_key", "+ MANUEL")
-                        if adres_deger == "+ MANUEL":
-                            adres_deger = st.session_state.get("giris_adres_manuel_key", "")
-                        durum_deger = st.session_state.get("giris_durum_key", "Kullanılabilir")
-
-                        if not _norm_text(adres_deger):
-                            st.toast("⚠️ Önce adres seç - ürün bulundu ama listeye eklenmedi.", icon="⚠️")
-                            return
-
-                        yeni_satir = {
-                            "Oturum_Adi": st.session_state.aktif_sayim_adi,
-                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-                            "Adres": _upper_text(adres_deger),
-                            "Kod": _upper_text(st.session_state.def_s_kod),
-                            "İsim": _norm_text(st.session_state.def_s_isim),
-                            "Miktar": float(st.session_state.def_s_mik),
-                            "Birim": "-",
-                            "Personel": _norm_text(aktif_kullanici),
-                            "Durum": _norm_text(durum_deger),
-                            "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)
-                        }
-                        mevcut = st.session_state['gecici_sayim_listesi']
-                        mevcut.append(yeni_satir)
-                        st.session_state['gecici_sayim_listesi'] = mevcut
-                        st.toast(f"📥 Otomatik eklendi: {yeni_satir['Kod']}", icon="✅")
-
-                        # Bir sonraki barkoda hazır olsun diye formu temizle
+                        # Önceki eşleşmeden kalıntı olmasın diye temizle
                         st.session_state.def_s_kod = ""
                         st.session_state.def_s_isim = ""
                         st.session_state.def_s_mik = 0.0
                         st.session_state.def_s_barcode = ""
 
-                st.markdown("---")
-                st.markdown("#### 🔌 Tedarikçi Barkodu Okutun")
-                col_bar1, col_bar2 = st.columns([3, 1])
-                with col_bar1:
-                    sup_barcode_input = st.text_input(
-                        "Tedarikçi Barkodu:",
-                        key="supplier_barcode_key",
-                        placeholder="Barkodu okutun, otomatik işlenir...",
-                        label_visibility="collapsed",
-                        on_change=_sup_barcode_auto_submit
-                    )
-                with col_bar2:
-                    islem_yap = st.button("🔍 Getir / Çöz", use_container_width=True)
+                        handle_supplier_barcode(barkod)
+                        st.session_state.last_handled_barcode = barkod
+                        st.session_state.supplier_barcode_key = ""
 
-                # Manuel buton ile de tetikleme (yedek / fallback)
-                if islem_yap and sup_barcode_input:
-                    st.session_state.last_handled_barcode = sup_barcode_input
-                    handle_supplier_barcode(sup_barcode_input)
+                        # YENİ: Barkod bir ürünle eşleştiyse (def_s_kod dolduysa),
+                        # "EKLE" butonuna basmayı beklemeden DOĞRUDAN geçici
+                        # listeye ekleniyor - barkod okutmak zaten "bu ürünü
+                        # ekle" demek, ayrı bir tıklama gereksiz tekrar.
+                        if st.session_state.def_s_kod:
+                            # YENİ: Aynı barkod bu belgede daha önce okutulmuşsa
+                            # (geçici listede ya da zaten kaydedilmiş veride)
+                            # tekrar eklenmesin - yanlışlıkla aynı ürünü birden
+                            # fazla kez saymayı/eklemeyi engeller.
+                            if _barkod_daha_once_kullanildi_mi(st.session_state.def_s_barcode):
+                                st.toast(f"⚠️ Bu barkod ('{st.session_state.def_s_barcode}') zaten eklenmiş, tekrar eklenmedi.", icon="🚫")
+                                st.session_state.def_s_kod = ""
+                                st.session_state.def_s_isim = ""
+                                st.session_state.def_s_mik = 0.0
+                                st.session_state.def_s_barcode = ""
+                                return
 
-                st.markdown("---")
-                st.markdown("#### ✍️ Manuel Ürün Ekleme")
-                st.caption("Barkod okutulduğunda ürün zaten otomatik eklenir. Burası sadece barkodsuz/elle ekleme içindir.")
+                            adres_deger = st.session_state.get("giris_adres_secim_key", "+ MANUEL")
+                            if adres_deger == "+ MANUEL":
+                                adres_deger = st.session_state.get("giris_adres_manuel_key", "")
+                            durum_deger = st.session_state.get("giris_durum_key", "Kullanılabilir")
 
-                # DÜZELTME: Eskiden burada İKİNCİ bir "Tedarikçi Barkodu / Parti
-                # No" giriş kutusu vardı - yukarıdaki okuma alanıyla aynı işi
-                # yapıyor, kafa karıştırıyordu. Artık tek barkod alanı var
-                # (yukarıdaki, otomatik enter yapan). Okutulan/girilen barkod
-                # değeri session_state'te tutuluyor, burada sadece bilgi
-                # amaçlı salt-okunur gösteriliyor.
-                if st.session_state.def_s_barcode:
-                    st.caption(f"🔌 Kayıtlı Barkod / Parti No: **{st.session_state.def_s_barcode}**")
+                            if not _norm_text(adres_deger):
+                                st.toast("⚠️ Önce adres seç - ürün bulundu ama listeye eklenmedi.", icon="⚠️")
+                                return
 
-                katalog = get_dinamik_katalog()
+                            yeni_satir = {
+                                "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                                "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                                "Adres": _upper_text(adres_deger),
+                                "Kod": _upper_text(st.session_state.def_s_kod),
+                                "İsim": _norm_text(st.session_state.def_s_isim),
+                                "Miktar": float(st.session_state.def_s_mik),
+                                "Birim": "-",
+                                "Personel": _norm_text(aktif_kullanici),
+                                "Durum": _norm_text(durum_deger),
+                                "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)
+                            }
+                            mevcut = st.session_state['gecici_sayim_listesi']
+                            mevcut.append(yeni_satir)
+                            st.session_state['gecici_sayim_listesi'] = mevcut
+                            st.toast(f"📥 Otomatik eklendi: {yeni_satir['Kod']}", icon="✅")
 
-                # Barkod ile eşleşen kodu katalog içinde bulmaya çalış
-                default_index = 0
-                if st.session_state.def_s_kod:
-                    for idx, cat_item in enumerate(katalog):
-                        if cat_item.upper().startswith(st.session_state.def_s_kod.upper() + " |"):
-                            default_index = idx + 1  # "+ MANUEL" seçeneği 0. sırada olduğu için
-                            break
+                            # Bir sonraki barkoda hazır olsun diye formu temizle
+                            st.session_state.def_s_kod = ""
+                            st.session_state.def_s_isim = ""
+                            st.session_state.def_s_mik = 0.0
+                            st.session_state.def_s_barcode = ""
 
-                sec = st.selectbox("🔍 Ürün / Malzeme Kataloğu:", ["+ MANUEL"] + katalog, index=default_index)
+                    st.markdown("---")
+                    st.markdown("#### 🔌 Tedarikçi Barkodu Okutun")
+                    col_bar1, col_bar2 = st.columns([3, 1])
+                    with col_bar1:
+                        sup_barcode_input = st.text_input(
+                            "Tedarikçi Barkodu:",
+                            key="supplier_barcode_key",
+                            placeholder="Barkodu okutun, otomatik işlenir...",
+                            label_visibility="collapsed",
+                            on_change=_sup_barcode_auto_submit
+                        )
+                    with col_bar2:
+                        islem_yap = st.button("🔍 Getir / Çöz", use_container_width=True)
 
-                if sec != "+ MANUEL":
-                    sec_parcalar = sec.split(" | ", 1)
-                    s_kod = st.text_input("📦 Kod:", value=sec_parcalar[0].strip(), disabled=True)
-                    s_isim = st.text_input("📝 İsim:", value=sec_parcalar[1].strip() if len(sec_parcalar) > 1 else "", disabled=True)
-                else:
-                    # Barkod okutulmuşsa verileri otomatik doldur, yoksa boş veya manuel giriş
-                    s_kod = st.text_input("📦 Kod:", value=st.session_state.def_s_kod).upper()
-                    s_isim = st.text_input("📝 İsim:", value=st.session_state.def_s_isim).upper()
+                    # Manuel buton ile de tetikleme (yedek / fallback)
+                    if islem_yap and sup_barcode_input:
+                        st.session_state.last_handled_barcode = sup_barcode_input
+                        handle_supplier_barcode(sup_barcode_input)
 
-                # Barkoddan çekilen miktar otomatik doldurulur
-                s_mik = st.number_input("Miktar:", min_value=0.0, step=0.01, value=st.session_state.def_s_mik)
-                s_dur = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="giris_durum_key")
+                    st.markdown("---")
+                    st.markdown("#### ✍️ Manuel Ürün Ekleme")
+                    st.caption("Barkod okutulduğunda ürün zaten otomatik eklenir. Burası sadece barkodsuz/elle ekleme içindir.")
 
-                # YENİ: EKLE butonu artık manuel ürün seçme alanının hemen
-                # altında - barkod zaten otomatik eklediği için bu buton
-                # sadece manuel akışa ait, konumu da bunu netleştiriyor.
-                c_ekle, c_temizle = st.columns([3, 1])
-                with c_ekle:
-                    ekle_tiklandi = st.button("➕ EKLE (Manuel)", use_container_width=True)
-                with c_temizle:
-                    if st.button("🧹", use_container_width=True, help="Girişleri Temizle"):
-                        st.session_state.clear_sayim_form = True
-                        st.rerun()
+                    # DÜZELTME: Eskiden burada İKİNCİ bir "Tedarikçi Barkodu / Parti
+                    # No" giriş kutusu vardı - yukarıdaki okuma alanıyla aynı işi
+                    # yapıyor, kafa karıştırıyordu. Artık tek barkod alanı var
+                    # (yukarıdaki, otomatik enter yapan). Okutulan/girilen barkod
+                    # değeri session_state'te tutuluyor, burada sadece bilgi
+                    # amaçlı salt-okunur gösteriliyor.
+                    if st.session_state.def_s_barcode:
+                        st.caption(f"🔌 Kayıtlı Barkod / Parti No: **{st.session_state.def_s_barcode}**")
 
-                if ekle_tiklandi:
-                    if not _norm_text(s_kod):
-                        st.error("Ürün kodu boş bırakılamamaktadır.")
+                    katalog = get_dinamik_katalog()
+
+                    # Barkod ile eşleşen kodu katalog içinde bulmaya çalış
+                    default_index = 0
+                    if st.session_state.def_s_kod:
+                        for idx, cat_item in enumerate(katalog):
+                            if cat_item.upper().startswith(st.session_state.def_s_kod.upper() + " |"):
+                                default_index = idx + 1  # "+ MANUEL" seçeneği 0. sırada olduğu için
+                                break
+
+                    sec = st.selectbox("🔍 Ürün / Malzeme Kataloğu:", ["+ MANUEL"] + katalog, index=default_index)
+
+                    if sec != "+ MANUEL":
+                        sec_parcalar = sec.split(" | ", 1)
+                        s_kod = st.text_input("📦 Kod:", value=sec_parcalar[0].strip(), disabled=True)
+                        s_isim = st.text_input("📝 İsim:", value=sec_parcalar[1].strip() if len(sec_parcalar) > 1 else "", disabled=True)
                     else:
-                        yeni_satir = {
-                            "Oturum_Adi": st.session_state.aktif_sayim_adi,
-                            "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
-                            "Adres": _upper_text(s_adr),
-                            "Kod": _upper_text(s_kod),
-                            "İsim": _norm_text(s_isim),
-                            "Miktar": float(s_mik),
-                            "Birim": "-",
-                            "Personel": _norm_text(aktif_kullanici),
-                            "Durum": _norm_text(s_dur),
-                            "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)  # Barkodu da kayda iliştiriyoruz
-                        }
-                        mevcut = st.session_state['gecici_sayim_listesi']
-                        mevcut.append(yeni_satir)
-                        st.session_state['gecici_sayim_listesi'] = mevcut
-                        st.toast("Listeye Eklendi", icon="📥")
+                        # Barkod okutulmuşsa verileri otomatik doldur, yoksa boş veya manuel giriş
+                        s_kod = st.text_input("📦 Kod:", value=st.session_state.def_s_kod).upper()
+                        s_isim = st.text_input("📝 İsim:", value=st.session_state.def_s_isim).upper()
 
-                        # Ekleme yapıldıktan sonra geçici barkod hafızasını sıfırla
-                        st.session_state.clear_sayim_form = True
-                        st.rerun()
+                    # Barkoddan çekilen miktar otomatik doldurulur
+                    s_mik = st.number_input("Miktar:", min_value=0.0, step=0.01, value=st.session_state.def_s_mik)
+                    s_dur = st.selectbox("🛠️ Durum:", ["Kullanılabilir", "Hasarlı", "İncelemede"], key="giris_durum_key")
 
-                if st.session_state['gecici_sayim_listesi']:
-                    st.markdown("### 📋 Geçici Sayım Listesi")
-                    for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
-                        cols = st.columns([3, 1])
-                        # Ekranda okutulan Tedarikçi Barkodu bilgisini de gösterelim
-                        barkod_metni = f" | 🔌 Barkod: {item['Tedarikçi_Barkodu']}" if item.get('Tedarikçi_Barkodu') else ""
-                        cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.3f} | 🛠️ {item['Durum']}{barkod_metni}")
-                        if cols[1].button("🗑️", key=f"d_{idx}"):
-                            st.session_state['gecici_sayim_listesi'].pop(idx)
+                    # YENİ: EKLE butonu artık manuel ürün seçme alanının hemen
+                    # altında - barkod zaten otomatik eklediği için bu buton
+                    # sadece manuel akışa ait, konumu da bunu netleştiriyor.
+                    c_ekle, c_temizle = st.columns([3, 1])
+                    with c_ekle:
+                        ekle_tiklandi = st.button("➕ EKLE (Manuel)", use_container_width=True)
+                    with c_temizle:
+                        if st.button("🧹", use_container_width=True, help="Girişleri Temizle"):
+                            st.session_state.clear_sayim_form = True
                             st.rerun()
 
-                    if st.button("📤 BULUTA KAYDET", use_container_width=True):
-                        yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
-                        if not yeni_veri_df.empty:
-                            # DÜZELTME: Artık "oku + tüm sekmeyi üzerine yaz"
-                            # yerine native EKLEME kullanılıyor - mevcut
-                            # binlerce satıra dokunulmuyor.
-                            basarili = _guvenli_satirlar_ekle("sayim", yeni_veri_df)
-                            if basarili:
-                                _sayim_ortak_verileri_yukle(zorla=True)
-                                st.session_state['gecici_sayim_listesi'] = []
-                                st.success("Tüm veriler başarıyla kaydedildi!")
-                                _refresh_and_rerun()
+                    if ekle_tiklandi:
+                        if not _norm_text(s_kod):
+                            st.error("Ürün kodu boş bırakılamamaktadır.")
+                        else:
+                            yeni_satir = {
+                                "Oturum_Adi": st.session_state.aktif_sayim_adi,
+                                "Tarih": datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+                                "Adres": _upper_text(s_adr),
+                                "Kod": _upper_text(s_kod),
+                                "İsim": _norm_text(s_isim),
+                                "Miktar": float(s_mik),
+                                "Birim": "-",
+                                "Personel": _norm_text(aktif_kullanici),
+                                "Durum": _norm_text(s_dur),
+                                "Tedarikçi_Barkodu": _norm_text(st.session_state.def_s_barcode)  # Barkodu da kayda iliştiriyoruz
+                            }
+                            mevcut = st.session_state['gecici_sayim_listesi']
+                            mevcut.append(yeni_satir)
+                            st.session_state['gecici_sayim_listesi'] = mevcut
+                            st.toast("Listeye Eklendi", icon="📥")
+
+                            # Ekleme yapıldıktan sonra geçici barkod hafızasını sıfırla
+                            st.session_state.clear_sayim_form = True
+                            st.rerun()
+
+                    if st.session_state['gecici_sayim_listesi']:
+                        st.markdown("### 📋 Geçici Sayım Listesi")
+                        for idx, item in enumerate(st.session_state['gecici_sayim_listesi']):
+                            cols = st.columns([3, 1])
+                            # Ekranda okutulan Tedarikçi Barkodu bilgisini de gösterelim
+                            barkod_metni = f" | 🔌 Barkod: {item['Tedarikçi_Barkodu']}" if item.get('Tedarikçi_Barkodu') else ""
+                            cols[0].write(f"📍 {item['Adres']} | 📦 {item['Kod']} | 🔢 {float(item['Miktar']):.3f} | 🛠️ {item['Durum']}{barkod_metni}")
+                            if cols[1].button("🗑️", key=f"d_{idx}"):
+                                st.session_state['gecici_sayim_listesi'].pop(idx)
+                                st.rerun()
+
+                        if st.button("📤 BULUTA KAYDET", use_container_width=True):
+                            yeni_veri_df = _normalize_count_buffer(st.session_state['gecici_sayim_listesi'])
+                            if not yeni_veri_df.empty:
+                                # DÜZELTME: Artık "oku + tüm sekmeyi üzerine yaz"
+                                # yerine native EKLEME kullanılıyor - mevcut
+                                # binlerce satıra dokunulmuyor.
+                                basarili = _guvenli_satirlar_ekle("sayim", yeni_veri_df)
+                                if basarili:
+                                    _sayim_ortak_verileri_yukle(zorla=True)
+                                    st.session_state['gecici_sayim_listesi'] = []
+                                    st.success("Tüm veriler başarıyla kaydedildi!")
+                                    _refresh_and_rerun()
 
     elif st.session_state.sayim_page == 'rapor':
         st.subheader("📊 Fark Raporu")
