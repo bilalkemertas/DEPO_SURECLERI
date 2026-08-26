@@ -1071,7 +1071,7 @@ def goster(conn=None):
 
     # --- SAYIM GİRİŞ EKRANI (MOBILE OPTİMİZE) ---
 elif st.session_state.sayim_page == 'giris':
-    if st.button("⬅️ GERİ"):
+        if st.button("⬅️ GERİ"):
         go_sayim_menu()
         st.rerun()
     
